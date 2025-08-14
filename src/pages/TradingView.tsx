@@ -18,7 +18,7 @@ import {
 import { liveDataService, HarmonicPattern, TrendLine, FibonacciLevel } from '../services/liveDataService';
 
 interface CandlestickData {
-  time: string;
+  time: number;
   open: number;
   high: number;
   low: number;
@@ -196,7 +196,7 @@ const TradingView: React.FC = () => {
       const low = Math.min(open, close) - Math.random() * volatility * 0.5;
       
       data.push({
-        time: time.toISOString().split('T')[0],
+        time: Math.floor(time.getTime() / 1000) as any, // Use timestamp for better chart performance
         open: parseFloat(open.toFixed(getDecimalPlaces(selectedSymbol))),
         high: parseFloat(high.toFixed(getDecimalPlaces(selectedSymbol))),
         low: parseFloat(low.toFixed(getDecimalPlaces(selectedSymbol))),
@@ -298,8 +298,8 @@ const TradingView: React.FC = () => {
         if (chartRef.current) {
           chartRef.current.remove();
           chartRef.current = null;
+          candlestickSeriesRef.current = null;
         }
-        chartInitialized.current = false;
         chartInitialized.current = false;
       };
     } catch (error) {
@@ -324,28 +324,33 @@ const TradingView: React.FC = () => {
           title: `${pattern.type} Pattern`,
         });
 
-        // Create line data for the pattern
-        const lineData = [
-          { time: pattern.points.X.time.toISOString().split('T')[0], value: pattern.points.X.price },
-          { time: pattern.points.A.time.toISOString().split('T')[0], value: pattern.points.A.price },
-          { time: pattern.points.B.time.toISOString().split('T')[0], value: pattern.points.B.price },
-          { time: pattern.points.C.time.toISOString().split('T')[0], value: pattern.points.C.price },
-          { time: pattern.points.D.time.toISOString().split('T')[0], value: pattern.points.D.price },
-        ];
+        try {
+          // Create line data for the pattern
+          const lineData = [
+            { time: Math.floor(pattern.points.X.time.getTime() / 1000) as any, value: pattern.points.X.price },
+            { time: Math.floor(pattern.points.A.time.getTime() / 1000) as any, value: pattern.points.A.price },
+            { time: Math.floor(pattern.points.B.time.getTime() / 1000) as any, value: pattern.points.B.price },
+            { time: Math.floor(pattern.points.C.time.getTime() / 1000) as any, value: pattern.points.C.price },
+            { time: Math.floor(pattern.points.D.time.getTime() / 1000) as any, value: pattern.points.D.price },
+          ];
 
-        patternSeries.setData(lineData);
+          patternSeries.setData(lineData);
 
-        // Draw PRZ (Potential Reversal Zone)
-        const przSeries = chartRef.current!.addLineSeries({
-          color: pattern.direction === 'bullish' ? '#10b98150' : '#ef444450',
-          lineWidth: 8,
-          title: 'PRZ',
-        });
+          // Draw PRZ (Potential Reversal Zone)
+          const przSeries = chartRef.current!.addLineSeries({
+            color: pattern.direction === 'bullish' ? '#10b98150' : '#ef444450',
+            lineWidth: 8,
+            title: 'PRZ',
+          });
 
-        przSeries.setData([
-          { time: pattern.points.D.time.toISOString().split('T')[0], value: pattern.prz.min },
-          { time: pattern.points.D.time.toISOString().split('T')[0], value: pattern.prz.max },
-        ]);
+          const przTime = Math.floor(pattern.points.D.time.getTime() / 1000) as any;
+          przSeries.setData([
+            { time: przTime, value: pattern.prz.min },
+            { time: przTime, value: pattern.prz.max },
+          ]);
+        } catch (error) {
+          console.warn('Failed to draw harmonic pattern:', error);
+        }
       }
     });
   }, [harmonicPatterns, showHarmonics]);
@@ -363,12 +368,16 @@ const TradingView: React.FC = () => {
           title: `${trendLine.type} Line`,
         });
 
-        const lineData = trendLine.points.map(point => ({
-          time: point.time.toISOString().split('T')[0],
-          value: point.price,
-        }));
+        try {
+          const lineData = trendLine.points.map(point => ({
+            time: Math.floor(point.time.getTime() / 1000) as any,
+            value: point.price,
+          }));
 
-        trendSeries.setData(lineData);
+          trendSeries.setData(lineData);
+        } catch (error) {
+          console.warn('Failed to draw trendline:', error);
+        }
       }
     });
   }, [trendLines, showTrendLines]);
@@ -386,11 +395,18 @@ const TradingView: React.FC = () => {
         title: `Fib ${(level.level * 100).toFixed(1)}%`,
       });
 
-      const now = new Date();
-      fibSeries.setData([
-        { time: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0], value: level.price },
-        { time: now.toISOString().split('T')[0], value: level.price },
-      ]);
+      try {
+        const now = new Date();
+        const startTime = Math.floor((now.getTime() - 24 * 60 * 60 * 1000) / 1000) as any;
+        const endTime = Math.floor(now.getTime() / 1000) as any;
+        
+        fibSeries.setData([
+          { time: startTime, value: level.price },
+          { time: endTime, value: level.price },
+        ]);
+      } catch (error) {
+        console.warn('Failed to draw fibonacci level:', error);
+      }
     });
   }, [fibonacciLevels, showFibonacci]);
 
@@ -405,14 +421,18 @@ const TradingView: React.FC = () => {
         const newPrice = currentPrice + change;
         
         const newCandle = {
-          time: new Date().toISOString().split('T')[0],
+          time: Math.floor(Date.now() / 1000) as any,
           open: currentPrice,
           high: Math.max(currentPrice, newPrice) + Math.random() * volatility * 0.3,
           low: Math.min(currentPrice, newPrice) - Math.random() * volatility * 0.3,
           close: newPrice,
         };
 
-        candlestickSeriesRef.current.update(newCandle);
+        try {
+          candlestickSeriesRef.current.update(newCandle);
+        } catch (error) {
+          console.warn('Chart update failed:', error);
+        }
         setCurrentPrice(newPrice);
       }
     }, 3000);
