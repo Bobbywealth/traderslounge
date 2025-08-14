@@ -544,16 +544,36 @@ class LiveDataService {
     return data;
   }
 
-  // MOCK DATA FOR DEMO
+  // ENHANCED MOCK DATA WITH REALISTIC MARKET BEHAVIOR
   private startMockDataStream() {
     const symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD'];
     
+    // Store price history for realistic movements
+    const priceHistory: Map<string, number[]> = new Map();
+    symbols.forEach(symbol => {
+      priceHistory.set(symbol, [this.getBasePrice(symbol)]);
+    });
+    
     symbols.forEach(symbol => {
       setInterval(() => {
-        const basePrice = this.getBasePrice(symbol);
+        const history = priceHistory.get(symbol) || [];
+        const lastPrice = history[history.length - 1] || this.getBasePrice(symbol);
         const volatility = this.getVolatility(symbol);
         const spread = this.getTypicalSpread(symbol);
-        const price = basePrice + (Math.random() - 0.5) * volatility;
+        
+        // More realistic price movement with trend bias
+        const trendBias = this.calculateTrendBias(history);
+        const randomWalk = (Math.random() - 0.5) * volatility * 0.3;
+        const trendComponent = trendBias * volatility * 0.1;
+        const price = lastPrice + randomWalk + trendComponent;
+        
+        // Update price history (keep last 100 prices)
+        history.push(price);
+        if (history.length > 100) history.shift();
+        priceHistory.set(symbol, history);
+        
+        const change = price - lastPrice;
+        const changePercent = (change / lastPrice) * 100;
         
         const mockPrice: LivePrice = {
           symbol,
@@ -561,16 +581,40 @@ class LiveDataService {
           ask: price + (spread / 2),
           spread,
           timestamp: new Date(),
-          change: (Math.random() - 0.5) * volatility * 0.1,
-          changePercent: (Math.random() - 0.5) * 0.5,
-          high24h: price * 1.008,
-          low24h: price * 0.992,
+          change,
+          changePercent,
+          high24h: Math.max(...history.slice(-24)) || price * 1.008,
+          low24h: Math.min(...history.slice(-24)) || price * 0.992,
           volume24h: Math.floor(Math.random() * 2000000) + 1000000,
         };
         
         this.notifySubscribers('price', mockPrice);
-      }, 2000 + Math.random() * 1000); // Stagger updates
+        
+        // Trigger signal generation on significant moves
+        if (Math.abs(changePercent) > 0.1) {
+          this.checkForNewSignals(symbol, price);
+        }
+      }, 1500 + Math.random() * 1000); // More frequent updates
     });
+  }
+
+  private calculateTrendBias(history: number[]): number {
+    if (history.length < 10) return 0;
+    
+    const recent = history.slice(-10);
+    const older = history.slice(-20, -10);
+    
+    if (older.length === 0) return 0;
+    
+    const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+    const olderAvg = older.reduce((a, b) => a + b, 0) / older.length;
+    
+    return recentAvg > olderAvg ? 0.3 : -0.3; // Trend continuation bias
+  }
+
+  private checkForNewSignals(symbol: string, price: number) {
+    // Emit signal generation events
+    this.notifySubscribers('new_signal_opportunity', { symbol, price, timestamp: new Date() });
   }
 
   private getVolatility(symbol: string): number {

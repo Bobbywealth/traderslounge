@@ -40,6 +40,8 @@ const Signals: React.FC = () => {
 
   // Add loading state
   const [isLoading, setIsLoading] = useState(true);
+  const [notifications, setNotifications] = useState<string[]>([]);
+  const [soundEnabled, setSoundEnabled] = useState(true);
 
   // LIVE DATA INITIALIZATION
   useEffect(() => {
@@ -51,16 +53,34 @@ const Signals: React.FC = () => {
       setIsConnected(true);
     };
 
+    // Subscribe to new signal opportunities
+    const handleNewSignalOpportunity = (data: any) => {
+      console.log(`🎯 New signal opportunity detected for ${data.symbol} at ${data.price}`);
+      // Regenerate signals when market moves significantly
+      setTimeout(() => loadLiveSignals(), 1000);
+    };
+
     liveDataService.subscribe('price', handlePriceUpdate);
+    liveDataService.subscribe('new_signal_opportunity', handleNewSignalOpportunity);
     
     // Load initial signals
     loadLiveSignals();
 
+    // Auto-refresh signals every 30 seconds
+    const refreshInterval = setInterval(() => {
+      if (isConnected) {
+        console.log('🔄 Auto-refreshing signals...');
+        loadLiveSignals();
+      }
+    }, 30000);
+
     return () => {
       liveDataService.unsubscribe('price', handlePriceUpdate);
+      liveDataService.unsubscribe('new_signal_opportunity', handleNewSignalOpportunity);
+      clearInterval(refreshInterval);
       liveDataService.disconnect();
     };
-  }, []);
+  }, [isConnected]);
 
   // GENERATE REAL LIVE SIGNALS
   const loadLiveSignals = async () => {
@@ -384,6 +404,33 @@ const Signals: React.FC = () => {
     return () => clearInterval(interval);
   }, [isLive, livePrices]);
 
+  // NOTIFICATION SYSTEM
+  const addNotification = (message: string) => {
+    setNotifications(prev => [message, ...prev.slice(0, 4)]); // Keep last 5 notifications
+    
+    // Play sound alert
+    if (soundEnabled) {
+      try {
+        const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT');
+        audio.volume = 0.3;
+        audio.play().catch(() => {}); // Ignore errors if audio fails
+      } catch (error) {
+        // Ignore audio errors
+      }
+    }
+  };
+
+  // Monitor for signal status changes
+  useEffect(() => {
+    signals.forEach(signal => {
+      if (signal.status === 'hit_tp') {
+        addNotification(`🎯 ${signal.symbol} ${signal.direction.toUpperCase()} signal hit Take Profit! +${Math.abs(signal.pips || 0)} pips`);
+      } else if (signal.status === 'hit_sl') {
+        addNotification(`⚠️ ${signal.symbol} ${signal.direction.toUpperCase()} signal hit Stop Loss. -${Math.abs(signal.pips || 0)} pips`);
+      }
+    });
+  }, [signals]);
+
   // FILTER SIGNALS
   useEffect(() => {
     let filtered = signals;
@@ -489,19 +536,52 @@ const Signals: React.FC = () => {
             {isLive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
             <span>{isLive ? 'LIVE' : 'PAUSED'}</span>
           </button>
-          <div className="flex items-center space-x-2">
-            {isConnected ? (
-              <Wifi className="w-5 h-5 text-emerald-500" />
-            ) : (
-              <WifiOff className="w-5 h-5 text-red-500" />
-            )}
-            <div className={`w-3 h-3 rounded-full ${isConnected && isLive ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`}></div>
-            <span className="text-sm text-gray-600 dark:text-gray-400">
-              {isConnected ? 'LIVE DATA' : 'CONNECTING...'}
-            </span>
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+              {isConnected ? (
+                <Wifi className="w-5 h-5 text-emerald-500" />
+              ) : (
+                <WifiOff className="w-5 h-5 text-red-500" />
+              )}
+              <div className={`w-3 h-3 rounded-full ${isConnected && isLive ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`}></div>
+              <span className="text-sm text-gray-600 dark:text-gray-400">
+                {isConnected ? 'LIVE DATA' : 'CONNECTING...'}
+              </span>
+            </div>
+            
+            {/* Sound Toggle */}
+            <button
+              onClick={() => setSoundEnabled(!soundEnabled)}
+              className={`p-2 rounded-lg transition-colors ${
+                soundEnabled ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900 dark:text-emerald-400' : 'bg-gray-100 text-gray-400 dark:bg-gray-700'
+              }`}
+              title={soundEnabled ? 'Sound alerts enabled' : 'Sound alerts disabled'}
+            >
+              🔊
+            </button>
           </div>
         </div>
       </div>
+
+      {/* Notifications */}
+      {notifications.length > 0 && (
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-6">
+          <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3 flex items-center">
+            <AlertTriangle className="w-4 h-4 mr-2 text-yellow-500" />
+            Live Notifications
+          </h3>
+          <div className="space-y-2">
+            {notifications.slice(0, 3).map((notification, index) => (
+              <div
+                key={index}
+                className="text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 rounded px-3 py-2 border-l-4 border-emerald-500"
+              >
+                {notification}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Live Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
