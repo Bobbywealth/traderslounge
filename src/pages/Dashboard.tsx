@@ -1,5 +1,5 @@
 import React from 'react';
-import { TrendingUp, TrendingDown, DollarSign, Target, Sparkles } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Target, Sparkles, LucideIcon } from 'lucide-react';
 import MetricCard from '../components/MetricCard';
 import PerformanceChart from '../components/PerformanceChart';
 import TradingChart from '../components/TradingChart';
@@ -7,6 +7,14 @@ import RecentTrades from '../components/RecentTrades';
 import QuickActions from '../components/QuickActions';
 import { useBroker } from '../contexts/BrokerContext';
 import { useAuth } from '../contexts/AuthContext';
+
+interface MetricData {
+  title: string;
+  value: string;
+  change: string;
+  trend: 'up' | 'down';
+  icon: LucideIcon;
+}
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
@@ -27,33 +35,33 @@ const Dashboard: React.FC = () => {
     })
     .reduce((sum, trade) => sum + trade.profit, 0);
 
-  const metrics = [
+  const metrics: MetricData[] = [
     {
       title: 'Total P&L',
-      value: totalPnL > 0 ? `$${totalPnL.toFixed(2)}` : '$12,847.50',
-      change: totalPnL > 0 ? `${totalPnL > 0 ? '+' : ''}${((totalPnL / 10000) * 100).toFixed(1)}%` : '+8.2%',
-      trend: (totalPnL >= 0 ? 'up' : 'down') as const,
+      value: accounts.length > 0 && totalPnL !== 0 ? `$${totalPnL.toFixed(2)}` : '$0.00',
+      change: accounts.length > 0 && totalPnL !== 0 ? `${totalPnL > 0 ? '+' : ''}${((totalPnL / Math.abs(totalPnL)) * 100).toFixed(1)}%` : '0.0%',
+      trend: (totalPnL >= 0 ? 'up' : 'down') as 'up' | 'down',
       icon: DollarSign,
     },
     {
       title: 'Win Rate',
       value: `${winRate.toFixed(1)}%`,
-      change: '+2.1%',
+      change: closedTrades.length > 0 ? '+0.0%' : '0.0%',
       trend: 'up' as const,
       icon: Target,
     },
     {
       title: 'Active Positions',
-      value: openTrades.toString() || '8',
-      change: openTrades > 0 ? `+${openTrades}` : '-2',
-      trend: (openTrades > 0 ? 'up' : 'down') as const,
+      value: openTrades.toString(),
+      change: openTrades > 0 ? `+${openTrades}` : '0',
+      trend: (openTrades > 0 ? 'up' : 'down') as 'up' | 'down',
       icon: TrendingUp,
     },
     {
       title: 'Daily P&L',
-      value: dailyPnL !== 0 ? `$${dailyPnL.toFixed(2)}` : '$425.30',
-      change: dailyPnL !== 0 ? `${dailyPnL > 0 ? '+' : ''}${((dailyPnL / 1000) * 100).toFixed(1)}%` : '+12.5%',
-      trend: (dailyPnL >= 0 ? 'up' : 'down') as const,
+      value: accounts.length > 0 && dailyPnL !== 0 ? `$${dailyPnL.toFixed(2)}` : '$0.00',
+      change: accounts.length > 0 && dailyPnL !== 0 ? `${dailyPnL > 0 ? '+' : ''}${((dailyPnL / Math.abs(dailyPnL)) * 100).toFixed(1)}%` : '0.0%',
+      trend: (dailyPnL >= 0 ? 'up' : 'down') as 'up' | 'down',
       icon: TrendingDown,
     },
   ];

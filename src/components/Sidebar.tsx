@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   TrendingUp,
@@ -30,6 +30,12 @@ const navigation = [
 
 const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
   const location = useLocation();
+  const navigate = useNavigate();
+
+  const handleUpgrade = () => {
+    // Navigate to admin dashboard for upgrade
+    navigate('/admin');
+  };
 
   return (
     <div className={`fixed left-0 top-0 h-full glass-dark border-r border-gray-700/50 transition-all duration-300 z-40 backdrop-blur-xl ${
@@ -104,7 +110,10 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
               <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wide">Upgrade Available</span>
             </div>
             <p className="text-xs text-gray-400 mb-3">Unlock advanced features and priority support</p>
-            <button className="w-full py-2 px-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-sm font-semibold rounded-lg hover:shadow-lg hover:shadow-emerald-500/25 transition-all duration-200">
+            <button 
+              onClick={handleUpgrade}
+              className="w-full py-2 px-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-sm font-semibold rounded-lg hover:shadow-lg hover:shadow-emerald-500/25 transition-all duration-200"
+            >
               Upgrade Now
             </button>
           </div>
