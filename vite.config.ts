@@ -32,6 +32,9 @@ export default defineConfig({
     port: 5173,
     host: true
   },
+  preview: {
+    allowedHosts: ['traderslounge.onrender.com']
+  },
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
