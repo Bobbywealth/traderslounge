@@ -55,6 +55,7 @@ interface TradeLockerHistoryCandle {
   high?: number | string;
   low?: number | string;
   close?: number | string;
+  [key: string]: unknown;
 }
 
 type ChartType = 'candlestick' | 'line' | 'area';
@@ -166,12 +167,15 @@ const TradingView: React.FC = () => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
-  const normalizeHistoryCandle = (candle: TradeLockerHistoryCandle): CandlestickData | null => {
-    const timeRaw = candle.t ?? candle.time ?? candle.timestamp;
-    const openRaw = candle.o ?? candle.open;
-    const highRaw = candle.h ?? candle.high;
-    const lowRaw = candle.l ?? candle.low;
-    const closeRaw = candle.c ?? candle.close;
+  const normalizeHistoryCandle = (candle: TradeLockerHistoryCandle | (number | string)[]): CandlestickData | null => {
+    const isTuple = Array.isArray(candle);
+    const tuple = isTuple ? candle : null;
+
+    const timeRaw = tuple?.[0] ?? (candle as TradeLockerHistoryCandle).t ?? (candle as TradeLockerHistoryCandle).time ?? (candle as TradeLockerHistoryCandle).timestamp;
+    const openRaw = tuple?.[1] ?? (candle as TradeLockerHistoryCandle).o ?? (candle as TradeLockerHistoryCandle).open;
+    const highRaw = tuple?.[2] ?? (candle as TradeLockerHistoryCandle).h ?? (candle as TradeLockerHistoryCandle).high;
+    const lowRaw = tuple?.[3] ?? (candle as TradeLockerHistoryCandle).l ?? (candle as TradeLockerHistoryCandle).low;
+    const closeRaw = tuple?.[4] ?? (candle as TradeLockerHistoryCandle).c ?? (candle as TradeLockerHistoryCandle).close;
 
     if (timeRaw == null || openRaw == null || highRaw == null || lowRaw == null || closeRaw == null) {
       return null;
@@ -210,7 +214,9 @@ const TradingView: React.FC = () => {
       throw new Error(`Failed to fetch history: ${response.status}`);
     }
     const payload = await response.json();
-    const rawCandles: TradeLockerHistoryCandle[] = Array.isArray(payload) ? payload : (payload?.d || payload?.candles || []);
+    const rawCandles: Array<TradeLockerHistoryCandle | (number | string)[]> = Array.isArray(payload)
+      ? payload
+      : (payload?.d || payload?.candles || payload?.history || []);
     return rawCandles
       .map(normalizeHistoryCandle)
       .filter((candle): candle is CandlestickData => candle !== null)
@@ -349,18 +355,23 @@ const TradingView: React.FC = () => {
   }, [selectedSymbol, timeframe]);
 
   // Symbol search functionality
+  const updateSymbolSuggestions = useCallback((term: string) => {
+    const normalizedTerm = term.trim().toLowerCase();
+    const filtered = availableSymbols
+      .filter((symbol) =>
+        normalizedTerm.length === 0 ||
+        symbol.symbol.toLowerCase().includes(normalizedTerm) ||
+        symbol.name.toLowerCase().includes(normalizedTerm)
+      )
+      .slice(0, 20);
+
+    setSymbolSuggestions(filtered);
+    setShowSuggestions(filtered.length > 0);
+  }, [availableSymbols]);
+
   const handleSymbolSearch = (term: string) => {
     setSearchTerm(term);
-    if (term.length > 0) {
-      const filtered = symbolDatabase.filter(symbol =>
-        symbol.symbol.toLowerCase().includes(term.toLowerCase()) ||
-        symbol.name.toLowerCase().includes(term.toLowerCase())
-      ).slice(0, 10);
-      setSymbolSuggestions(filtered);
-      setShowSuggestions(true);
-    } else {
-      setShowSuggestions(false);
-    }
+    updateSymbolSuggestions(term);
   };
 
   const selectSymbol = (symbol: SymbolInfo) => {
@@ -436,6 +447,12 @@ const TradingView: React.FC = () => {
       const payload = await response.json();
       const instruments = parseTradeLockerInstruments(payload);
       setAvailableSymbols(instruments);
+
+      if (!searchTerm && selectedSymbol) {
+        setSearchTerm(selectedSymbol);
+      }
+
+      updateSymbolSuggestions(searchTerm || selectedSymbol);
 
       const selectedExists = instruments.some((item) => item.symbol === selectedSymbol);
       if (!selectedExists && instruments.length > 0) {
@@ -691,7 +708,7 @@ const TradingView: React.FC = () => {
 
   useEffect(() => {
     loadCandlesForSymbol(selectedSymbol, timeframe);
-  }, [loadCandlesForSymbol, selectedSymbol, timeframe]);
+  }, [loadCandlesForSymbol, searchTerm, selectedSymbol, timeframe, updateSymbolSuggestions]);
 
   const getSymbolInfo = (symbol: string): SymbolInfo | undefined => {
     return symbolDatabase.find(s => s.symbol === symbol);
@@ -723,7 +740,7 @@ const TradingView: React.FC = () => {
                   type="text"
                   value={searchTerm}
                   onChange={(e) => handleSymbolSearch(e.target.value)}
-                  onFocus={() => setShowSuggestions(true)}
+                  onFocus={() => updateSymbolSuggestions(searchTerm)}
                   placeholder="Search symbols..."
                   className="bg-transparent text-white placeholder-gray-400 outline-none w-48"
                 />
