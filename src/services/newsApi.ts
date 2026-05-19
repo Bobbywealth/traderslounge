@@ -73,11 +73,12 @@ const API_CONFIG = {
 };
 
 // Check if API keys are configured
-const isApiConfigured = () => {
-    apiKey: localStorage.getItem('api_fcsapi') || 'oBvRl6ovyvldsUPhXdoC8ug7',
-         API_CONFIG.FINNHUB.apiKey !== 'demo' ||
-         API_CONFIG.NEWS_API.apiKey !== 'demo';
-};
+const isApiConfigured = () =>
+  API_CONFIG.ALPHA_VANTAGE.apiKey !== 'demo' ||
+  API_CONFIG.FINNHUB.apiKey !== 'demo' ||
+  API_CONFIG.NEWS_API.apiKey !== 'demo' ||
+  API_CONFIG.POLYGON.apiKey !== 'demo' ||
+  API_CONFIG.TRADING_ECONOMICS.apiKey !== 'demo';
 
 // Alpha Vantage News API
 export const fetchAlphaVantageNews = async (): Promise<NewsItem[]> => {
@@ -199,13 +200,13 @@ export const fetchNewsAPI = async (): Promise<NewsItem[]> => {
 
 // Trading Economics Calendar API
 export const fetchTradingEconomicsCalendar = async (): Promise<EconomicEvent[]> => {
-  if (API_CONFIG.FCSAPI.apiKey === 'demo' || !API_CONFIG.FCSAPI.apiKey) {
+  if (API_CONFIG.TRADING_ECONOMICS.apiKey === 'demo' || !API_CONFIG.TRADING_ECONOMICS.apiKey) {
     console.warn('Trading Economics API key not configured. Using mock data.');
     return getMockEconomicEvents();
   }
 
   try {
-    console.log('🚀 FETCHING REAL ECONOMIC CALENDAR FROM FCS API...');
+    console.log('🚀 FETCHING REAL ECONOMIC CALENDAR FROM TRADING ECONOMICS API...');
     const today = format(new Date(), 'yyyy-MM-dd');
     const nextMonth = format(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd');
     
@@ -280,19 +281,13 @@ export const fetchEconomicEvents = async (): Promise<EconomicEvent[]> => {
   try {
     console.log('📊 LOADING ECONOMIC CALENDAR FROM MULTIPLE SOURCES...');
     
-    const [tradingEconomics, alphaVantage, fcsApi, polygonData] = await Promise.allSettled([
+    const [tradingEconomics] = await Promise.allSettled([
       fetchTradingEconomicsCalendar(),
-      fetchAlphaVantageEconomicCalendar(),
-      fetchFCSEconomicCalendar(),
-      fetchPolygonEconomicData(),
     ]);
-    
+
     const allEvents: EconomicEvent[] = [];
-    
+
     if (tradingEconomics.status === 'fulfilled') allEvents.push(...tradingEconomics.value);
-    if (alphaVantage.status === 'fulfilled') allEvents.push(...alphaVantage.value);
-    if (fcsApi.status === 'fulfilled') allEvents.push(...fcsApi.value);
-    if (polygonData.status === 'fulfilled') allEvents.push(...polygonData.value);
     
     // Remove duplicates and sort by date
     const uniqueEvents = allEvents
@@ -313,6 +308,9 @@ export const fetchEconomicEvents = async (): Promise<EconomicEvent[]> => {
 export const fetchNews = async (): Promise<NewsItem[]> => {
   try {
     // Try multiple news sources and combine results
+    if (!isApiConfigured()) {
+      console.info('ℹ️ No live API keys configured. Using fallback mock data where needed.');
+    }
     const [alphaNews, finnhubNews, newsApiNews] = await Promise.allSettled([
       fetchAlphaVantageNews(),
       fetchFinnhubNews(),
@@ -483,7 +481,6 @@ const getMockEconomicEvents = (): EconomicEvent[] => {
       });
     }
     
-    console.log(`✅ FCS API: Loaded ${data.response?.length || 0} economic events`);
   }
 
   return events.sort((a, b) => a.date.getTime() - b.date.getTime());
