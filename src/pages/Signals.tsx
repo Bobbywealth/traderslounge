@@ -68,7 +68,12 @@ const Signals: React.FC = () => {
     setIsRefreshing(true);
     setError(null);
     try {
-      const refreshResponse = await signalsApi.refreshSignals(['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD']);
+      const refreshResponse = await signalsApi.refreshSignals([
+        'XAUUSD', 'GBPUSD', 'EURUSD', 'USDJPY', 'GBPJPY',
+        'NAS100', 'US30',
+        'BTCUSD', 'ETHUSD', 'XRPUSD', 'LTCUSD',
+        'DOTUSD', 'XLMUSD', 'BATUSD', 'NEOUSD',
+      ]);
       if (refreshResponse.nextAllowedRefreshAt) {
         setNextAllowedRefreshAt(new Date(refreshResponse.nextAllowedRefreshAt));
       }
@@ -473,14 +478,81 @@ const Signals: React.FC = () => {
               {signal.trade_setup && (
                 <div className="p-6 border-b border-gray-200 dark:border-gray-700">
                   <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-2">Trade Setup</h4>
-                  <div className="flex items-center space-x-4 text-sm">
+                  <div className="flex items-center flex-wrap gap-2 text-sm">
                     <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded">
                       {signal.trade_setup.type}
                     </span>
                     <span className="text-gray-500">{signal.trade_setup.timeframe}</span>
                     <span className="text-gray-500">→</span>
                     <span className="text-gray-700 dark:text-gray-300">{signal.trade_setup.best_entry}</span>
+                    {signal.pattern && (
+                      <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded">
+                        {signal.pattern}
+                      </span>
+                    )}
+                    {signal.session && (
+                      <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded capitalize">
+                        {signal.session}
+                      </span>
+                    )}
+                    {signal.risk_level && (
+                      <span className={`px-2 py-1 rounded capitalize ${
+                        signal.risk_level === 'low' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' :
+                        signal.risk_level === 'medium' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300' :
+                        'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                      }`}>
+                        risk: {signal.risk_level}
+                      </span>
+                    )}
+                    {signal.adr_percent_used != null && (
+                      <span className={`px-2 py-1 rounded ${signal.adr_percent_used >= 80 ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}>
+                        ADR {signal.adr_percent_used.toFixed(0)}%
+                      </span>
+                    )}
                   </div>
+
+                  {/* TP ladder */}
+                  {(signal.tp1 || signal.tp2 || signal.tp3) && (
+                    <div className="grid grid-cols-3 gap-2 mt-4">
+                      {[
+                        { label: 'TP1', value: signal.tp1 },
+                        { label: 'TP2', value: signal.tp2 },
+                        { label: 'TP3', value: signal.tp3 },
+                      ].map(({ label, value }) => (
+                        <div key={label} className="text-center p-2 bg-emerald-50 dark:bg-emerald-900/10 rounded-lg border border-emerald-100 dark:border-emerald-900/40">
+                          <p className="text-xs text-gray-500">{label}</p>
+                          <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">{formatSignalPrice(value, signal.symbol)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Score breakdown */}
+                  {signal.score_breakdown && (
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs text-gray-500">Score breakdown</p>
+                        {signal.alert_level && (
+                          <span className={`text-xs px-2 py-0.5 rounded capitalize font-medium ${
+                            signal.alert_level === 'strong' ? 'bg-emerald-600 text-white' :
+                            signal.alert_level === 'good' ? 'bg-emerald-400 text-white' :
+                            signal.alert_level === 'watchlist' ? 'bg-yellow-400 text-yellow-900' :
+                            'bg-gray-300 text-gray-800'
+                          }`}>
+                            {signal.alert_level.replace('_', ' ')}
+                          </span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                        {Object.entries(signal.score_breakdown).map(([key, value]) => (
+                          <div key={key} className="flex justify-between">
+                            <span className="text-gray-600 dark:text-gray-400 capitalize">{key.replace(/_/g, ' ')}</span>
+                            <span className={`font-medium ${value > 0 ? 'text-emerald-600' : 'text-gray-400'}`}>+{value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

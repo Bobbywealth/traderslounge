@@ -77,96 +77,7 @@ async function initializeTable() {
 }
 initializeTable();
 
-// Import perplexity service
-import { analyzeWithPerplexity, fetchPerplexityPrice } from './perplexity.js';
-import axios from 'axios';
-
-// Fallback baseline prices used only when live market data cannot be fetched.
-const BASELINE_PRICES = {
-  EURUSD: 1.08,
-  GBPUSD: 1.27,
-  USDJPY: 155.0,
-  XAUUSD: 2350.0,
-  AUDUSD: 0.66,
-  USDCAD: 1.36,
-};
-
-// Map our internal symbols to Yahoo Finance tickers (no API key required).
-const YAHOO_SYMBOL_MAP = {
-  EURUSD: 'EURUSD=X',
-  GBPUSD: 'GBPUSD=X',
-  USDJPY: 'JPY=X',
-  XAUUSD: 'XAUUSD=X',
-  AUDUSD: 'AUDUSD=X',
-  USDCAD: 'CAD=X',
-  NZDUSD: 'NZDUSD=X',
-  USDCHF: 'CHF=X',
-  XAGUSD: 'XAGUSD=X',
-  BTCUSD: 'BTC-USD',
-  ETHUSD: 'ETH-USD',
-};
-
-async function fetchYahooQuote(symbol) {
-  const yahooSymbol = YAHOO_SYMBOL_MAP[symbol] || `${symbol}=X`;
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1d&range=2d`;
-
-  const response = await axios.get(url, {
-    timeout: 10000,
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TradersLoungeBot/1.0)' },
-  });
-
-  const result = response.data?.chart?.result?.[0];
-  if (!result) throw new Error('Empty Yahoo response');
-
-  const meta = result.meta || {};
-  const currentPrice = Number(meta.regularMarketPrice);
-  if (!Number.isFinite(currentPrice) || currentPrice <= 0) {
-    throw new Error('No regularMarketPrice in Yahoo response');
-  }
-
-  const high24h = Number(meta.regularMarketDayHigh) || currentPrice * 1.005;
-  const low24h = Number(meta.regularMarketDayLow) || currentPrice * 0.995;
-  const previousClose = Number(meta.chartPreviousClose) || Number(meta.previousClose) || currentPrice;
-  const changePercent = previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
-
-  return {
-    currentPrice,
-    high24h,
-    low24h,
-    changePercent: Number(changePercent.toFixed(3)),
-  };
-}
-
-// Ordered list of live-price providers. Each must return
-// { currentPrice, high24h, low24h, changePercent } or throw.
-// Add another LLM-backed provider here if needed (e.g. OpenAI, Anthropic).
-const PRICE_PROVIDERS = [
-  { name: 'yahoo', fetch: fetchYahooQuote },
-  { name: 'perplexity', fetch: fetchPerplexityPrice },
-];
-
-async function getMarketData(symbol) {
-  for (const provider of PRICE_PROVIDERS) {
-    try {
-      const data = await provider.fetch(symbol);
-      if (data && Number.isFinite(data.currentPrice) && data.currentPrice > 0) {
-        console.log(`Market data for ${symbol} via ${provider.name}: ${data.currentPrice}`);
-        return data;
-      }
-    } catch (error) {
-      console.warn(`Price provider ${provider.name} failed for ${symbol}: ${error.message}`);
-    }
-  }
-
-  console.warn(`All live price providers failed for ${symbol}, using baseline fallback`);
-  const currentPrice = BASELINE_PRICES[symbol] ?? 1.0;
-  return {
-    currentPrice,
-    high24h: currentPrice * 1.008,
-    low24h: currentPrice * 0.992,
-    changePercent: 0,
-  };
-}
+import { runStrategy } from '../services/strategy.js';
 
 // Get all signals
 router.get('/', async (req, res) => {
@@ -246,15 +157,13 @@ router.post('/refresh', async (req, res) => {
   refreshState.startedAt = new Date();
 
   try {
-    const { symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'AUDUSD', 'USDCAD'] } = req.body;
-    
-    if (!process.env.PERPLEXITY_API_KEY) {
-      return res.status(500).json({
-        success: false,
-        error: 'PERPLEXITY_API_KEY not configured'
-      });
-    }
-
+    const DEFAULT_SYMBOLS = [
+      'XAUUSD', 'GBPUSD', 'EURUSD', 'USDJPY', 'GBPJPY',
+      'NAS100', 'US30',
+      'BTCUSD', 'ETHUSD', 'XRPUSD', 'LTCUSD',
+      'DOTUSD', 'XLMUSD', 'BATUSD', 'NEOUSD',
+    ];
+    const { symbols = DEFAULT_SYMBOLS } = req.body;
 
     const results = [];
     
@@ -267,12 +176,26 @@ router.post('/refresh', async (req, res) => {
       
       const batchPromises = batch.map(async (symbol) => {
         try {
-          const marketData = await getMarketData(symbol);
-          const analysis = await analyzeWithPerplexity(symbol, marketData);
-          
-          // Store in database
+          const analysis = await runStrategy(symbol);
+
+          if (analysis.no_trade) {
+            return { symbol, success: true, no_trade: true, reason: analysis.reason || 'No qualifying setup' };
+          }
+
           const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000); // 4 hours
-          
+          const tradeSetup = {
+            ...analysis.trade_setup,
+            score_breakdown: analysis.score_breakdown,
+            alert_level: analysis.alert_level,
+            risk_level: analysis.risk_level,
+            session: analysis.session,
+            pattern: analysis.trade_setup?.pattern || null,
+            tp1: analysis.tp1,
+            tp2: analysis.tp2,
+            tp3: analysis.tp3,
+            adr: analysis.adr,
+          };
+
           const result = await pool.query(`
             INSERT INTO signal_analyses (
               symbol, analysis_type, direction, entry_price, stop_loss, take_profit,
@@ -280,7 +203,7 @@ router.post('/refresh', async (req, res) => {
               reasoning, market_summary, support_levels, resistance_levels,
               key_levels, timeframes, trade_setup, risk_factors, expires_at
             ) VALUES (
-              $1, 'perplexity_analysis', $2, $3, $4, $5,
+              $1, 'strategy_v1', $2, $3, $4, $5,
               $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
             )
             ON CONFLICT (symbol, analysis_type) DO UPDATE SET
@@ -317,15 +240,15 @@ router.post('/refresh', async (req, res) => {
             analysis.sentiment,
             analysis.reasoning,
             analysis.market_summary,
-            JSON.stringify(analysis.support_levels),
-            JSON.stringify(analysis.resistance_levels),
-            JSON.stringify({ key_level_1: analysis.key_level_1, key_level_2: analysis.key_level_2 }),
-            JSON.stringify(analysis.timeframes),
-            JSON.stringify(analysis.trade_setup),
-            JSON.stringify(analysis.risk_factors),
+            JSON.stringify(analysis.support_levels || []),
+            JSON.stringify(analysis.resistance_levels || []),
+            JSON.stringify(analysis.key_levels || {}),
+            JSON.stringify(analysis.timeframes || {}),
+            JSON.stringify(tradeSetup),
+            JSON.stringify(analysis.risk_factors || []),
             expiresAt
           ]);
-          
+
           return { symbol, success: true, signal: result.rows[0] };
         } catch (error) {
           console.error(`Failed to analyze ${symbol}:`, error);

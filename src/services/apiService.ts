@@ -48,11 +48,35 @@ export interface SignalAnalysis {
     timeframe: string;
     best_entry: string;
     explanation: string;
+    pattern?: string | null;
+    tp1?: number | null;
+    tp2?: number | null;
+    tp3?: number | null;
+    score_breakdown?: Record<string, number>;
+    alert_level?: 'strong' | 'good' | 'watchlist' | 'no_trade';
+    risk_level?: 'low' | 'medium' | 'high';
+    session?: string;
+    adr?: {
+      adr?: number;
+      percentUsed?: number;
+      nearAdrHigh?: boolean;
+      nearAdrLow?: boolean;
+      exhausted?: boolean;
+    } | null;
   };
   risk_factors: string[];
   expires_at: string;
   created_at: string;
   updated_at: string;
+  tp1?: number | null;
+  tp2?: number | null;
+  tp3?: number | null;
+  score_breakdown?: Record<string, number>;
+  alert_level?: 'strong' | 'good' | 'watchlist' | 'no_trade';
+  risk_level?: 'low' | 'medium' | 'high';
+  session?: string;
+  pattern?: string | null;
+  adr_percent_used?: number | null;
 }
 
 export interface RefreshResult {
@@ -157,9 +181,16 @@ export const tradeLockerApi = {
 };
 
 
+const numOrNull = (v: any): number | null => {
+  if (v === null || v === undefined || v === '') return null;
+  const n = typeof v === 'number' ? v : parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+};
+
 const mapSignal = (s: any): SignalAnalysis => {
   const bias = evaluateHtfBias(s.timeframes);
   const confidence = parseFloat(s.confidence);
+  const setup = s.trade_setup || {};
 
   return {
     ...s,
@@ -172,6 +203,15 @@ const mapSignal = (s: any): SignalAnalysis => {
     bias_status: bias.status,
     no_trade: bias.hardInvalid,
     trend_strength: parseFloat(s.trend_strength),
+    tp1: numOrNull(setup.tp1),
+    tp2: numOrNull(setup.tp2),
+    tp3: numOrNull(setup.tp3),
+    score_breakdown: setup.score_breakdown || undefined,
+    alert_level: setup.alert_level,
+    risk_level: setup.risk_level,
+    session: setup.session,
+    pattern: setup.pattern || null,
+    adr_percent_used: numOrNull(setup.adr?.percentUsed),
   };
 };
 
