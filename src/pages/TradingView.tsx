@@ -42,6 +42,20 @@ interface VolumeData {
   color: string;
 }
 
+interface TradeLockerHistoryCandle {
+  t?: number | string;
+  time?: number | string;
+  timestamp?: number | string;
+  o?: number | string;
+  h?: number | string;
+  l?: number | string;
+  c?: number | string;
+  open?: number | string;
+  high?: number | string;
+  low?: number | string;
+  close?: number | string;
+}
+
 type ChartType = 'candlestick' | 'line' | 'area';
 
 interface SymbolInfo {
@@ -109,6 +123,50 @@ const TradingView: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+
+  const normalizeHistoryCandle = (candle: TradeLockerHistoryCandle): CandlestickData | null => {
+    const timeRaw = candle.t ?? candle.time ?? candle.timestamp;
+    const openRaw = candle.o ?? candle.open;
+    const highRaw = candle.h ?? candle.high;
+    const lowRaw = candle.l ?? candle.low;
+    const closeRaw = candle.c ?? candle.close;
+
+    if (timeRaw == null || openRaw == null || highRaw == null || lowRaw == null || closeRaw == null) {
+      return null;
+    }
+
+    const rawTime = Number(timeRaw);
+    const normalizedTime = rawTime > 1_000_000_000_000 ? Math.floor(rawTime / 1000) : Math.floor(rawTime);
+
+    const open = Number(openRaw);
+    const high = Number(highRaw);
+    const low = Number(lowRaw);
+    const close = Number(closeRaw);
+    if (![normalizedTime, open, high, low, close].every(Number.isFinite)) {
+      return null;
+    }
+
+    return {
+      time: normalizedTime as UTCTimestamp,
+      open,
+      high,
+      low,
+      close,
+    };
+  };
+
+  const fetchTradeLockerCandles = useCallback(async (symbol: string, tf: string): Promise<CandlestickData[]> => {
+    const response = await fetch(`/api/tradelocker/history?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(tf)}&count=250`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch history: ${response.status}`);
+    }
+    const payload = await response.json();
+    const rawCandles: TradeLockerHistoryCandle[] = Array.isArray(payload) ? payload : (payload?.d || payload?.candles || []);
+    return rawCandles
+      .map(normalizeHistoryCandle)
+      .filter((candle): candle is CandlestickData => candle !== null)
+      .sort((a, b) => a.time - b.time);
+  }, []);
   // TradeLocker connection function
   const connectToTradeLocker = async () => {
     if (!tradeLockerCredentials.email || !tradeLockerCredentials.password) {
@@ -300,11 +358,21 @@ const TradingView: React.FC = () => {
     }
   };
 
-  // Generate realistic OHLC data - returns empty array, real data from broker
-  const generateCandlestickData = (): CandlestickData[] => {
-    // Return empty data - real data should come from broker connection
-    return [];
-  };
+  const loadCandlesForSymbol = useCallback(async (symbol: string, tf: string) => {
+    if (!candlestickSeriesRef.current) return;
+    try {
+      const candles = await fetchTradeLockerCandles(symbol, tf);
+      candlestickSeriesRef.current.setData(candles);
+      if (candles.length > 0) {
+        setCurrentPrice(candles[candles.length - 1].close);
+        setIsConnected(true);
+      }
+    } catch (error) {
+      console.error('Failed to load TradeLocker candles:', error);
+      setIsConnected(false);
+      candlestickSeriesRef.current.setData([]);
+    }
+  }, [fetchTradeLockerCandles]);
 
   const getSymbolVolatility = (symbol: string): number => {
     // No mock volatility - return 0, real data should come from broker
@@ -362,16 +430,13 @@ const TradingView: React.FC = () => {
         wickUpColor: '#10b981',
       });
 
-      // Add initial data
-      const initialData = generateCandlestickData();
-      candlestickSeries.setData(initialData);
-
       chartRef.current = chart;
       candlestickSeriesRef.current = candlestickSeries;
       chartInitialized.current = true;
 
       // Load technical analysis for initial symbol
       loadSymbolData(selectedSymbol);
+      loadCandlesForSymbol(selectedSymbol, timeframe);
 
       // Handle resize
       const handleResize = () => {
@@ -502,51 +567,30 @@ const TradingView: React.FC = () => {
     });
   }, [fibonacciLevels, showFibonacci]);
 
-  // Real-time price updates
+  // Poll TradeLocker candles for near-real-time updates
   useEffect(() => {
     if (!isLive) return;
 
     const interval = setInterval(() => {
-      if (candlestickSeriesRef.current) {
-        const volatility = getSymbolVolatility(selectedSymbol) * 0.1;
-        const change = (Math.random() - 0.5) * volatility;
-        const newPrice = currentPrice + change;
-        
-        const newCandle = {
-          time: Math.floor(Date.now() / 1000) as any,
-          open: currentPrice,
-          high: Math.max(currentPrice, newPrice) + Math.random() * volatility * 0.3,
-          low: Math.min(currentPrice, newPrice) - Math.random() * volatility * 0.3,
-          close: newPrice,
-        };
-
-        try {
-          candlestickSeriesRef.current.update(newCandle);
-        } catch (error) {
-          console.warn('Chart update failed:', error);
-        }
-        setCurrentPrice(newPrice);
-      }
-    }, 3000);
+      loadCandlesForSymbol(selectedSymbol, timeframe);
+    }, 5000);
 
     return () => clearInterval(interval);
-  }, [currentPrice, isLive, selectedSymbol]);
+  }, [isLive, loadCandlesForSymbol, selectedSymbol, timeframe]);
 
   // Handle symbol change
   const handleSymbolChange = (newSymbol: string) => {
     setSelectedSymbol(newSymbol);
     setSearchTerm(newSymbol);
-    
-    // Update chart data
-    if (candlestickSeriesRef.current) {
-      const newData = generateCandlestickData();
-      candlestickSeriesRef.current.setData(newData);
-      setCurrentPrice(newData[newData.length - 1].close);
-    }
+    loadCandlesForSymbol(newSymbol, timeframe);
     
     // Load new technical analysis
     loadSymbolData(newSymbol);
   };
+
+  useEffect(() => {
+    loadCandlesForSymbol(selectedSymbol, timeframe);
+  }, [loadCandlesForSymbol, selectedSymbol, timeframe]);
 
   const getSymbolInfo = (symbol: string): SymbolInfo | undefined => {
     return symbolDatabase.find(s => s.symbol === symbol);
