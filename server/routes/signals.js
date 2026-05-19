@@ -63,7 +63,12 @@ async function getMarketData(symbol) {
     const yahooSymbol = `${symbol}=X`;
     
     const response = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=1d`
+      `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=1d`,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+      }
     );
     
     if (!response.ok) {
@@ -78,7 +83,6 @@ async function getMarketData(symbol) {
     }
     
     const meta = result.meta;
-    const quote = result.indicators?.quote?.[0] || {};
     
     return {
       currentPrice: meta.regularMarketPrice || meta.previousClose,
@@ -88,7 +92,7 @@ async function getMarketData(symbol) {
     };
   } catch (error) {
     console.error(`Failed to get market data for ${symbol}:`, error);
-    // Fallback to a default reasonable value instead of hardcoded mock
+    // Return null for prices to signal that analysis should be skipped
     return {
       currentPrice: null,
       high24h: null,
