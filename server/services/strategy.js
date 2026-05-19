@@ -310,11 +310,11 @@ export async function runStrategy(symbol) {
       adr?.exhausted ? 'ADR > 80% used' : null,
       htf.status === 'mixed' ? 'HTF bias is mixed' : null,
       !rsi || (!rsi.oversold && !rsi.overbought) ? 'No RSI extreme' : null,
-      news.nextEvent && news.nextEvent.minutesAway <= 120
+      news?.nextEvent && news.nextEvent.minutesAway <= 120
         ? `${news.nextEvent.name} (${news.nextEvent.currency}) in ${news.nextEvent.minutesAway}m`
         : null,
     ].filter(Boolean),
     adr,
-    news_status: news,
+    news_status: news ?? null,
   };
 }
