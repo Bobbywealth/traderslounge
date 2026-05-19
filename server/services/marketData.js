@@ -79,8 +79,8 @@ function buildSyntheticBars(rate, quote, symbol, timeframe) {
   if (timeframe === 'H1') {
     const h1Bars = [];
     for (const dayBar of bars) {
-      for (let h = 0; h < 24; h++) {
-        const hourTime = dayBar.time + h * 3600000;
+      for (let hour = 0; hour < 24; hour++) {
+        const hourTime = dayBar.time + hour * 3600000;
         if (hourTime > now) continue;
         const hourDrift = (nextRand() - 0.5) * dayBar.close * volMultiplier * 0.1;
         const o = dayBar.close + (nextRand() - 0.5) * dayBar.close * volMultiplier * 0.05;
