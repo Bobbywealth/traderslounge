@@ -235,7 +235,30 @@ router.post('/refresh', async (req, res) => {
       }
     }
     
-    res.json({ success: true, results });
+    const total = results.length;
+    const failed = results.filter((result) => !result.success).length;
+    const succeeded = total - failed;
+    const summary = { total, succeeded, failed };
+
+    if (failed === 0) {
+      return res.status(200).json({ success: true, summary, results });
+    }
+
+    if (succeeded > 0) {
+      return res.status(207).json({
+        success: false,
+        partial: true,
+        summary,
+        results
+      });
+    }
+
+    return res.status(503).json({
+      success: false,
+      summary,
+      results,
+      error: 'Failed to refresh signals for all symbols'
+    });
   } catch (error) {
     console.error('Refresh signals error:', error);
     res.status(500).json({ success: false, error: error.message });
