@@ -1,3 +1,59 @@
+// Finnhub OHLC fetcher for forex — fallback when TradeLocker/Yahoo/Binance are unavailable.
+const FINNHUB_BASE = 'https://api.finnhub.io/api/v1';
+
+const FINNHUB_SYMBOLS = {
+  EURUSD: 'OANDA:EURUSD',
+  GBPUSD: 'OANDA:GBPUSD',
+  USDJPY: 'OANDA:USDJPY',
+  GBPJPY: 'OANDA:GBPJPY',
+  AUDUSD: 'OANDA:AUDUSD',
+  USDCAD: 'OANDA:USDCAD',
+  NZDUSD: 'OANDA:NZDUSD',
+  USDCHF: 'OANDA:USDCHF',
+  XAUUSD: 'OANDA:XAUUSD',
+  XAGUSD: 'OANDA:XAGUSD',
+  NAS100: 'OANDA:NAS100',
+  US30: 'OANDA:US30',
+  SPX500: 'OANDA:SPX500',
+};
+
+const FINNHUB_RESOLUTION = {
+  M1: '1',
+  M5: '5',
+  M15: '15',
+  H1: '60',
+  H4: '240',
+  D1: 'D',
+};
+
+async function fetchFinnhubBars(symbol, timeframe) {
+  const finnhubSymbol = FINNHUB_SYMBOLS[symbol];
+  if (!finnhubSymbol) return [];
+  const apiKey = process.env.FINNHUB_API_KEY;
+  if (!apiKey) return [];
+  const resolution = FINNHUB_RESOLUTION[timeframe];
+  if (!resolution) return [];
+  const now = Math.floor(Date.now() / 1000);
+  const lookback = { M1: 86400 * 5, M5: 86400 * 30, M15: 86400 * 30, H1: 86400 * 90, H4: 86400 * 180, D1: 86400 * 365 }[timeframe] || 86400 * 90;
+  const from = now - lookback;
+  const url = `${FINNHUB_BASE}/forex/candle?symbol=${encodeURIComponent(finnhubSymbol)}&resolution=${resolution}&from=${from}&to=${now}&token=${apiKey}`;
+  try {
+    const response = await axios.get(url, { timeout: 10000 });
+    const d = response.data;
+    if (d.s !== 'ok' || !Array.isArray(d.t) || !d.t.length) return [];
+    const bars = [];
+    for (let i = 0; i < d.t.length; i++) {
+      const o = d.o[i], h = d.h[i], l = d.l[i], c = d.c[i];
+      if (!Number.isFinite(o) || !Number.isFinite(h) || !Number.isFinite(l) || !Number.isFinite(c)) continue;
+      bars.push({ time: d.t[i] * 1000, open: o, high: h, low: l, close: c, volume: Array.isArray(d.v) ? (Number.isFinite(d.v[i]) ? d.v[i] : 0) : 0 });
+    }
+    return bars;
+  } catch (err) {
+    console.warn(`Finnhub bars error for ${symbol} ${timeframe}: ${err.message}`);
+    return [];
+  }
+}
+
 import axios from 'axios';
 import { fetchTradeLockerBars } from './tradeLockerOhlc.js';
 import { fetchBinanceBars } from './binanceOhlc.js';
@@ -189,7 +245,22 @@ async function fetchBarsForTimeframe(symbol, timeframe) {
   if (cfg.resampleHours) {
     bars = resampleBars(bars, cfg.resampleHours);
   }
-  return { bars, source: 'yahoo' };
+  let source = 'yahoo';
+
+  // Quaternary: Finnhub — fallback for forex & metals when Yahoo/TradeLocker fail.
+  if (!bars.length || bars.length < 5) {
+    try {
+      const fhBars = await fetchFinnhubBars(symbol, timeframe);
+      if (fhBars && fhBars.length > 0) {
+        bars = fhBars;
+        source = 'finnhub';
+      }
+    } catch (err) {
+      console.warn(`Finnhub bars error for ${symbol} ${timeframe}: ${err.message}`);
+    }
+  }
+
+  return { bars, source };
 }
 
 export async function getBars(symbol, timeframe) {
