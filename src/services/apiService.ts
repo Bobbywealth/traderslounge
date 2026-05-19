@@ -77,6 +77,12 @@ export interface SignalAnalysis {
   session?: string;
   pattern?: string | null;
   adr_percent_used?: number | null;
+  news_status?: {
+    blocked: boolean;
+    configured?: boolean;
+    event?: { name: string; currency: string; impact: string; time: string } | null;
+    nextEvent?: { name: string; currency: string; impact: string; time: string; minutesAway: number } | null;
+  } | null;
 }
 
 export interface RefreshResult {
@@ -212,6 +218,7 @@ const mapSignal = (s: any): SignalAnalysis => {
     session: setup.session,
     pattern: setup.pattern || null,
     adr_percent_used: numOrNull(setup.adr?.percentUsed),
+    news_status: setup.news_status || null,
   };
 };
 
