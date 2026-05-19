@@ -1,6 +1,10 @@
 // LIVE MARKET DATA SERVICE - Requires API keys for real data
 import axios from 'axios';
-import { calculateFibonacciFromSwings } from '../indicators/fibonacci';
+import { calculateAdr, type AdrCandle } from '../indicators/adrCalculator';
+
+// Canonical confirmation candle rules shared by all trade-trigger scanners:
+// docs/strategy/confirmation-candle.md
+export const CONFIRMATION_CANDLE_RULES_DOC = 'docs/strategy/confirmation-candle.md';
 
 export interface LivePrice {
   symbol: string;
@@ -317,25 +321,13 @@ class LiveDataService {
     }
 
     try {
-      const dailyData = await this.getDailyData(symbol, 20);
-      if (dailyData.length === 0) return null;
-      
-      const ranges = dailyData.map((day: any) => day.high - day.low);
-      const averageDailyRange = ranges.reduce((a: number, b: number) => a + b, 0) / ranges.length;
-      
-      const today = dailyData[dailyData.length - 1];
-      const currentRange = today.high - today.low;
-      const rangePercent = (currentRange / averageDailyRange) * 100;
-      
+      const dailyData = await this.getDailyData(symbol, 40);
+      const adr = calculateAdr(symbol, dailyData as AdrCandle[]);
+      if (!adr) return null;
+
       return {
         symbol,
-        averageDailyRange,
-        currentRange,
-        rangePercent,
-        dailyHigh: today.high,
-        dailyLow: today.low,
-        projectedHigh: today.low + averageDailyRange,
-        projectedLow: today.high - averageDailyRange,
+        ...adr,
         session: this.getCurrentSession()
       };
     } catch (error) {
