@@ -49,7 +49,7 @@ CREATE INDEX IF NOT EXISTS idx_signals_created ON signal_analyses(created_at);
 async function initializeTable() {
   try {
     const sql = getDb();
-    await sql(CREATE_SIGNALS_TABLE);
+    await sql`${CREATE_SIGNALS_TABLE}`;
     console.log('Signal analyses table initialized');
   } catch (error) {
     console.error('Failed to initialize signals table:', error.message);
@@ -99,22 +99,19 @@ router.get('/', async (req, res) => {
     const { symbol, limit = 50, includeExpired = 'false' } = req.query;
     const sql = getDb();
     
-    let query = 'SELECT * FROM signal_analyses';
-    const params = [];
+    const limitVal = parseInt(limit);
     
-    if (symbol) {
-      query += ' WHERE symbol = $1';
-      params.push(symbol);
+    let results;
+    if (symbol && includeExpired === 'true') {
+      results = await sql`SELECT * FROM signal_analyses WHERE symbol = ${symbol} ORDER BY created_at DESC LIMIT ${limitVal}`;
+    } else if (symbol) {
+      results = await sql`SELECT * FROM signal_analyses WHERE symbol = ${symbol} AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY created_at DESC LIMIT ${limitVal}`;
+    } else if (includeExpired === 'true') {
+      results = await sql`SELECT * FROM signal_analyses ORDER BY created_at DESC LIMIT ${limitVal}`;
+    } else {
+      results = await sql`SELECT * FROM signal_analyses WHERE expires_at IS NULL OR expires_at > NOW() ORDER BY created_at DESC LIMIT ${limitVal}`;
     }
     
-    if (includeExpired !== 'true') {
-      query += symbol ? ' AND (expires_at IS NULL OR expires_at > NOW())' : ' WHERE expires_at IS NULL OR expires_at > NOW()';
-    }
-    
-    query += ' ORDER BY created_at DESC LIMIT $' + (params.length + 1);
-    params.push(parseInt(limit));
-    
-    const results = await sql(query, params);
     res.json({ success: true, signals: results });
   } catch (error) {
     console.error('Get signals error:', error);
@@ -128,10 +125,7 @@ router.get('/:symbol', async (req, res) => {
     const { symbol } = req.params;
     const sql = getDb();
     
-    const results = await sql(
-      'SELECT * FROM signal_analyses WHERE symbol = $1 ORDER BY created_at DESC LIMIT 1',
-      [symbol]
-    );
+    const results = await sql`SELECT * FROM signal_analyses WHERE symbol = ${symbol} ORDER BY created_at DESC LIMIT 1`;
     
     if (results.length === 0) {
       return res.status(404).json({ success: false, error: 'Signal not found' });
@@ -240,7 +234,7 @@ router.post('/refresh', async (req, res) => {
 router.delete('/cleanup', async (req, res) => {
   try {
     const sql = getDb();
-    const result = await sql('DELETE FROM signal_analyses WHERE expires_at < NOW() OR updated_at < NOW() - INTERVAL \'7 days\'');
+    const result = await sql`DELETE FROM signal_analyses WHERE expires_at < NOW() OR updated_at < NOW() - INTERVAL '7 days'`;
     res.json({ success: true, deleted: result.length });
   } catch (error) {
     console.error('Cleanup error:', error);
