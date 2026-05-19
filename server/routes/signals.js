@@ -47,12 +47,7 @@ CREATE INDEX IF NOT EXISTS idx_signals_created ON signal_analyses(created_at);
 function getChartUrls(symbol) {
   // Convert symbol to TradingView format (e.g., EURUSD -> OANDA:EURUSD)
   const tvSymbol = `OANDA:${symbol}`;
-  const encodedSymbol = encodeURIComponent(tvSymbol);
-  
-  // TradingView widget embed URL
-  const baseUrl = 'https://www.tradingview.com/widget/?symbol=';
-  const theme = 'dark'; // Dark theme for better visibility
-  
+
   // Timeframe intervals: M15=15, H1=60, H4=240, D1=1D, W1=1W, MN=1M
   const timeframes = {
     'M15': 15,
@@ -62,12 +57,27 @@ function getChartUrls(symbol) {
     'W1': '1W',
     'MN': '1M'
   };
-  
+
   const charts = {};
   for (const [name, interval] of Object.entries(timeframes)) {
-    charts[name] = `${baseUrl}${encodedSymbol}&interval=${interval}&theme=${theme}&style=1&locale=en&toolbarbg=f1f3f6&hideideasbutton=1&hidelegend=0&saveimage=1&calendar=0&studies=[]&theme=light`;
+    const params = new URLSearchParams({
+      symbol: tvSymbol,
+      interval: String(interval),
+      theme: 'dark',
+      style: '1',
+      locale: 'en',
+      toolbarbg: 'f1f3f6',
+      hideideasbutton: '1',
+      hidelegend: '0',
+      saveimage: '1',
+      calendar: '0',
+      studies: '[]',
+      hidevolume: '0'
+    });
+
+    charts[name] = `https://www.tradingview.com/widget/?${params.toString()}`;
   }
-  
+
   return charts;
 }
 

@@ -151,8 +151,22 @@ const Signals: React.FC = () => {
 
   const getTradingViewWidgetUrl = (symbol: string, interval: string) => {
     const tvSymbol = `OANDA:${symbol}`;
-    const encodedSymbol = encodeURIComponent(tvSymbol);
-    return `https://www.tradingview.com/widget/?symbol=${encodedSymbol}&interval=${interval}&theme=dark&style=1&locale=en&toolbarbg=f1f3f6&hideideasbutton=1&hidelegend=0&saveimage=1&calendar=0&studies=[]& withdateranges=1&hidevolume=0&theme=light`;
+    const params = new URLSearchParams({
+      symbol: tvSymbol,
+      interval,
+      theme: 'dark',
+      style: '1',
+      locale: 'en',
+      toolbarbg: 'f1f3f6',
+      hideideasbutton: '1',
+      hidelegend: '0',
+      saveimage: '1',
+      calendar: '0',
+      studies: '[]',
+      hidevolume: '0'
+    });
+
+    return `https://www.tradingview.com/widget/?${params.toString()}`;
   };
 
   const timeframeIntervals: Record<string, string> = {
