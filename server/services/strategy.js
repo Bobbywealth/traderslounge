@@ -14,6 +14,7 @@ import {
   detectHarmonic,
   currentSession,
 } from './patterns.js';
+import { evaluateNewsBlackout } from './newsCalendar.js';
 
 // Pip multiplier per symbol class (used for SL/TP distancing).
 function pipMultiplier(symbol) {
@@ -205,11 +206,27 @@ function setupType(htf, h1Trend) {
 }
 
 export async function runStrategy(symbol) {
-  const tfBars = await getMultiTimeframeBars(symbol);
+  const [tfBars, news] = await Promise.all([
+    getMultiTimeframeBars(symbol),
+    evaluateNewsBlackout(symbol).catch((err) => {
+      console.warn(`News gate error for ${symbol}: ${err.message}`);
+      return { blocked: false, event: null, nextEvent: null, configured: false };
+    }),
+  ]);
   const { D1: d1Bars, H4: h4Bars, H1: h1Bars, M15: m15Bars, M5: m5Bars } = tfBars;
 
   if (!d1Bars.length || !h1Bars.length) {
     throw new Error(`No market data for ${symbol}`);
+  }
+
+  if (news.blocked) {
+    return {
+      symbol,
+      no_trade: true,
+      reason: `Red-folder news window: ${news.event.name} (${news.event.currency})`,
+      confidence: 0,
+      news_status: news,
+    };
   }
 
   const currentPrice = (m5Bars[m5Bars.length - 1] || h1Bars[h1Bars.length - 1]).close;
@@ -307,7 +324,11 @@ export async function runStrategy(symbol) {
       adr?.exhausted ? 'ADR > 80% used' : null,
       htf.status === 'mixed' ? 'HTF bias is mixed' : null,
       !rsi || (!rsi.oversold && !rsi.overbought) ? 'No RSI extreme' : null,
+      news.nextEvent && news.nextEvent.minutesAway <= 120
+        ? `${news.nextEvent.name} (${news.nextEvent.currency}) in ${news.nextEvent.minutesAway}m`
+        : null,
     ].filter(Boolean),
     adr,
+    news_status: news,
   };
 }
