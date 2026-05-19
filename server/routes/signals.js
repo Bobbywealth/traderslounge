@@ -132,6 +132,28 @@ router.get('/:symbol', async (req, res) => {
 
 // Refresh/Generate new analysis for symbols
 router.post('/refresh', async (req, res) => {
+  const forceRefresh = req.query.force === 'true';
+  const metadata = buildRefreshMetadata();
+
+  if (refreshState.inProgress) {
+    return res.status(202).json({
+      success: false,
+      error: 'refresh already in progress.',
+      ...metadata,
+    });
+  }
+
+  if (!forceRefresh && metadata.nextAllowedRefreshAt && new Date(metadata.nextAllowedRefreshAt) > new Date()) {
+    return res.status(429).json({
+      success: false,
+      error: 'refresh already in progress.',
+      ...metadata,
+    });
+  }
+
+  refreshState.inProgress = true;
+  refreshState.startedAt = new Date();
+
   try {
     const { symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'AUDUSD', 'USDCAD'] } = req.body;
     
@@ -254,7 +276,10 @@ router.post('/refresh', async (req, res) => {
     });
   } catch (error) {
     console.error('Refresh signals error:', error);
-    res.status(500).json({ success: false, error: error.message });
+    refreshState.finishedAt = new Date();
+    res.status(500).json({ success: false, error: error.message, ...buildRefreshMetadata() });
+  } finally {
+    refreshState.inProgress = false;
   }
 });
 
