@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Star, Clock, Target, AlertTriangle, CheckCircle, RefreshCw, Wifi, WifiOff, Settings, Loader2, Brain } from 'lucide-react';
+import { TrendingUp, TrendingDown, Star, Clock, Target, AlertTriangle, CheckCircle, RefreshCw, Wifi, WifiOff, Settings, Loader2, Brain, Zap, X, ExternalLink, Check, ChevronDown } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
-import { signalsApi, SignalAnalysis } from '../services/apiService';
+import { signalsApi, tradeLockerApi, SignalAnalysis } from '../services/apiService';
 
 const Signals: React.FC = () => {
   const [signals, setSignals] = useState<SignalAnalysis[]>([]);
@@ -11,11 +11,34 @@ const Signals: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [tlConnected, setTlConnected] = useState(false);
+  const [tlChecking, setTlChecking] = useState(false);
+  const [tlExecuting, setTlExecuting] = useState<string | null>(null);
+  const [showTlModal, setShowTlModal] = useState(false);
+  const [tlAccount, setTlAccount] = useState<any>(null);
+  const [tlError, setTlError] = useState<string | null>(null);
 
   // Load signals from database
   useEffect(() => {
     loadSignals();
+    checkTlConnection();
   }, []);
+
+  const checkTlConnection = async () => {
+    setTlChecking(true);
+    try {
+      const status = await tradeLockerApi.connect();
+      setTlConnected(status.connected);
+      if (status.connected) {
+        const account = await tradeLockerApi.getAccount();
+        setTlAccount(account?.accounts?.[0] || account);
+      }
+    } catch {
+      setTlConnected(false);
+    } finally {
+      setTlChecking(false);
+    }
+  };
 
   const loadSignals = async () => {
     setIsLoading(true);
@@ -25,7 +48,6 @@ const Signals: React.FC = () => {
       setSignals(data);
       setLastUpdated(new Date());
     } catch (err) {
-      // If API not available, show setup instructions
       setError('API server not yet deployed. Go to Render Dashboard → Blueprints → Apply "render.yaml" to deploy the API server.');
     } finally {
       setIsLoading(false);
@@ -45,12 +67,30 @@ const Signals: React.FC = () => {
     }
   };
 
+  const handleExecuteOnTradeLocker = async (signal: SignalAnalysis) => {
+    if (!tlConnected) {
+      setShowTlModal(true);
+      return;
+    }
+    setTlExecuting(signal.id);
+    setTlError(null);
+    try {
+      await tradeLockerApi.executeSignal(signal, tlAccount?.id);
+      alert(`✅ Trade executed! ${signal.direction.toUpperCase()} ${signal.symbol} sent to TradeLocker.`);
+    } catch (err) {
+      setTlError(err instanceof Error ? err.message : 'Failed to execute trade');
+      alert(`❌ Trade failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setTlExecuting(null);
+    }
+  };
+
   // Filter signals
   useEffect(() => {
     let filtered = signals;
 
     if (searchTerm) {
-      filtered = filtered.filter(signal => 
+      filtered = filtered.filter(signal =>
         signal.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
         signal.reasoning?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         signal.trend?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -61,7 +101,7 @@ const Signals: React.FC = () => {
   }, [signals, searchTerm]);
 
   const getDirectionColor = (direction: string) => {
-    return direction === 'buy' 
+    return direction === 'buy'
       ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
       : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300';
   };
@@ -130,6 +170,24 @@ const Signals: React.FC = () => {
               </>
             )}
           </button>
+          <button
+            onClick={() => setShowTlModal(true)}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+              tlConnected
+                ? 'bg-blue-500 text-white hover:bg-blue-600'
+                : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+            }`}
+          >
+            {tlChecking ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : tlConnected ? (
+              <Wifi className="w-5 h-5" />
+            ) : (
+              <WifiOff className="w-5 h-5" />
+            )}
+            <span>{tlConnected ? 'TradeLocker Connected' : 'Connect TradeLocker'}</span>
+            <ChevronDown className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
@@ -144,7 +202,7 @@ const Signals: React.FC = () => {
             <Target className="w-8 h-8 text-emerald-500" />
           </div>
         </div>
-        
+
         <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between">
             <div>
@@ -174,7 +232,7 @@ const Signals: React.FC = () => {
             <div>
               <p className="text-sm text-gray-600 dark:text-gray-400">Avg Confidence</p>
               <p className="text-2xl font-bold text-blue-600">
-                {filteredSignals.length > 0 
+                {filteredSignals.length > 0
                   ? Math.round(filteredSignals.reduce((sum, s) => sum + s.confidence, 0) / filteredSignals.length)
                   : 0}%
               </p>
@@ -299,7 +357,7 @@ const Signals: React.FC = () => {
                     <p className="text-lg font-bold text-emerald-600">{signal.take_profit?.toFixed(5)}</p>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center justify-between mt-4">
                   <div className="flex items-center space-x-4">
                     <div className="text-sm">
@@ -314,7 +372,7 @@ const Signals: React.FC = () => {
                   <div className="text-sm">
                     <span className="text-gray-500">Trend: </span>
                     <span className={`font-medium ${
-                      signal.trend === 'bullish' ? 'text-emerald-600' : 
+                      signal.trend === 'bullish' ? 'text-emerald-600' :
                       signal.trend === 'bearish' ? 'text-red-600' : 'text-gray-600'
                     }`}>
                       {signal.trend} ({signal.trend_strength?.toFixed(0)}%)
@@ -394,8 +452,8 @@ const Signals: React.FC = () => {
                 <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
                   {signal.reasoning || signal.market_summary || 'No analysis available'}
                 </p>
-                
-                {/* Meta info */}
+
+                {/* Meta info & Execute */}
                 <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
                   <div className="flex items-center space-x-2 text-xs text-gray-500">
                     <Clock className="w-3 h-3" />
@@ -406,10 +464,118 @@ const Signals: React.FC = () => {
                       Expires {formatDistanceToNow(new Date(signal.expires_at), { addSuffix: true })}
                     </div>
                   )}
+                  <button
+                    onClick={() => handleExecuteOnTradeLocker(signal)}
+                    disabled={!tlConnected || tlExecuting === signal.id}
+                    className={`flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+                      tlConnected
+                        ? 'bg-blue-500 text-white hover:bg-blue-600'
+                        : 'bg-gray-200 dark:bg-gray-700 text-gray-500 cursor-not-allowed'
+                    }`}
+                  >
+                    {tlExecuting === signal.id ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Zap className="w-3 h-3" />
+                    )}
+                    <span>{tlExecuting === signal.id ? 'Executing...' : 'Trade on TL'}</span>
+                  </button>
                 </div>
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* TradeLocker Connection Modal */}
+      {showTlModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md p-6 relative">
+            <button
+              onClick={() => setShowTlModal(false)}
+              className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">TradeLocker Integration</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Connect your TradeLocker account to execute trades directly from signals.</p>
+
+            {tlConnected ? (
+              <div className="space-y-4">
+                <div className="flex items-center space-x-3 p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                  <CheckCircle className="w-8 h-8 text-emerald-500" />
+                  <div>
+                    <p className="font-medium text-emerald-700 dark:text-emerald-300">Connected to TradeLocker</p>
+                    <p className="text-sm text-emerald-600 dark:text-emerald-400">{tlAccount?.name || tlAccount?.id || 'Account'}</p>
+                  </div>
+                </div>
+                {tlAccount && (
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                      <p className="text-gray-500 text-xs">Account ID</p>
+                      <p className="font-mono text-gray-900 dark:text-white">{tlAccount.id}</p>
+                    </div>
+                    <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                      <p className="text-gray-500 text-xs">Currency</p>
+                      <p className="font-medium text-gray-900 dark:text-white">{tlAccount.currency || 'USD'}</p>
+                    </div>
+                  </div>
+                )}
+                <button
+                  onClick={async () => {
+                    await tradeLockerApi.disconnect();
+                    setTlConnected(false);
+                    setTlAccount(null);
+                  }}
+                  className="w-full py-2.5 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition-colors"
+                >
+                  Disconnect
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-start space-x-3">
+                    <Settings className="w-5 h-5 text-blue-500 mt-0.5" />
+                    <div className="text-sm">
+                      <p className="font-medium text-blue-700 dark:text-blue-300 mb-1">Server Credentials</p>
+                      <p className="text-blue-600 dark:text-blue-400">
+                        Add TradeLocker API credentials as environment variables on Render so the server can auto-authenticate.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Add these environment variables to <strong>traderslounge-api</strong> on Render:
+                  </p>
+                  <div className="bg-gray-900 dark:bg-gray-900 rounded-lg p-3 font-mono text-xs space-y-1">
+                    <p className="text-gray-400">TRADELOCKER_EMAIL=your@email.com</p>
+                    <p className="text-gray-400">TRADELOCKER_PASSWORD=yourpassword</p>
+                    <p className="text-gray-400">TRADELOCKER_SERVER=YOUR_BROKER_SERVER</p>
+                    <p className="text-gray-400">TRADELOCKER_IS_DEMO=true</p>
+                  </div>
+                  <a
+                    href="https://dashboard.render.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center space-x-2 w-full py-2.5 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    <span>Open Render Dashboard</span>
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {tlError && (
+              <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                <p className="text-sm text-red-700 dark:text-red-300">{tlError}</p>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

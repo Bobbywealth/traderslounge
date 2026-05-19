@@ -47,6 +47,14 @@ export interface RefreshResult {
 
 // TradeLocker API
 export const tradeLockerApi = {
+  async connect(): Promise<{ connected: boolean; demo?: boolean; hasCredentials?: boolean }> {
+    const sessionId = localStorage.getItem('tl_session_id');
+    const response = await fetch(
+      `${API_BASE_URL}/api/tradelocker/status?sessionId=${sessionId || ''}`
+    );
+    return response.json();
+  },
+
   async authenticate(email: string, password: string, server: string, isDemo: boolean = true): Promise<any> {
     const sessionId = crypto.randomUUID();
     const response = await fetch(`${API_BASE_URL}/api/tradelocker/auth`, {
@@ -54,33 +62,67 @@ export const tradeLockerApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, server, isDemo, sessionId })
     });
-    
+
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || 'Authentication failed');
     }
-    
+
     const data = await response.json();
     localStorage.setItem('tl_session_id', sessionId);
     return data;
   },
-  
+
+  async getAccount(): Promise<any> {
+    const sessionId = localStorage.getItem('tl_session_id');
+    const url = sessionId
+      ? `${API_BASE_URL}/api/tradelocker/account?sessionId=${sessionId}`
+      : `${API_BASE_URL}/api/tradelocker/account`;
+    const response = await fetch(url);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Failed to get account');
+    return data;
+  },
+
   async getPositions(accountId: string): Promise<any[]> {
     const sessionId = localStorage.getItem('tl_session_id');
     const response = await fetch(
-      `${API_BASE_URL}/api/tradelocker/positions?sessionId=${sessionId}&accountId=${accountId}`
+      `${API_BASE_URL}/api/tradelocker/positions?sessionId=${sessionId || ''}&accountId=${accountId}`
     );
     return response.json();
   },
-  
+
   async getOrders(accountId: string): Promise<any[]> {
     const sessionId = localStorage.getItem('tl_session_id');
     const response = await fetch(
-      `${API_BASE_URL}/api/tradelocker/orders?sessionId=${sessionId}&accountId=${accountId}`
+      `${API_BASE_URL}/api/tradelocker/orders?sessionId=${sessionId || ''}&accountId=${accountId}`
     );
     return response.json();
   },
-  
+
+  async executeSignal(signal: SignalAnalysis, accountId?: string, quantity: number = 1): Promise<any> {
+    const sessionId = localStorage.getItem('tl_session_id');
+    const response = await fetch(`${API_BASE_URL}/api/tradelocker/execute-signal`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId,
+        signal: {
+          symbol: signal.symbol,
+          direction: signal.direction,
+          entry_price: signal.entry_price,
+          stop_loss: signal.stop_loss,
+          take_profit: signal.take_profit,
+        },
+        accountId,
+        quantity
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || data.message || 'Failed to execute trade');
+    return data;
+  },
+
   async disconnect(): Promise<void> {
     const sessionId = localStorage.getItem('tl_session_id');
     await fetch(`${API_BASE_URL}/api/tradelocker/disconnect`, {
