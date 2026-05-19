@@ -83,42 +83,8 @@ const TradingView: React.FC = () => {
   const [showTrendLines, setShowTrendLines] = useState(true);
   const [showFibonacci, setShowFibonacci] = useState(false);
 
-  // Symbol database
-  const symbolDatabase: SymbolInfo[] = [
-    // Forex Major Pairs
-    { symbol: 'EURUSD', name: 'Euro / US Dollar', exchange: 'FX', type: 'forex' },
-    { symbol: 'GBPUSD', name: 'British Pound / US Dollar', exchange: 'FX', type: 'forex' },
-    { symbol: 'USDJPY', name: 'US Dollar / Japanese Yen', exchange: 'FX', type: 'forex' },
-    { symbol: 'AUDUSD', name: 'Australian Dollar / US Dollar', exchange: 'FX', type: 'forex' },
-    { symbol: 'USDCAD', name: 'US Dollar / Canadian Dollar', exchange: 'FX', type: 'forex' },
-    { symbol: 'USDCHF', name: 'US Dollar / Swiss Franc', exchange: 'FX', type: 'forex' },
-    { symbol: 'NZDUSD', name: 'New Zealand Dollar / US Dollar', exchange: 'FX', type: 'forex' },
-    
-    // Forex Minor Pairs
-    { symbol: 'EURGBP', name: 'Euro / British Pound', exchange: 'FX', type: 'forex' },
-    { symbol: 'EURJPY', name: 'Euro / Japanese Yen', exchange: 'FX', type: 'forex' },
-    { symbol: 'GBPJPY', name: 'British Pound / Japanese Yen', exchange: 'FX', type: 'forex' },
-    
-    // Commodities
-    { symbol: 'XAUUSD', name: 'Gold / US Dollar', exchange: 'COMEX', type: 'commodity' },
-    { symbol: 'XAGUSD', name: 'Silver / US Dollar', exchange: 'COMEX', type: 'commodity' },
-    { symbol: 'WTIUSD', name: 'WTI Crude Oil', exchange: 'NYMEX', type: 'commodity' },
-    { symbol: 'BCOUSD', name: 'Brent Crude Oil', exchange: 'ICE', type: 'commodity' },
-    
-    // Cryptocurrencies
-    { symbol: 'BTCUSD', name: 'Bitcoin / US Dollar', exchange: 'Crypto', type: 'crypto' },
-    { symbol: 'ETHUSD', name: 'Ethereum / US Dollar', exchange: 'Crypto', type: 'crypto' },
-    { symbol: 'ADAUSD', name: 'Cardano / US Dollar', exchange: 'Crypto', type: 'crypto' },
-    { symbol: 'SOLUSD', name: 'Solana / US Dollar', exchange: 'Crypto', type: 'crypto' },
-    
-    // Major Stocks
-    { symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ', type: 'stock' },
-    { symbol: 'GOOGL', name: 'Alphabet Inc.', exchange: 'NASDAQ', type: 'stock' },
-    { symbol: 'MSFT', name: 'Microsoft Corporation', exchange: 'NASDAQ', type: 'stock' },
-    { symbol: 'TSLA', name: 'Tesla Inc.', exchange: 'NASDAQ', type: 'stock' },
-    { symbol: 'AMZN', name: 'Amazon.com Inc.', exchange: 'NASDAQ', type: 'stock' },
-    { symbol: 'NVDA', name: 'NVIDIA Corporation', exchange: 'NASDAQ', type: 'stock' },
-  ];
+  // Symbol database - populated from broker connection
+  const symbolDatabase: SymbolInfo[] = [];
 
   const timeframes = [
     { value: '1m', label: '1m' },
@@ -140,8 +106,9 @@ const TradingView: React.FC = () => {
     isDemo: true
   });
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
-  
   // TradeLocker connection function
   const connectToTradeLocker = async () => {
     if (!tradeLockerCredentials.email || !tradeLockerCredentials.password) {
@@ -333,48 +300,15 @@ const TradingView: React.FC = () => {
     }
   };
 
-  // Generate realistic OHLC data
+  // Generate realistic OHLC data - returns empty array, real data from broker
   const generateCandlestickData = (): CandlestickData[] => {
-    const data: CandlestickData[] = [];
-    const basePrices: Record<string, number> = {
-      'EURUSD': 1.0425, 'GBPUSD': 1.2580, 'USDJPY': 157.25, 'AUDUSD': 0.6245,
-      'USDCAD': 1.4385, 'XAUUSD': 2685.50, 'BTCUSD': 119000, 'ETHUSD': 3850,
-      'AAPL': 225.50, 'GOOGL': 175.80, 'MSFT': 415.20, 'TSLA': 248.90
-    };
-    
-    let basePrice = basePrices[selectedSymbol] || 1.0425;
-    const now = new Date();
-    
-    for (let i = 100; i >= 0; i--) {
-      const time = new Date(now.getTime() - i * getTimeframeMs(timeframe));
-      const volatility = getSymbolVolatility(selectedSymbol);
-      
-      const change = (Math.random() - 0.5) * volatility;
-      const open = basePrice;
-      const close = open + change;
-      const high = Math.max(open, close) + Math.random() * volatility * 0.5;
-      const low = Math.min(open, close) - Math.random() * volatility * 0.5;
-      
-      data.push({
-        time: Math.floor(time.getTime() / 1000) as any, // Use timestamp for better chart performance
-        open: parseFloat(open.toFixed(getDecimalPlaces(selectedSymbol))),
-        high: parseFloat(high.toFixed(getDecimalPlaces(selectedSymbol))),
-        low: parseFloat(low.toFixed(getDecimalPlaces(selectedSymbol))),
-        close: parseFloat(close.toFixed(getDecimalPlaces(selectedSymbol))),
-      });
-      
-      basePrice = close;
-    }
-    
-    return data;
+    // Return empty data - real data should come from broker connection
+    return [];
   };
 
   const getSymbolVolatility = (symbol: string): number => {
-    const volatilities: Record<string, number> = {
-      'EURUSD': 0.008, 'GBPUSD': 0.012, 'USDJPY': 1.2, 'XAUUSD': 25.0,
-      'BTCUSD': 2000, 'ETHUSD': 50, 'AAPL': 5.0, 'GOOGL': 4.0, 'TSLA': 8.0
-    };
-    return volatilities[symbol] || 0.008;
+    // No mock volatility - return 0, real data should come from broker
+    return 0;
   };
 
   const getDecimalPlaces = (symbol: string): number => {
@@ -767,11 +701,19 @@ const TradingView: React.FC = () => {
               <RefreshCw className="w-4 h-4" />
             </button>
 
-            <button className="p-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors">
+            <button 
+              onClick={() => setShowSettings(!showSettings)}
+              className="p-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
+              title="Settings"
+            >
               <Settings className="w-4 h-4" />
             </button>
             
-            <button className="p-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors">
+            <button 
+              onClick={() => setIsFullscreen(!isFullscreen)}
+              className="p-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
+              title="Toggle Fullscreen"
+            >
               <Maximize2 className="w-4 h-4" />
             </button>
           </div>

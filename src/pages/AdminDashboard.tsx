@@ -277,11 +277,63 @@ const AdminDashboard: React.FC = () => {
   const handleUserAction = (action: string, userId: string) => {
     console.log(`${action} user:`, userId);
     // Implement user actions
+    switch (action) {
+      case 'view':
+        alert(`Viewing user ${userId}`);
+        break;
+      case 'edit':
+        alert(`Editing user ${userId}`);
+        break;
+      case 'email':
+        alert(`Sending email to user ${userId}`);
+        break;
+      case 'suspend':
+        if (confirm(`Are you sure you want to suspend user ${userId}?`)) {
+          setUsers(users.map(u => u.id === userId ? { ...u, status: 'suspended' } : u));
+        }
+        break;
+    }
   };
 
   const handleBulkAction = (action: string) => {
     console.log(`Bulk ${action}:`, selectedUsers);
-    // Implement bulk actions
+    switch (action) {
+      case 'email':
+        alert(`Sending email to ${selectedUsers.length} users`);
+        break;
+      case 'suspend':
+        if (confirm(`Are you sure you want to suspend ${selectedUsers.length} users?`)) {
+          setUsers(users.map(u => selectedUsers.includes(u.id) ? { ...u, status: 'suspended' } : u));
+          setSelectedUsers([]);
+        }
+        break;
+    }
+  };
+
+  const handleAddUser = () => {
+    alert('Add User feature - Coming soon!');
+  };
+
+  const handleExport = () => {
+    alert(`Exporting ${filteredUsers.length} users to CSV`);
+    // Create CSV content
+    const csvContent = [
+      ['Name', 'Email', 'Plan', 'Status', 'Revenue', 'Trades'].join(','),
+      ...filteredUsers.map(u => [u.name, u.email, u.plan, u.status, u.revenue, u.trades].join(','))
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'users-export.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleRefresh = () => {
+    loadMockData();
+    alert('Data refreshed!');
   };
 
   const sidebarItems = [
@@ -465,11 +517,17 @@ const AdminDashboard: React.FC = () => {
                 </button>
               </div>
             )}
-            <button className="flex items-center space-x-2 px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors duration-200">
+            <button 
+              onClick={handleAddUser}
+              className="flex items-center space-x-2 px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors duration-200"
+            >
               <Plus className="w-4 h-4" />
               <span>Add User</span>
             </button>
-            <button className="flex items-center space-x-2 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors duration-200">
+            <button 
+              onClick={handleExport}
+              className="flex items-center space-x-2 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors duration-200"
+            >
               <Download className="w-4 h-4" />
               <span>Export</span>
             </button>
@@ -759,7 +817,10 @@ const AdminDashboard: React.FC = () => {
             </div>
 
             <div className="flex items-center space-x-4">
-              <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200">
+              <button 
+                onClick={handleRefresh}
+                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200"
+              >
                 <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
               </button>
               

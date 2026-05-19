@@ -61,13 +61,8 @@ const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY;
 
 async function getMarketData(symbol) {
   if (!FINNHUB_API_KEY) {
-    // Return mock data if no API key
-    return {
-      currentPrice: 1.0425,
-      high24h: 1.0480,
-      low24h: 1.0380,
-      changePercent: 0.25
-    };
+    // Throw error if no API key - real data is required
+    throw new Error(`FINNHUB_API_KEY not configured. Cannot fetch market data for ${symbol}`);
   }
 
   try {

@@ -48,7 +48,11 @@ const Signals: React.FC = () => {
       setSignals(data);
       setLastUpdated(new Date());
     } catch (err) {
-      setError('API server not yet deployed. Go to Render Dashboard → Blueprints → Apply "render.yaml" to deploy the API server.');
+      if (err instanceof Error && err.message.includes('Failed to fetch')) {
+        setError('Unable to connect to the API server. Please ensure the server is running and accessible.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to load signals. Please check your API configuration.');
+      }
     } finally {
       setIsLoading(false);
     }

@@ -12,6 +12,8 @@ const Header: React.FC = () => {
   const { credentials } = useBroker();
   const [showBrokerSetup, setShowBrokerSetup] = React.useState(false);
   const [showApiConfig, setShowApiConfig] = React.useState(false);
+  const [showNotifications, setShowNotifications] = React.useState(false);
+  const [showSettings, setShowSettings] = React.useState(false);
 
   return (
     <>
@@ -69,13 +71,47 @@ const Header: React.FC = () => {
           </button>
           
           <div className="relative">
-            <button className="p-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/80 transition-all duration-200 group">
+            <button 
+              onClick={() => setShowNotifications(!showNotifications)}
+              className="p-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/80 transition-all duration-200 group"
+            >
               <Bell className="w-5 h-5 text-gray-500 dark:text-gray-400 group-hover:text-red-500 transition-colors" />
             </button>
             <div className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white dark:border-gray-800 animate-pulse"></div>
+            {showNotifications && (
+              <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-4 z-50">
+                <h4 className="font-semibold text-gray-900 dark:text-white mb-3">Notifications</h4>
+                <div className="space-y-3">
+                  <div className="flex items-start space-x-3">
+                    <div className="w-2 h-2 bg-emerald-500 rounded-full mt-2"></div>
+                    <div>
+                      <p className="text-sm text-gray-900 dark:text-white">New trading signal available</p>
+                      <p className="text-xs text-gray-500">2 minutes ago</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start space-x-3">
+                    <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
+                    <div>
+                      <p className="text-sm text-gray-900 dark:text-white">EURUSD signal updated</p>
+                      <p className="text-xs text-gray-500">15 minutes ago</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start space-x-3">
+                    <div className="w-2 h-2 bg-gray-500 rounded-full mt-2"></div>
+                    <div>
+                      <p className="text-sm text-gray-900 dark:text-white">System maintenance scheduled</p>
+                      <p className="text-xs text-gray-500">1 hour ago</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
-          <button className="p-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/80 transition-all duration-200 group">
+          <button 
+            onClick={() => setShowSettings(!showSettings)}
+            className="p-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/80 transition-all duration-200 group"
+          >
             <Settings className="w-5 h-5 text-gray-500 dark:text-gray-400 group-hover:text-emerald-500 transition-colors" />
           </button>
           

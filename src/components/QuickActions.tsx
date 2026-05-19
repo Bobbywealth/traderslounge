@@ -1,7 +1,35 @@
 import React from 'react';
 import { Plus, Import, BarChart3, Download, Settings, AlertTriangle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 const QuickActions: React.FC = () => {
+  const navigate = useNavigate();
+
+  const handleAction = (actionName: string) => {
+    switch (actionName) {
+      case 'New Trade':
+        navigate('/tradingview');
+        break;
+      case 'Import Data':
+        alert('Import Data feature - Coming soon!');
+        break;
+      case 'Analytics':
+        navigate('/admin');
+        break;
+      case 'Export Report':
+        alert('Export Report feature - Coming soon!');
+        break;
+      case 'Settings':
+        navigate('/admin');
+        break;
+      case 'Risk Check':
+        alert('Risk Check feature - Coming soon!');
+        break;
+      default:
+        break;
+    }
+  };
+
   const actions = [
     { name: 'New Trade', icon: Plus, color: 'emerald' },
     { name: 'Import Data', icon: Import, color: 'blue' },
@@ -31,6 +59,7 @@ const QuickActions: React.FC = () => {
           return (
             <button
               key={index}
+              onClick={() => handleAction(action.name)}
               className={`p-4 rounded-lg text-white text-sm font-medium transition-colors duration-200 ${
                 colorClasses[action.color as keyof typeof colorClasses]
               }`}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
-import { TrendingUp, TrendingDown } from 'lucide-react';
+import { TrendingUp, TrendingDown, BarChart3 } from 'lucide-react';
 import LoadingSpinner from './LoadingSpinner';
 
 interface ChartData {
@@ -35,50 +35,13 @@ const TradingChart: React.FC<TradingChartProps> = ({
 
   // Generate realistic trading data
   const generateTradingData = (symbol: string, points: number = 100): ChartData[] => {
-    const data: ChartData[] = [];
-    const basePrice = getBasePrice(symbol);
-    let currentPrice = basePrice;
-    const now = new Date();
-    
-    for (let i = points; i >= 0; i--) {
-      const time = new Date(now.getTime() - i * getTimeframeMs(timeframe));
-      const volatility = basePrice * 0.001; // 0.1% volatility
-      
-      const change = (Math.random() - 0.5) * volatility * 2;
-      const open = currentPrice;
-      const close = open + change;
-      const high = Math.max(open, close) + Math.random() * volatility;
-      const low = Math.min(open, close) - Math.random() * volatility;
-      const volume = Math.random() * 1000000 + 500000;
-      
-      data.push({
-        time: time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        price: parseFloat(close.toFixed(5)),
-        volume: Math.floor(volume),
-        high: parseFloat(high.toFixed(5)),
-        low: parseFloat(low.toFixed(5)),
-        open: parseFloat(open.toFixed(5)),
-        close: parseFloat(close.toFixed(5)),
-      });
-      
-      currentPrice = close;
-    }
-    
-    return data;
+    // Return empty data - real data should come from broker connection
+    return [];
   };
 
   const getBasePrice = (symbol: string): number => {
-    const prices: Record<string, number> = {
-      'EURUSD': 1.0425,
-      'GBPUSD': 1.2580,
-      'USDJPY': 157.25,
-      'XAUUSD': 2685.50,
-      'BTCUSD': 119000.00,
-      'ETHUSD': 3850.00,
-      'SOLUSD': 245.00,
-      'ADAUSD': 1.15,
-    };
-    return prices[symbol] || 1.0000;
+    // No mock base prices - return 0, real data should come from broker
+    return 0;
   };
 
   const getTimeframeMs = (timeframe: string): number => {
@@ -237,6 +200,32 @@ const TradingChart: React.FC<TradingChartProps> = ({
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
         <LoadingSpinner text={`Loading ${symbol} chart data...`} />
+      </div>
+    );
+  }
+
+  // Show empty state when no data
+  if (data.length === 0) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center space-x-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              {symbol} - {timeframe}
+            </h3>
+          </div>
+        </div>
+        <div className="flex flex-col items-center justify-center py-16" style={{ height: height - 100 }}>
+          <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mb-4">
+            <BarChart3 className="w-8 h-8 text-gray-400" />
+          </div>
+          <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+            No Chart Data Available
+          </h4>
+          <p className="text-gray-500 dark:text-gray-400 text-center max-w-sm">
+            Connect your broker account to view live {symbol} charts with real-time market data.
+          </p>
+        </div>
       </div>
     );
   }
