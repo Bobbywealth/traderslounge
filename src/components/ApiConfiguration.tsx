@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { X, Key, ExternalLink, CheckCircle, AlertCircle, Info } from 'lucide-react';
-import { getApiInstructions } from '../services/newsApi';
 
 interface ApiConfigurationProps {
   isOpen: boolean;
@@ -8,6 +7,8 @@ interface ApiConfigurationProps {
 }
 
 const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) => {
+  type ProviderId = 'alphaVantage' | 'finnhub' | 'newsApi' | 'tradingEconomics' | 'polygon' | 'fcsapi';
+
   const [apiKeys, setApiKeys] = useState({
     alphaVantage: localStorage.getItem('api_alphaVantage') || 'N35281CO4LORS4CU',
     finnhub: localStorage.getItem('api_finnhub') || '',
@@ -23,19 +24,18 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
     newsApi: false,
     tradingEconomics: false,
     polygon: false,
+    fcsapi: false,
   });
-
-  const { providers } = getApiInstructions();
 
   if (!isOpen) return null;
 
-  const handleSaveKey = (provider: string, key: string) => {
+  const handleSaveKey = (provider: ProviderId, key: string) => {
     const storageKey = provider === 'alphaVantage' ? 'api_alphaVantage' : `api_${provider}`;
     localStorage.setItem(storageKey, key);
     setApiKeys(prev => ({ ...prev, [provider]: key }));
   };
 
-  const handleTestConnection = async (provider: string) => {
+  const handleTestConnection = async (provider: ProviderId) => {
     // This would test the actual API connection
     console.log(`Testing ${provider} connection...`);
   };
@@ -44,7 +44,7 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
 
   const apiProviders = [
     {
-      id: 'alphaVantage',
+      id: 'alphaVantage' as const,
       name: 'Alpha Vantage',
       description: 'Financial market data and news',
       url: 'https://www.alphavantage.co/support/#api-key',
@@ -53,7 +53,7 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
       keyFormat: 'Example: ABCD1234EFGH5678',
     },
     {
-      id: 'finnhub',
+      id: 'finnhub' as const,
       name: 'Finnhub',
       description: 'Real-time financial data',
       url: 'https://finnhub.io/register',
@@ -62,7 +62,7 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
       keyFormat: 'Example: c123456789abcdef',
     },
     {
-      id: 'newsApi',
+      id: 'newsApi' as const,
       name: 'NewsAPI',
       description: 'Financial news from major sources',
       url: 'https://newsapi.org/register',
@@ -71,7 +71,7 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
       keyFormat: 'Example: 1234567890abcdef1234567890abcdef',
     },
     {
-      id: 'tradingEconomics',
+      id: 'tradingEconomics' as const,
       name: 'Trading Economics',
       description: 'Economic calendar and indicators',
       url: 'https://tradingeconomics.com/api',
@@ -80,7 +80,7 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
       keyFormat: 'Example: guest:guest',
     },
     {
-      id: 'polygon',
+      id: 'polygon' as const,
       name: 'Polygon.io',
       description: 'Market data and forex rates',
       url: 'https://polygon.io/',
@@ -89,31 +89,13 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
       keyFormat: 'Example: abcdef123456789',
     },
     {
-      id: 'fcsapi',
+      id: 'fcsapi' as const,
       name: 'FCS API',
       description: 'Economic calendar and forex news',
       url: 'https://fcsapi.com/register',
       features: ['Economic calendar', 'Forex news', 'Market events'],
       limits: 'Free: 500 calls/month',
       keyFormat: 'Example: oBvRl6ovyvldsUPhXdoC8ug7',
-    },
-    {
-      id: 'fcsapi',
-      name: 'FCS API',
-      description: 'FREE Economic Calendar (500 calls/month)',
-      url: 'https://fcsapi.com/register',
-      features: ['Economic calendar', 'Forex news', 'Market events'],
-      limits: 'Free: 500 calls/month',
-      keyFormat: 'Example: abc123def456ghi789',
-    },
-    {
-      id: 'marketstack',
-      name: 'Marketstack',
-      description: 'FREE Market data (1000 calls/month)',
-      url: 'https://marketstack.com/signup/free',
-      features: ['Stock prices', 'Market data', 'Historical data'],
-      limits: 'Free: 1000 calls/month',
-      keyFormat: 'Example: 1234567890abcdef1234567890abcdef',
     },
   ];
 
@@ -170,7 +152,7 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
                       <h4 className="font-semibold text-gray-900 dark:text-white">
                         {provider.name}
                       </h4>
-                      {isConfigured(apiKeys[provider.id as keyof typeof apiKeys]) ? (
+                      {isConfigured(apiKeys[provider.id]) ? (
                         <CheckCircle className="w-5 h-5 text-emerald-500" />
                       ) : (
                         <AlertCircle className="w-5 h-5 text-orange-500" />
@@ -211,8 +193,8 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
                     </label>
                     <div className="relative">
                       <input
-                        type={showKeys[provider.id as keyof typeof showKeys] ? 'text' : 'password'}
-                        value={apiKeys[provider.id as keyof typeof apiKeys]}
+                        type={showKeys[provider.id] ? 'text' : 'password'}
+                        value={apiKeys[provider.id]}
                         onChange={(e) => setApiKeys(prev => ({ ...prev, [provider.id]: e.target.value }))}
                         placeholder={provider.keyFormat}
                         className="w-full px-3 py-2 pr-20 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -220,10 +202,10 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
                       <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex space-x-1">
                         <button
                           type="button"
-                          onClick={() => setShowKeys(prev => ({ ...prev, [provider.id]: !prev[provider.id as keyof typeof prev] }))}
+                          onClick={() => setShowKeys(prev => ({ ...prev, [provider.id]: !prev[provider.id] }))}
                           className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                         >
-                          {showKeys[provider.id as keyof typeof showKeys] ? '👁️' : '👁️‍🗨️'}
+                          {showKeys[provider.id] ? '👁️' : '👁️‍🗨️'}
                         </button>
                       </div>
                     </div>
@@ -231,14 +213,14 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
 
                   <div className="flex space-x-2">
                     <button
-                      onClick={() => handleSaveKey(provider.id, apiKeys[provider.id as keyof typeof apiKeys])}
+                      onClick={() => handleSaveKey(provider.id, apiKeys[provider.id])}
                       className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200 text-sm"
                     >
                       Save Key
                     </button>
                     <button
                       onClick={() => handleTestConnection(provider.id)}
-                      disabled={!isConfigured(apiKeys[provider.id as keyof typeof apiKeys])}
+                      disabled={!isConfigured(apiKeys[provider.id])}
                       className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 text-sm"
                     >
                       Test Connection
