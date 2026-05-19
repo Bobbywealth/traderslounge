@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS signal_analyses (
   timeframes JSONB,
   trade_setup JSONB,
   risk_factors JSONB,
+  chart_urls JSONB,
   expires_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -41,6 +42,34 @@ CREATE TABLE IF NOT EXISTS signal_analyses (
 CREATE INDEX IF NOT EXISTS idx_signals_symbol ON signal_analyses(symbol);
 CREATE INDEX IF NOT EXISTS idx_signals_created ON signal_analyses(created_at);
 `;
+
+// Generate TradingView chart URLs for each timeframe
+function getChartUrls(symbol) {
+  // Convert symbol to TradingView format (e.g., EURUSD -> OANDA:EURUSD)
+  const tvSymbol = `OANDA:${symbol}`;
+  const encodedSymbol = encodeURIComponent(tvSymbol);
+  
+  // TradingView widget embed URL
+  const baseUrl = 'https://www.tradingview.com/widget/?symbol=';
+  const theme = 'dark'; // Dark theme for better visibility
+  
+  // Timeframe intervals: M15=15, H1=60, H4=240, D1=1D, W1=1W, MN=1M
+  const timeframes = {
+    'M15': 15,
+    'H1': 60,
+    'H4': 240,
+    'D1': '1D',
+    'W1': '1W',
+    'MN': '1M'
+  };
+  
+  const charts = {};
+  for (const [name, interval] of Object.entries(timeframes)) {
+    charts[name] = `${baseUrl}${encodedSymbol}&interval=${interval}&theme=${theme}&style=1&locale=en&toolbarbg=f1f3f6&hideideasbutton=1&hidelegend=0&saveimage=1&calendar=0&studies=[]&theme=light`;
+  }
+  
+  return charts;
+}
 
 // Initialize table on startup
 async function initializeTable() {
@@ -184,15 +213,17 @@ router.post('/refresh', async (req, res) => {
           // Store in database
           const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000); // 4 hours
           
+          const chartUrls = getChartUrls(symbol);
+          
           const result = await pool.query(`
             INSERT INTO signal_analyses (
               symbol, analysis_type, direction, entry_price, stop_loss, take_profit,
               risk_reward_ratio, confidence, trend, trend_strength, sentiment,
               reasoning, market_summary, support_levels, resistance_levels,
-              key_levels, timeframes, trade_setup, risk_factors, expires_at
+              key_levels, timeframes, trade_setup, risk_factors, chart_urls, expires_at
             ) VALUES (
               $1, 'perplexity_analysis', $2, $3, $4, $5,
-              $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+              $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
             )
             ON CONFLICT (symbol, analysis_type) DO UPDATE SET
               direction = EXCLUDED.direction,
@@ -212,6 +243,7 @@ router.post('/refresh', async (req, res) => {
               timeframes = EXCLUDED.timeframes,
               trade_setup = EXCLUDED.trade_setup,
               risk_factors = EXCLUDED.risk_factors,
+              chart_urls = EXCLUDED.chart_urls,
               expires_at = EXCLUDED.expires_at,
               updated_at = NOW()
             RETURNING *
@@ -234,6 +266,7 @@ router.post('/refresh', async (req, res) => {
             JSON.stringify(analysis.timeframes),
             JSON.stringify(analysis.trade_setup),
             JSON.stringify(analysis.risk_factors),
+            JSON.stringify(chartUrls),
             expiresAt
           ]);
           

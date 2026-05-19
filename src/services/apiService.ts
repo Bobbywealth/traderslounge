@@ -33,6 +33,14 @@ export interface SignalAnalysis {
     explanation: string;
   };
   risk_factors: string[];
+  chart_urls?: {
+    M15: string;
+    H1: string;
+    H4: string;
+    D1: string;
+    W1: string;
+    MN: string;
+  };
   expires_at: string;
   created_at: string;
   updated_at: string;

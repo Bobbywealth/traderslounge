@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Star, Clock, Target, AlertTriangle, CheckCircle, RefreshCw, Wifi, WifiOff, Settings, Loader2, Brain, Zap, X, ExternalLink, Check, ChevronDown } from 'lucide-react';
+import { TrendingUp, TrendingDown, Star, Clock, Target, AlertTriangle, CheckCircle, RefreshCw, Wifi, WifiOff, Settings, Loader2, Brain, Zap, X, ExternalLink, Check, ChevronDown, BarChart3, ChevronRight } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { signalsApi, tradeLockerApi, SignalAnalysis } from '../services/apiService';
 
@@ -17,6 +17,8 @@ const Signals: React.FC = () => {
   const [showTlModal, setShowTlModal] = useState(false);
   const [tlAccount, setTlAccount] = useState<any>(null);
   const [tlError, setTlError] = useState<string | null>(null);
+  const [activeChartTf, setActiveChartTf] = useState<string>('H1');
+  const [expandedCharts, setExpandedCharts] = useState<Set<string>>(new Set());
 
   // Load signals from database
   useEffect(() => {
@@ -135,6 +137,31 @@ const Signals: React.FC = () => {
   const calculatePips = (signal: SignalAnalysis) => {
     const pips = Math.abs(signal.take_profit - signal.entry_price) * 10000;
     return pips.toFixed(1);
+  };
+
+  const toggleCharts = (signalId: string) => {
+    const newExpanded = new Set(expandedCharts);
+    if (newExpanded.has(signalId)) {
+      newExpanded.delete(signalId);
+    } else {
+      newExpanded.add(signalId);
+    }
+    setExpandedCharts(newExpanded);
+  };
+
+  const getTradingViewWidgetUrl = (symbol: string, interval: string) => {
+    const tvSymbol = `OANDA:${symbol}`;
+    const encodedSymbol = encodeURIComponent(tvSymbol);
+    return `https://www.tradingview.com/widget/?symbol=${encodedSymbol}&interval=${interval}&theme=dark&style=1&locale=en&toolbarbg=f1f3f6&hideideasbutton=1&hidelegend=0&saveimage=1&calendar=0&studies=[]& withdateranges=1&hidevolume=0&theme=light`;
+  };
+
+  const timeframeIntervals: Record<string, string> = {
+    'M15': '15',
+    'H1': '60',
+    'H4': '240',
+    'D1': '1D',
+    'W1': '1W',
+    'MN': '1M'
   };
 
   return (
@@ -430,6 +457,59 @@ const Signals: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              {/* TradingView Charts */}
+              <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={() => toggleCharts(signal.id)}
+                  className="flex items-center justify-between w-full text-left"
+                >
+                  <div className="flex items-center space-x-2">
+                    <BarChart3 className="w-5 h-5 text-blue-500" />
+                    <h4 className="text-sm font-medium text-gray-900 dark:text-white">TradingView Charts</h4>
+                    <span className="text-xs text-gray-500">(M15, H1, H4, D1, W1, MN)</span>
+                  </div>
+                  <ChevronRight className={`w-5 h-5 text-gray-400 transition-transform ${expandedCharts.has(signal.id) ? 'rotate-90' : ''}`} />
+                </button>
+                
+                {expandedCharts.has(signal.id) && (
+                  <div className="mt-4 space-y-4">
+                    {/* Timeframe Tabs */}
+                    <div className="flex flex-wrap gap-2">
+                      {Object.keys(timeframeIntervals).map((tf) => (
+                        <button
+                          key={tf}
+                          onClick={() => setActiveChartTf(tf)}
+                          className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                            activeChartTf === tf
+                              ? 'bg-blue-500 text-white'
+                              : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
+                          }`}
+                        >
+                          {tf}
+                        </button>
+                      ))}
+                    </div>
+                    
+                    {/* TradingView Widget Embed */}
+                    <div className="relative rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                      <iframe
+                        src={getTradingViewWidgetUrl(signal.symbol, timeframeIntervals[activeChartTf])}
+                        width="100%"
+                        height="400"
+                        frameBorder="0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                        title={`${signal.symbol} ${activeChartTf} Chart`}
+                        className="w-full"
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500 text-center">
+                      {signal.symbol} - {activeChartTf} timeframe powered by TradingView
+                    </p>
+                  </div>
+                )}
+              </div>
 
               {/* Trade Setup */}
               {signal.trade_setup && (
