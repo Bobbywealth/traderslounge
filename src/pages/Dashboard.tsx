@@ -1,5 +1,5 @@
 import React from 'react';
-import { TrendingUp, TrendingDown, DollarSign, Target, Sparkles, LucideIcon } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Target, Sparkles, LucideIcon, Wallet, Activity } from 'lucide-react';
 import MetricCard from '../components/MetricCard';
 import PerformanceChart from '../components/PerformanceChart';
 import TradingChart from '../components/TradingChart';
@@ -65,6 +65,13 @@ const Dashboard: React.FC = () => {
       icon: TrendingDown,
     },
   ];
+
+  const formatCurrency = (value: number, currency = 'USD') =>
+    new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 2,
+    }).format(value);
 
   return (
     <div className="space-y-6">
@@ -140,6 +147,74 @@ const Dashboard: React.FC = () => {
       {/* Recent Trades */}
       <div className="dashboard-card p-5 card-hover">
         <RecentTrades />
+      </div>
+
+      {/* TradeLocker account overview */}
+      <div className="dashboard-card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">TradeLocker Accounts</h2>
+          <Wallet className="w-5 h-5 text-emerald-500" />
+        </div>
+
+        {accounts.length === 0 ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Connect and sync your TradeLocker account to view balances, equity, and open positions here.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {accounts.map((account) => {
+              const accountOpenPositions = trades.filter(
+                (trade) => trade.status === 'open' && trade.id.startsWith(`trade_${account.id.replace('account_', '')}_`)
+              );
+              const accountPositionPnL = accountOpenPositions.reduce((sum, trade) => sum + trade.profit, 0);
+
+              return (
+                <div
+                  key={account.id}
+                  className="rounded-xl border border-gray-200/80 dark:border-gray-700 bg-white/60 dark:bg-gray-800/40 p-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                    <div>
+                      <h3 className="font-semibold text-gray-900 dark:text-white">{account.brokerName}</h3>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        #{account.accountNumber} • {account.accountType.toUpperCase()} • {account.isConnected ? 'Connected' : 'Disconnected'}
+                      </p>
+                    </div>
+                    <div className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                      <Activity className="w-3.5 h-3.5" />
+                      {accountOpenPositions.length} Open Position{accountOpenPositions.length !== 1 ? 's' : ''}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-sm">
+                    <div className="rounded-lg bg-gray-50 dark:bg-gray-700/40 p-3">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Balance</p>
+                      <p className="font-semibold text-gray-900 dark:text-white">{formatCurrency(account.balance, account.currency)}</p>
+                    </div>
+                    <div className="rounded-lg bg-gray-50 dark:bg-gray-700/40 p-3">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Equity</p>
+                      <p className="font-semibold text-gray-900 dark:text-white">{formatCurrency(account.equity, account.currency)}</p>
+                    </div>
+                    <div className="rounded-lg bg-gray-50 dark:bg-gray-700/40 p-3">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Margin Used</p>
+                      <p className="font-semibold text-gray-900 dark:text-white">{formatCurrency(account.margin, account.currency)}</p>
+                    </div>
+                    <div className="rounded-lg bg-gray-50 dark:bg-gray-700/40 p-3">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Free Margin</p>
+                      <p className="font-semibold text-gray-900 dark:text-white">{formatCurrency(account.freeMargin, account.currency)}</p>
+                    </div>
+                    <div className="rounded-lg bg-gray-50 dark:bg-gray-700/40 p-3">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Open P&L</p>
+                      <p className={`font-semibold ${accountPositionPnL >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {formatCurrency(accountPositionPnL, account.currency)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
