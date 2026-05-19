@@ -1,5 +1,10 @@
 // API Service for communicating with backend server
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://traderslounge.onrender.com';
+const FALLBACK_API_URL = 'https://traderslounge-api.onrender.com';
+const API_BASE_URL = import.meta.env.VITE_API_URL || FALLBACK_API_URL;
+
+if (!import.meta.env.VITE_API_URL && import.meta.env.DEV) {
+  console.warn(`VITE_API_URL is not set. Falling back to ${FALLBACK_API_URL}.`);
+}
 
 export interface SignalAnalysis {
   id: string;
