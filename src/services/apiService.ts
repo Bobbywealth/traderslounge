@@ -148,14 +148,31 @@ export const signalsApi = {
       throw new Error(data.error || 'Failed to fetch signals');
     }
     
-    return data.signals;
+    return data.signals.map((s: any) => ({
+      ...s,
+      entry_price: parseFloat(s.entry_price),
+      stop_loss: parseFloat(s.stop_loss),
+      take_profit: parseFloat(s.take_profit),
+      risk_reward_ratio: parseFloat(s.risk_reward_ratio),
+      confidence: parseFloat(s.confidence),
+      trend_strength: parseFloat(s.trend_strength),
+    }));
   },
   
   async getSignal(symbol: string): Promise<SignalAnalysis | null> {
     try {
       const response = await fetch(`${API_BASE_URL}/api/signals/${symbol}`);
       const data = await response.json();
-      return data.success ? data.signal : null;
+      const s = data.signal;
+      return s ? {
+        ...s,
+        entry_price: parseFloat(s.entry_price),
+        stop_loss: parseFloat(s.stop_loss),
+        take_profit: parseFloat(s.take_profit),
+        risk_reward_ratio: parseFloat(s.risk_reward_ratio),
+        confidence: parseFloat(s.confidence),
+        trend_strength: parseFloat(s.trend_strength),
+      } : null;
     } catch {
       return null;
     }
@@ -174,7 +191,18 @@ export const signalsApi = {
       throw new Error(data.error || 'Failed to refresh signals');
     }
     
-    return data.results;
+    return data.results.map((r: any) => r.signal ? {
+      ...r,
+      signal: {
+        ...r.signal,
+        entry_price: parseFloat(r.signal.entry_price),
+        stop_loss: parseFloat(r.signal.stop_loss),
+        take_profit: parseFloat(r.signal.take_profit),
+        risk_reward_ratio: parseFloat(r.signal.risk_reward_ratio),
+        confidence: parseFloat(r.signal.confidence),
+        trend_strength: parseFloat(r.signal.trend_strength),
+      }
+    } : r);
   },
   
   async cleanup(): Promise<number> {
