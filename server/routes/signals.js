@@ -61,8 +61,8 @@ const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY;
 
 async function getMarketData(symbol) {
   if (!FINNHUB_API_KEY) {
-    // Throw error if no API key - real data is required
-    throw new Error(`FINNHUB_API_KEY not configured. Cannot fetch market data for ${symbol}`);
+    // Defensive fallback: refresh route should guard this before calling per symbol.
+    throw new Error(`FINNHUB_API_KEY missing while fetching market data for ${symbol}`);
   }
 
   try {
@@ -148,6 +148,15 @@ router.post('/refresh', async (req, res) => {
         error: 'PERPLEXITY_API_KEY not configured' 
       });
     }
+
+    if (!process.env.FINNHUB_API_KEY) {
+      console.warn('Refresh skipped: FINNHUB_API_KEY is not configured');
+      return res.status(503).json({
+        success: false,
+        error_code: 'FINNHUB_API_KEY_MISSING',
+        error: 'Market data service is temporarily unavailable. Please try again later.'
+      });
+    }
     
     const results = [];
     
@@ -221,7 +230,14 @@ router.post('/refresh', async (req, res) => {
           
           return { symbol, success: true, signal: result.rows[0] };
         } catch (error) {
-          console.error(`Failed to analyze ${symbol}:`, error);
+          const isExpectedConfigError = error?.message?.includes('FINNHUB_API_KEY');
+
+          if (isExpectedConfigError) {
+            console.warn(`Failed to analyze ${symbol}: ${error.message}`);
+          } else {
+            console.error(`Failed to analyze ${symbol}:`, error);
+          }
+
           return { symbol, success: false, error: error.message };
         }
       });
