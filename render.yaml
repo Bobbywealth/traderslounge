@@ -9,3 +9,5 @@ services:
     envVars:
       - key: VITE_DATABASE_URL
         value: postgresql://traders_lounge_db_user:0yg1FWCjlBcNZSVJewXIS2mIVDNyl7zn@dpg-d85stamgvqtc73e5j8vg-a/traders_lounge_db
+      - key: VITE_PERPLEXITY_API_KEY
+        value: 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
