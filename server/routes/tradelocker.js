@@ -6,10 +6,10 @@ const router = express.Router();
 const DEMO_BASE_URL = 'https://demo.tradelocker.com/backend-api';
 const LIVE_BASE_URL = 'https://live.tradelocker.com/backend-api';
 
-// Store tokens in memory (in production, use secure session storage or Redis)
+// Store tokens + account info in memory
 const tokenStore = new Map();
 
-// Auto-authenticate using environment credentials
+// Auto-authenticate and fetch account info
 async function getAutoAuthTokens() {
   const email = process.env.TRADELOCKER_EMAIL;
   const password = process.env.TRADELOCKER_PASSWORD;
@@ -23,30 +23,73 @@ async function getAutoAuthTokens() {
   const baseUrl = isDemo ? DEMO_BASE_URL : LIVE_BASE_URL;
 
   try {
-    const response = await axios.post(
+    // Step 1: Authenticate
+    const authResponse = await axios.post(
       `${baseUrl}/auth/jwt/token`,
       { email, password, server },
       { headers: { 'Content-Type': 'application/json' }, timeout: 30000 }
     );
-    return {
-      accessToken: response.data.accessToken,
-      refreshToken: response.data.refreshToken,
+
+    const tokens = {
+      accessToken: authResponse.data.accessToken,
+      refreshToken: authResponse.data.refreshToken,
       baseUrl,
-      expiresAt: Date.now() + (response.data.accessTokenExpiration * 1000)
+      expiresAt: Date.now() + (authResponse.data.accessTokenExpiration * 1000),
+      accountId: null,
+      accountNum: null
     };
+
+    // Step 2: Fetch account list (demo uses accNum=1)
+    const accNum = isDemo ? 1 : (parseInt(process.env.TRADELOCKER_ACCOUNT_NUM) || 1);
+    try {
+      const accountsResponse = await axios.get(`${baseUrl}/trade/accounts`, {
+        headers: {
+          'Authorization': `Bearer ${tokens.accessToken}`,
+          'accNum': accNum.toString()
+        },
+        timeout: 30000
+      });
+
+      const accounts = accountsResponse.data?.d || accountsResponse.data?.accounts || [];
+      if (accounts.length > 0) {
+        tokens.accountId = accounts[0].id;
+        tokens.accountNum = accNum;
+        tokens.account = accounts[0];
+      }
+    } catch (accError) {
+      console.warn('Could not fetch account info (accNum may differ):', accError.response?.data?.message || accError.message);
+      // Try common accNum values
+      if (isDemo) {
+        for (const num of [1, 2, 3]) {
+          try {
+            const r = await axios.get(`${baseUrl}/trade/accounts`, {
+              headers: { 'Authorization': `Bearer ${tokens.accessToken}`, 'accNum': num.toString() },
+              timeout: 10000
+            });
+            const accounts = r.data?.d || r.data?.accounts || [];
+            if (accounts.length > 0) {
+              tokens.accountId = accounts[0].id;
+              tokens.accountNum = num;
+              tokens.account = accounts[0];
+              break;
+            }
+          } catch {}
+        }
+      }
+    }
+
+    return tokens;
   } catch (error) {
-    console.error('Auto-auth failed:', error.message);
+    console.error('Auto-auth failed:', error.response?.data?.message || error.message);
     return null;
   }
 }
 
-// Helper: get or refresh valid tokens (sessionId or auto-auth)
+// Helper: get or refresh valid tokens
 async function getValidTokens(sessionId = null) {
-  // Check if we have a session
   if (sessionId && tokenStore.has(sessionId)) {
     const session = tokenStore.get(sessionId);
-    // Check if expired
-    if (session.expiresAt > Date.now() + 60000) { // 1 min buffer
+    if (session.expiresAt > Date.now() + 60000) {
       return session;
     }
     // Try refresh
@@ -68,8 +111,24 @@ async function getValidTokens(sessionId = null) {
       tokenStore.delete(sessionId);
     }
   }
-  // Fall back to auto-auth
   return getAutoAuthTokens();
+}
+
+// Make authenticated request to TradeLocker
+async function tlRequest(method, path, tokens, data = null, params = null) {
+  const headers = {
+    'Authorization': `Bearer ${tokens.accessToken}`,
+    'Content-Type': 'application/json'
+  };
+  if (tokens.accountNum) {
+    headers['accNum'] = tokens.accountNum.toString();
+  }
+
+  const config = { method, url: `${tokens.baseUrl}${path}`, headers, timeout: 30000 };
+  if (data) config.data = data;
+  if (params) config.params = params;
+
+  return axios(config);
 }
 
 // Authenticate with TradeLocker
@@ -78,26 +137,42 @@ router.post('/auth', async (req, res) => {
     const { email, password, server, isDemo = true, sessionId } = req.body;
     const baseUrl = isDemo ? DEMO_BASE_URL : LIVE_BASE_URL;
 
-    const response = await axios.post(
+    const authResponse = await axios.post(
       `${baseUrl}/auth/jwt/token`,
       { email, password, server },
-      {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 30000
-      }
+      { headers: { 'Content-Type': 'application/json' }, timeout: 30000 }
     );
 
-    // Store tokens associated with session
-    if (sessionId) {
-      tokenStore.set(sessionId, {
-        accessToken: response.data.accessToken,
-        refreshToken: response.data.refreshToken,
-        baseUrl,
-        expiresAt: Date.now() + (response.data.accessTokenExpiration * 1000)
+    const tokens = {
+      accessToken: authResponse.data.accessToken,
+      refreshToken: authResponse.data.refreshToken,
+      baseUrl,
+      expiresAt: Date.now() + (authResponse.data.accessTokenExpiration * 1000),
+      accountId: null,
+      accountNum: null,
+      account: null
+    };
+
+    // Fetch account
+    const accNum = isDemo ? 1 : 1;
+    try {
+      const accountsResponse = await axios.get(`${baseUrl}/trade/accounts`, {
+        headers: { 'Authorization': `Bearer ${tokens.accessToken}`, 'accNum': accNum.toString() },
+        timeout: 30000
       });
+      const accounts = accountsResponse.data?.d || accountsResponse.data?.accounts || [];
+      if (accounts.length > 0) {
+        tokens.accountId = accounts[0].id;
+        tokens.accountNum = accNum;
+        tokens.account = accounts[0];
+      }
+    } catch {}
+
+    if (sessionId) {
+      tokenStore.set(sessionId, tokens);
     }
 
-    res.json(response.data);
+    res.json({ ...authResponse.data, account: tokens.account });
   } catch (error) {
     console.error('TradeLocker auth error:', error.message);
     res.status(error.response?.status || 500).json({
@@ -112,149 +187,180 @@ router.post('/refresh', async (req, res) => {
   try {
     const { sessionId } = req.body;
     const tokens = tokenStore.get(sessionId);
-
     if (!tokens) {
       return res.status(401).json({ error: 'No session found' });
     }
 
-    const response = await axios.post(
+    const refreshResponse = await axios.post(
       `${tokens.baseUrl}/auth/jwt/refresh`,
       { refreshToken: tokens.refreshToken },
       { timeout: 30000 }
     );
 
-    // Update stored tokens
-    tokenStore.set(sessionId, {
+    const updated = {
       ...tokens,
-      accessToken: response.data.accessToken,
-      refreshToken: response.data.refreshToken,
-      expiresAt: Date.now() + (response.data.accessTokenExpiration * 1000)
-    });
-
-    res.json(response.data);
+      accessToken: refreshResponse.data.accessToken,
+      refreshToken: refreshResponse.data.refreshToken,
+      expiresAt: Date.now() + (refreshResponse.data.accessTokenExpiration * 1000)
+    };
+    tokenStore.set(sessionId, updated);
+    res.json(refreshResponse.data);
   } catch (error) {
     console.error('Token refresh error:', error.message);
-    res.status(error.response?.status || 500).json({
-      error: 'Token refresh failed',
-      message: error.message
+    res.status(error.response?.status || 500).json({ error: 'Token refresh failed', message: error.message });
+  }
+});
+
+// Check connection status
+router.get('/status', async (req, res) => {
+  const sessionId = req.query.sessionId || req.body?.sessionId;
+  const tokens = await getValidTokens(sessionId);
+  if (tokens) {
+    res.json({
+      connected: true,
+      demo: tokens.baseUrl === DEMO_BASE_URL,
+      accountId: tokens.accountId,
+      account: tokens.account
+    });
+  } else {
+    res.json({
+      connected: false,
+      hasCredentials: !!(process.env.TRADELOCKER_EMAIL && process.env.TRADELOCKER_PASSWORD && process.env.TRADELOCKER_SERVER)
     });
   }
 });
 
-// Proxy helper function - supports sessionId from query params or body, falls back to auto-auth
-async function proxyRequest(req, res, method, path, data = null) {
-  const sessionId = req.body?.sessionId || req.query?.sessionId;
-  const session = await getValidTokens(sessionId);
-
-  if (!session || !session.accessToken) {
+// Get account info
+router.get('/account', async (req, res) => {
+  const sessionId = req.query.sessionId || req.body?.sessionId;
+  const tokens = await getValidTokens(sessionId);
+  if (!tokens) {
     return res.status(401).json({ error: 'Not authenticated. Set TRADELOCKER_EMAIL, TRADELOCKER_PASSWORD, TRADELOCKER_SERVER env vars.' });
   }
 
-  try {
-    const config = {
-      method,
-      url: `${session.baseUrl}${path}`,
-      headers: {
-        'Authorization': `Bearer ${session.accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      timeout: 30000
-    };
-
-    if (data) {
-      config.data = data;
-    }
-
-    const response = await axios(config);
-    res.json(response.data);
-  } catch (error) {
-    console.error(`TradeLocker ${method} ${path} error:`, error.message);
-    
-    if (error.response?.status === 401) {
-      // Try to refresh token
-      try {
-        const refreshResponse = await axios.post(
-          `${session.baseUrl}/auth/jwt/refresh`,
-          { refreshToken: session.refreshToken }
-        );
-
-        // Update stored tokens
-        const newSession = {
-          ...session,
-          accessToken: refreshResponse.data.accessToken,
-          refreshToken: refreshResponse.data.refreshToken,
-          expiresAt: Date.now() + (refreshResponse.data.accessTokenExpiration * 1000)
-        };
-        tokenStore.set(sessionId, newSession);
-
-        // Retry original request
-        const config = {
-          method,
-          url: `${session.baseUrl}${path}`,
-          headers: {
-            'Authorization': `Bearer ${newSession.accessToken}`,
-            'Content-Type': 'application/json'
-          },
-          timeout: 30000
-        };
-        if (data) config.data = data;
-
-        const response = await axios(config);
-        return res.json(response.data);
-      } catch (refreshError) {
-        console.error('Token refresh failed:', refreshError.message);
-        return res.status(401).json({ error: 'Session expired' });
-      }
-    }
-
-    res.status(error.response?.status || 500).json({
-      error: 'Request failed',
-      message: error.message
-    });
+  if (tokens.account) {
+    return res.json({ accounts: [tokens.account] });
   }
-}
+
+  // Try to fetch if not cached
+  try {
+    const response = await tlRequest('GET', '/trade/accounts', tokens);
+    const accounts = response.data?.d || response.data?.accounts || [];
+    res.json({ accounts });
+  } catch (error) {
+    res.status(error.response?.status || 500).json({ error: error.message });
+  }
+});
 
 // Get positions
-router.get('/positions', (req, res) => {
+router.get('/positions', async (req, res) => {
   const { sessionId, accountId } = req.query;
-  proxyRequest(req, res, 'GET', `/trade/accounts/${accountId}/positions`);
+  const tokens = await getValidTokens(sessionId);
+  if (!tokens) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  const accId = accountId || tokens.accountId;
+  try {
+    const response = await tlRequest('GET', `/trade/accounts/${accId}/positions`, tokens);
+    res.json(response.data);
+  } catch (error) {
+    res.status(error.response?.status || 500).json({ error: error.message });
+  }
 });
 
 // Get orders
-router.get('/orders', (req, res) => {
+router.get('/orders', async (req, res) => {
   const { sessionId, accountId } = req.query;
-  proxyRequest(req, res, 'GET', `/trade/accounts/${accountId}/orders`);
+  const tokens = await getValidTokens(sessionId);
+  if (!tokens) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  const accId = accountId || tokens.accountId;
+  try {
+    const response = await tlRequest('GET', `/trade/accounts/${accId}/orders`, tokens);
+    res.json(response.data);
+  } catch (error) {
+    res.status(error.response?.status || 500).json({ error: error.message });
+  }
 });
 
 // Get instruments
-router.get('/instruments', (req, res) => {
+router.get('/instruments', async (req, res) => {
   const { sessionId, accountId } = req.query;
-  proxyRequest(req, res, 'GET', `/trade/accounts/${accountId}/instruments`);
+  const tokens = await getValidTokens(sessionId);
+  if (!tokens) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  const accId = accountId || tokens.accountId;
+  try {
+    const response = await tlRequest('GET', `/trade/accounts/${accId}/instruments`, tokens);
+    res.json(response.data);
+  } catch (error) {
+    res.status(error.response?.status || 500).json({ error: error.message });
+  }
 });
 
 // Get history
-router.get('/history', (req, res) => {
+router.get('/history', async (req, res) => {
   const { sessionId, accountId, symbol, timeframe, count } = req.query;
-  const params = new URLSearchParams({ symbol, timeframe, count });
-  proxyRequest(req, res, 'GET', `/trade/history?${params}`);
+  const tokens = await getValidTokens(sessionId);
+  if (!tokens) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  try {
+    const response = await tlRequest('GET', '/trade/history', tokens, null, { symbol, timeframe, count });
+    res.json(response.data);
+  } catch (error) {
+    res.status(error.response?.status || 500).json({ error: error.message });
+  }
 });
 
 // Create order
-router.post('/order', (req, res) => {
+router.post('/order', async (req, res) => {
   const { sessionId, accountId, ...orderData } = req.body;
-  proxyRequest(req, res, 'POST', `/trade/accounts/${accountId}/orders`, orderData);
+  const tokens = await getValidTokens(sessionId);
+  if (!tokens) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  const accId = accountId || tokens.accountId;
+  try {
+    const response = await tlRequest('POST', `/trade/accounts/${accId}/orders`, tokens, orderData);
+    res.json(response.data);
+  } catch (error) {
+    res.status(error.response?.status || 500).json({ error: error.message });
+  }
 });
 
 // Close position
-router.delete('/position/:positionId', (req, res) => {
+router.delete('/position/:positionId', async (req, res) => {
   const { sessionId, accountId } = req.body;
-  proxyRequest(req, res, 'DELETE', `/trade/accounts/${accountId}/positions/${req.params.positionId}`);
+  const tokens = await getValidTokens(sessionId);
+  if (!tokens) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  const accId = accountId || tokens.accountId;
+  try {
+    const response = await tlRequest('DELETE', `/trade/accounts/${accId}/positions/${req.params.positionId}`, tokens);
+    res.json(response.data);
+  } catch (error) {
+    res.status(error.response?.status || 500).json({ error: error.message });
+  }
 });
 
 // Cancel order
-router.delete('/order/:orderId', (req, res) => {
+router.delete('/order/:orderId', async (req, res) => {
   const { sessionId, accountId } = req.body;
-  proxyRequest(req, res, 'DELETE', `/trade/accounts/${accountId}/orders/${req.params.orderId}`);
+  const tokens = await getValidTokens(sessionId);
+  if (!tokens) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  const accId = accountId || tokens.accountId;
+  try {
+    const response = await tlRequest('DELETE', `/trade/accounts/${accId}/orders/${req.params.orderId}`, tokens);
+    res.json(response.data);
+  } catch (error) {
+    res.status(error.response?.status || 500).json({ error: error.message });
+  }
 });
 
 // Disconnect/logout
@@ -266,85 +372,46 @@ router.post('/disconnect', (req, res) => {
   res.json({ success: true });
 });
 
-// Check connection status (uses auto-auth or session)
-router.get('/status', async (req, res) => {
-  const sessionId = req.query.sessionId || req.body?.sessionId;
-  const tokens = await getValidTokens(sessionId);
-  if (tokens) {
-    res.json({ connected: true, demo: tokens.baseUrl === DEMO_BASE_URL });
-  } else {
-    res.json({ connected: false, hasCredentials: !!(process.env.TRADELOCKER_EMAIL && process.env.TRADELOCKER_PASSWORD && process.env.TRADELOCKER_SERVER) });
-  }
-});
-
-// Get account info (requires auto-auth or session)
-router.get('/account', async (req, res) => {
-  const sessionId = req.query.sessionId || req.body?.sessionId;
-  const tokens = await getValidTokens(sessionId);
-  if (!tokens) {
-    return res.status(401).json({ error: 'Not authenticated. Set TRADELOCKER_EMAIL, TRADELOCKER_PASSWORD, TRADELOCKER_SERVER env vars, or provide sessionId.' });
-  }
-  try {
-    const response = await axios.get(`${tokens.baseUrl}/trade/accounts`, {
-      headers: { 'Authorization': `Bearer ${tokens.accessToken}` },
-      timeout: 30000
-    });
-    res.json(response.data);
-  } catch (error) {
-    console.error('Get account error:', error.message);
-    res.status(error.response?.status || 500).json({ error: error.message });
-  }
-});
-
 // Execute trade from signal
 router.post('/execute-signal', async (req, res) => {
   const sessionId = req.body?.sessionId;
   const tokens = await getValidTokens(sessionId);
   if (!tokens) {
-    return res.status(401).json({ error: 'Not authenticated. Set TRADELOCKER_EMAIL, TRADELOCKER_PASSWORD, TRADELOCKER_SERVER env vars, or provide sessionId.' });
+    return res.status(401).json({ error: 'Not authenticated. Set TRADELOCKER_EMAIL, TRADELOCKER_PASSWORD, TRADELOCKER_SERVER env vars.' });
   }
 
   try {
-    // Get account first
-    const accountsResponse = await axios.get(`${tokens.baseUrl}/trade/accounts`, {
-      headers: { 'Authorization': `Bearer ${tokens.accessToken}` },
-      timeout: 30000
-    });
-    const accounts = accountsResponse.data?.accounts || accountsResponse.data;
-    if (!accounts || accounts.length === 0) {
-      return res.status(400).json({ error: 'No trading accounts found' });
-    }
-    const accountId = req.body.accountId || accounts[0].id;
-
-    // Build order from signal data
     const { signal, orderType = 'market', quantity = 1 } = req.body;
     if (!signal?.symbol || !signal?.direction) {
       return res.status(400).json({ error: 'signal.symbol and signal.direction are required' });
     }
 
-    // Map symbol for TradeLocker (e.g., EURUSD → EURUSD, XAUUSD → XAUUSD)
-    const symbol = signal.symbol;
-    const direction = signal.direction.toLowerCase();
+    // Use cached account or fetch
+    let accountId = tokens.accountId;
+    if (!accountId) {
+      const accNum = tokens.baseUrl === DEMO_BASE_URL ? 1 : 1;
+      const accountsResponse = await tlRequest('GET', '/trade/accounts', tokens);
+      const accounts = accountsResponse.data?.d || accountsResponse.data?.accounts || [];
+      if (accounts.length === 0) {
+        return res.status(400).json({ error: 'No trading accounts found' });
+      }
+      accountId = accounts[0].id;
+    }
 
     const orderPayload = {
-      symbol,
-      side: direction === 'buy' ? 'buy' : 'sell',
-      quantity: quantity,
+      symbol: signal.symbol,
+      side: signal.direction.toLowerCase() === 'buy' ? 'buy' : 'sell',
+      quantity,
       type: orderType,
       ...(signal.entry_price && { entryPrice: signal.entry_price }),
       ...(signal.stop_loss && { stopLoss: signal.stop_loss }),
       ...(signal.take_profit && { takeProfit: signal.take_profit }),
     };
 
-    const response = await axios.post(
-      `${tokens.baseUrl}/trade/accounts/${accountId}/orders`,
-      orderPayload,
-      { headers: { 'Authorization': `Bearer ${tokens.accessToken}`, 'Content-Type': 'application/json' }, timeout: 30000 }
-    );
-
+    const response = await tlRequest('POST', `/trade/accounts/${accountId}/orders`, tokens, orderPayload);
     res.json({ success: true, order: response.data, signal });
   } catch (error) {
-    console.error('Execute signal error:', error.message);
+    console.error('Execute signal error:', error.response?.data || error.message);
     res.status(error.response?.status || 500).json({
       error: 'Failed to execute trade',
       message: error.response?.data?.message || error.message
