@@ -7,7 +7,7 @@ services:
     plan: free
     rootDir: .
     buildCommand: npm install && npm run build
-    startCommand: npm run start
+    startCommand: npx serve -s dist -l 10000
     healthCheckPath: /
     envVars:
       - key: VITE_DATABASE_URL
