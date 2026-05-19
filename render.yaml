@@ -10,9 +10,9 @@ services:
     startCommand: npm run start
     envVars:
       - key: VITE_DATABASE_URL
-        value: postgresql://traders_lounge_db_user:0yg1FWCjlBcNZSVJewXIS2mIVDNyl7zn@dpg-d85stamgvqtc73e5j8vg-a/traders_lounge_db
+        sync: false
       - key: VITE_PERPLEXITY_API_KEY
-        value: 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
+        sync: false
       - key: VITE_FINNHUB_API_KEY
         sync: false
       - key: VITE_API_URL
@@ -29,8 +29,8 @@ services:
     startCommand: npm start
     envVars:
       - key: DATABASE_URL
-        value: postgresql://traders_lounge_db_user:0yg1FWCjlBcNZSVJewXIS2mIVDNyl7zn@dpg-d85stamgvqtc73e5j8vg-a/traders_lounge_db
+        sync: false
       - key: PERPLEXITY_API_KEY
-        value: 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
+        sync: false
       - key: FINNHUB_API_KEY
         sync: false
