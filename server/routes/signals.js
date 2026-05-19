@@ -77,29 +77,7 @@ async function initializeTable() {
 }
 initializeTable();
 
-// Import perplexity service
-import { analyzeWithPerplexity } from './perplexity.js';
-
-// Use lightweight baseline market data so signal generation relies only on Perplexity API access.
-const BASELINE_PRICES = {
-  EURUSD: 1.08,
-  GBPUSD: 1.27,
-  USDJPY: 155.0,
-  XAUUSD: 2350.0,
-  AUDUSD: 0.66,
-  USDCAD: 1.36,
-};
-
-async function getMarketData(symbol) {
-  const currentPrice = BASELINE_PRICES[symbol] ?? 1.0;
-
-  return {
-    currentPrice,
-    high24h: currentPrice * 1.008,
-    low24h: currentPrice * 0.992,
-    changePercent: 0,
-  };
-}
+import { runStrategy } from '../services/strategy.js';
 
 // Get all signals
 router.get('/', async (req, res) => {
@@ -179,24 +157,14 @@ router.post('/refresh', async (req, res) => {
   refreshState.startedAt = new Date();
 
   try {
-    const { symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'AUDUSD', 'USDCAD'] } = req.body;
-    
-    if (!process.env.PERPLEXITY_API_KEY) {
-      return res.status(500).json({ 
-        success: false, 
-        error: 'PERPLEXITY_API_KEY not configured' 
-      });
-    }
+    const DEFAULT_SYMBOLS = [
+      'XAUUSD', 'GBPUSD', 'EURUSD', 'USDJPY', 'GBPJPY',
+      'NAS100', 'US30',
+      'BTCUSD', 'ETHUSD', 'XRPUSD', 'LTCUSD',
+      'DOTUSD', 'XLMUSD', 'BATUSD', 'NEOUSD',
+    ];
+    const { symbols = DEFAULT_SYMBOLS } = req.body;
 
-    if (!process.env.FINNHUB_API_KEY) {
-      console.warn('Refresh skipped: FINNHUB_API_KEY is not configured');
-      return res.status(503).json({
-        success: false,
-        error_code: 'FINNHUB_API_KEY_MISSING',
-        error: 'Market data service is temporarily unavailable. Please try again later.'
-      });
-    }
-    
     const results = [];
     
     // Process 4 symbols at a time
@@ -208,12 +176,26 @@ router.post('/refresh', async (req, res) => {
       
       const batchPromises = batch.map(async (symbol) => {
         try {
-          const marketData = await getMarketData(symbol);
-          const analysis = await analyzeWithPerplexity(symbol, marketData);
-          
-          // Store in database
+          const analysis = await runStrategy(symbol);
+
+          if (analysis.no_trade) {
+            return { symbol, success: true, no_trade: true, reason: analysis.reason || 'No qualifying setup' };
+          }
+
           const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000); // 4 hours
-          
+          const tradeSetup = {
+            ...analysis.trade_setup,
+            score_breakdown: analysis.score_breakdown,
+            alert_level: analysis.alert_level,
+            risk_level: analysis.risk_level,
+            session: analysis.session,
+            pattern: analysis.trade_setup?.pattern || null,
+            tp1: analysis.tp1,
+            tp2: analysis.tp2,
+            tp3: analysis.tp3,
+            adr: analysis.adr,
+          };
+
           const result = await pool.query(`
             INSERT INTO signal_analyses (
               symbol, analysis_type, direction, entry_price, stop_loss, take_profit,
@@ -221,7 +203,7 @@ router.post('/refresh', async (req, res) => {
               reasoning, market_summary, support_levels, resistance_levels,
               key_levels, timeframes, trade_setup, risk_factors, expires_at
             ) VALUES (
-              $1, 'perplexity_analysis', $2, $3, $4, $5,
+              $1, 'strategy_v1', $2, $3, $4, $5,
               $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
             )
             ON CONFLICT (symbol, analysis_type) DO UPDATE SET
@@ -258,25 +240,18 @@ router.post('/refresh', async (req, res) => {
             analysis.sentiment,
             analysis.reasoning,
             analysis.market_summary,
-            JSON.stringify(analysis.support_levels),
-            JSON.stringify(analysis.resistance_levels),
-            JSON.stringify({ key_level_1: analysis.key_level_1, key_level_2: analysis.key_level_2 }),
-            JSON.stringify(analysis.timeframes),
-            JSON.stringify(analysis.trade_setup),
-            JSON.stringify(analysis.risk_factors),
+            JSON.stringify(analysis.support_levels || []),
+            JSON.stringify(analysis.resistance_levels || []),
+            JSON.stringify(analysis.key_levels || {}),
+            JSON.stringify(analysis.timeframes || {}),
+            JSON.stringify(tradeSetup),
+            JSON.stringify(analysis.risk_factors || []),
             expiresAt
           ]);
-          
+
           return { symbol, success: true, signal: result.rows[0] };
         } catch (error) {
-          const isExpectedConfigError = error?.message?.includes('FINNHUB_API_KEY');
-
-          if (isExpectedConfigError) {
-            console.warn(`Failed to analyze ${symbol}: ${error.message}`);
-          } else {
-            console.error(`Failed to analyze ${symbol}:`, error);
-          }
-
+          console.error(`Failed to analyze ${symbol}:`, error);
           return { symbol, success: false, error: error.message };
         }
       });
