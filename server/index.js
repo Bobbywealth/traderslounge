@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { tradeLockerRouter } from './routes/tradelocker.js';
 import { signalsRouter } from './routes/signals.js';
+import { getBars, getMultiTimeframeBars } from './services/marketData.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -61,6 +62,30 @@ app.get('/health', (req, res) => {
 // API Routes
 app.use('/api/tradelocker', tradeLockerRouter);
 app.use('/api/signals', signalsRouter);
+
+// Market data debug endpoint — helps diagnose why signals fail
+app.get('/api/market-data/:symbol', async (req, res) => {
+  const { symbol } = req.params;
+  const { timeframe = 'D1' } = req.query;
+  try {
+    const bars = await getBars(symbol, timeframe);
+    const last = bars.length ? bars[bars.length - 1] : null;
+    res.json({ symbol, timeframe, barCount: bars.length, lastPrice: last?.close, source: 'live' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/market-data', async (req, res) => {
+  const { symbol = 'EURUSD', timeframe = 'D1' } = req.query;
+  try {
+    const bars = await getBars(symbol, timeframe);
+    const last = bars.length ? bars[bars.length - 1] : null;
+    res.json({ symbol, timeframe, barCount: bars.length, lastPrice: last?.close });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Error handling middleware
 app.use((err, req, res, next) => {
