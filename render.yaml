@@ -1,10 +1,12 @@
+# Frontend Static Site
 services:
   - type: web
     name: traderslounge
     env: node
     region: oregon
     plan: free
-    buildCommand: npm install; npm run build
+    rootDir: .
+    buildCommand: npm install && npm run build
     startCommand: npm run start
     envVars:
       - key: VITE_DATABASE_URL
@@ -12,4 +14,23 @@ services:
       - key: VITE_PERPLEXITY_API_KEY
         value: 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
       - key: VITE_FINNHUB_API_KEY
+        sync: false
+      - key: VITE_API_URL
+        value: https://traderslounge-api.onrender.com
+
+# API Server
+  - type: web
+    name: traderslounge-api
+    env: node
+    region: oregon
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: DATABASE_URL
+        value: postgresql://traders_lounge_db_user:0yg1FWCjlBcNZSVJewXIS2mIVDNyl7zn@dpg-d85stamgvqtc73e5j8vg-a/traders_lounge_db
+      - key: PERPLEXITY_API_KEY
+        value: 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
+      - key: FINNHUB_API_KEY
         sync: false
