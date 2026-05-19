@@ -1,55 +1,47 @@
-// Finnhub OHLC fetcher for forex — fallback when TradeLocker/Yahoo/Binance are unavailable.
-const FINNHUB_BASE = 'https://api.finnhub.io/api/v1';
+// Frankfurter fallback — free, no API key needed. Returns current spot rate as a
+// single OHLCV bar for forex pairs. Only covers the 7 FX pairs Frankfurter supports.
+// Used as last-resort fallback when TradeLocker/Yahoo/Binance all fail.
+const FRANKFURTER_BASE = 'https://api.frankfurter.app';
 
-const FINNHUB_SYMBOLS = {
-  EURUSD: 'OANDA:EURUSD',
-  GBPUSD: 'OANDA:GBPUSD',
-  USDJPY: 'OANDA:USDJPY',
-  GBPJPY: 'OANDA:GBPJPY',
-  AUDUSD: 'OANDA:AUDUSD',
-  USDCAD: 'OANDA:USDCAD',
-  NZDUSD: 'OANDA:NZDUSD',
-  USDCHF: 'OANDA:USDCHF',
-  XAUUSD: 'OANDA:XAUUSD',
-  XAGUSD: 'OANDA:XAGUSD',
-  NAS100: 'OANDA:NAS100',
-  US30: 'OANDA:US30',
-  SPX500: 'OANDA:SPX500',
+// Maps internal symbol → Frankfurter currency code (quote currency).
+// base is always USD. e.g. USDJPY → quote=JPY, rate = USD/JPY.
+const FRANKFURTER_QUOTES = {
+  EURUSD: null,   // EUR/USD — base is EUR, quote is USD — not supported by Frankfurter
+  GBPUSD: null,   // GBP/USD — base is GBP, quote is USD — not supported by Frankfurter
+  USDJPY: 'JPY',
+  GBPJPY: 'JPY',
+  AUDUSD: null,   // AUD/USD — base is AUD, quote is USD — not supported
+  USDCAD: 'CAD',
+  NZDUSD: null,   // NZD/USD — base is NZD, quote is USD — not supported
+  USDCHF: 'CHF',
+  XAUUSD: null,   // commodities not supported
+  XAGUSD: null,
+  NAS100: null,
+  US30: null,
+  SPX500: null,
+  BTCUSD: null,
+  ETHUSD: null,
+  XRPUSD: null,
+  LTCUSD: null,
+  DOTUSD: null,
+  XLMUSD: null,
+  BATUSD: null,
+  NEOUSD: null,
 };
 
-const FINNHUB_RESOLUTION = {
-  M1: '1',
-  M5: '5',
-  M15: '15',
-  H1: '60',
-  H4: '240',
-  D1: 'D',
-};
-
-async function fetchFinnhubBars(symbol, timeframe) {
-  const finnhubSymbol = FINNHUB_SYMBOLS[symbol];
-  if (!finnhubSymbol) return [];
-  const apiKey = process.env.FINNHUB_API_KEY;
-  if (!apiKey) return [];
-  const resolution = FINNHUB_RESOLUTION[timeframe];
-  if (!resolution) return [];
-  const now = Math.floor(Date.now() / 1000);
-  const lookback = { M1: 86400 * 5, M5: 86400 * 30, M15: 86400 * 30, H1: 86400 * 90, H4: 86400 * 180, D1: 86400 * 365 }[timeframe] || 86400 * 90;
-  const from = now - lookback;
-  const url = `${FINNHUB_BASE}/forex/candle?symbol=${encodeURIComponent(finnhubSymbol)}&resolution=${resolution}&from=${from}&to=${now}&token=${apiKey}`;
+async function fetchFrankfurterRate(symbol) {
+  const quote = FRANKFURTER_QUOTES[symbol];
+  if (!quote) return [];
   try {
-    const response = await axios.get(url, { timeout: 10000 });
-    const d = response.data;
-    if (d.s !== 'ok' || !Array.isArray(d.t) || !d.t.length) return [];
-    const bars = [];
-    for (let i = 0; i < d.t.length; i++) {
-      const o = d.o[i], h = d.h[i], l = d.l[i], c = d.c[i];
-      if (!Number.isFinite(o) || !Number.isFinite(h) || !Number.isFinite(l) || !Number.isFinite(c)) continue;
-      bars.push({ time: d.t[i] * 1000, open: o, high: h, low: l, close: c, volume: Array.isArray(d.v) ? (Number.isFinite(d.v[i]) ? d.v[i] : 0) : 0 });
-    }
-    return bars;
+    const response = await axios.get(`${FRANKFURTER_BASE}/latest?base=USD&symbols=${quote}`, { timeout: 8000 });
+    const data = response.data;
+    if (!data.rates || !data.rates[quote]) return [];
+    const rate = data.rates[quote];
+    const now = Date.now();
+    // Return a single "bar" so callers that check bars.length > 0 get a valid result.
+    return [{ time: now, open: rate, high: rate, low: rate, close: rate, volume: 0 }];
   } catch (err) {
-    console.warn(`Finnhub bars error for ${symbol} ${timeframe}: ${err.message}`);
+    console.warn(`Frankfurter rate error for ${symbol}: ${err.message}`);
     return [];
   }
 }
@@ -256,17 +248,18 @@ async function fetchBarsForTimeframe(symbol, timeframe) {
     console.warn(`Yahoo bars error for ${symbol} ${timeframe}: ${err.message}`);
   }
 
-  // Quaternary: Finnhub — fallback for forex & metals when Yahoo/TradeLocker return
-  // fewer than 5 bars (which happens when Yahoo throttles or returns stale data).
+  // Quaternary: Frankfurter — free spot rate for USD-based forex pairs.
+  // Returns current rate as a single bar when all other sources fail.
+  // Covers: USDJPY, GBPJPY, USDCAD, USDCHF. Does NOT cover EUR/USD or GBP/USD.
   if (!bars || bars.length < 5) {
     try {
-      const fhBars = await fetchFinnhubBars(symbol, timeframe);
-      if (fhBars && fhBars.length > 0) {
-        bars = fhBars;
-        source = 'finnhub';
+      const fwBars = await fetchFrankfurterRate(symbol);
+      if (fwBars && fwBars.length > 0) {
+        bars = fwBars;
+        source = 'frankfurter';
       }
     } catch (err) {
-      console.warn(`Finnhub bars error for ${symbol} ${timeframe}: ${err.message}`);
+      console.warn(`Frankfurter rate error for ${symbol}: ${err.message}`);
     }
   }
 
