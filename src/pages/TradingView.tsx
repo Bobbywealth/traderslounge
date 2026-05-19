@@ -141,31 +141,6 @@ const TradingView: React.FC = () => {
       .filter((item): item is SymbolInfo => item !== null);
   };
 
-  const loadTradeLockerInstruments = useCallback(async () => {
-    try {
-      const response = await fetch('/api/tradelocker/instruments');
-      if (!response.ok) {
-        throw new Error(`Failed to fetch instruments: ${response.status}`);
-      }
-
-      const payload = await response.json();
-      const instruments = parseTradeLockerInstruments(payload);
-      setAvailableSymbols(instruments);
-
-      const selectedExists = instruments.some((item) => item.symbol === selectedSymbol);
-      if (!selectedExists && instruments.length > 0) {
-        const defaultSymbol = instruments[0].symbol;
-        setSelectedSymbol(defaultSymbol);
-        setSearchTerm(defaultSymbol);
-        loadCandlesForSymbol(defaultSymbol, timeframe);
-        loadSymbolData(defaultSymbol);
-      }
-    } catch (error) {
-      console.error('Failed to load TradeLocker instruments:', error);
-      setAvailableSymbols([]);
-    }
-  }, [loadCandlesForSymbol, selectedSymbol, timeframe]);
-
   const timeframes = [
     { value: '1m', label: '1m' },
     { value: '5m', label: '5m' },
@@ -440,6 +415,32 @@ const TradingView: React.FC = () => {
       candlestickSeriesRef.current.setData([]);
     }
   }, [fetchTradeLockerCandles]);
+
+  const loadTradeLockerInstruments = useCallback(async () => {
+    try {
+      const response = await fetch('/api/tradelocker/instruments');
+      if (!response.ok) {
+        throw new Error(`Failed to fetch instruments: ${response.status}`);
+      }
+
+      const payload = await response.json();
+      const instruments = parseTradeLockerInstruments(payload);
+      setAvailableSymbols(instruments);
+
+      const selectedExists = instruments.some((item) => item.symbol === selectedSymbol);
+      if (!selectedExists && instruments.length > 0) {
+        const defaultSymbol = instruments[0].symbol;
+        setSelectedSymbol(defaultSymbol);
+        setSearchTerm(defaultSymbol);
+        loadCandlesForSymbol(defaultSymbol, timeframe);
+        loadSymbolData(defaultSymbol);
+      }
+    } catch (error) {
+      console.error('Failed to load TradeLocker instruments:', error);
+      setAvailableSymbols([]);
+    }
+  }, [loadCandlesForSymbol, selectedSymbol, timeframe]);
+
 
   const getSymbolVolatility = (symbol: string): number => {
     // No mock volatility - return 0, real data should come from broker
