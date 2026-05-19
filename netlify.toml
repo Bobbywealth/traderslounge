@@ -1,0 +1,26 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "18"
+  NPM_FLAGS = "--prefix"
+
+# Netlify Postgres - Configure DATABASE_URL as an environment variable in Netlify Dashboard
+# Go to: Site Settings → Environment Variables → Add variable
+# Name: DATABASE_URL
+# Value: Your Neon Postgres connection string (postgresql://user:password@host/db?sslmode=require)
+
+[context.production]
+  environment = { DATABASE_URL = "" }
+
+[context.deploy-preview]
+  environment = { DATABASE_URL = "" }
+
+# Note: To enable Netlify Postgres with Neon:
+# 1. Go to https://app.netlify.com
+# 2. Navigate to traderslounge site
+# 3. Go to Integrations → Databases
+# 4. Click "Create Postgres Database"
+# 5. Select Neon provider
+# 6. Once created, copy the connection string to DATABASE_URL env var

@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^5.1.1",
+    "@neondatabase/serverless": "^1.1.0",
     "axios": "^1.10.0",
     "date-fns": "^4.1.0",
     "lightweight-charts": "^5.0.8",
@@ -23,9 +24,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.19.0",
+    "@tailwindcss/postcss": "^4.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@tailwindcss/postcss": "^4.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "eslint": "^9.19.0",
