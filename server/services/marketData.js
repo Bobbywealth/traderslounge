@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { fetchTradeLockerBars } from './tradeLockerOhlc.js';
+import { fetchBinanceBars } from './binanceOhlc.js';
 
 // Map internal symbols to Yahoo Finance tickers.
 // Forex / metals / indices / crypto all supported via this endpoint.
@@ -158,9 +159,7 @@ async function fetchYahooBars(yahooSymbol, interval, range) {
 }
 
 async function fetchBarsForTimeframe(symbol, timeframe) {
-  // Primary source: TradeLocker (broker-quoted, authenticated, no rate limits).
-  // Returns null when not configured or when the symbol/route isn't available,
-  // letting us fall through to Yahoo silently.
+  // Primary: TradeLocker (broker-quoted, authenticated, no rate limits).
   try {
     const tlBars = await fetchTradeLockerBars(symbol, timeframe);
     if (tlBars && tlBars.length > 0) {
@@ -170,7 +169,20 @@ async function fetchBarsForTimeframe(symbol, timeframe) {
     console.warn(`TradeLocker bars error for ${symbol} ${timeframe}: ${err.message}`);
   }
 
-  // Fallback: Yahoo Finance.
+  // Secondary: Binance (only for crypto symbols Binance lists; returns null
+  // for everything else, so non-crypto requests fall straight to Yahoo).
+  // Tried before Yahoo because Yahoo throttles Render's egress IPs and
+  // because Binance is the canonical source for crypto OHLC anyway.
+  try {
+    const binBars = await fetchBinanceBars(symbol, timeframe);
+    if (binBars && binBars.length > 0) {
+      return { bars: binBars, source: 'binance' };
+    }
+  } catch (err) {
+    console.warn(`Binance bars error for ${symbol} ${timeframe}: ${err.message}`);
+  }
+
+  // Tertiary: Yahoo Finance.
   const cfg = TF_TO_YAHOO[timeframe];
   const yahooSymbol = resolveYahooSymbol(symbol);
   let bars = await fetchYahooBars(yahooSymbol, cfg.interval, cfg.range);
