@@ -58,6 +58,30 @@ import { analyzeWithPerplexity } from './perplexity.js';
 
 // Finnhub API for market data
 const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY;
+const REFRESH_COOLDOWN_MS = Math.max(
+  60_000,
+  Math.min(300_000, Number.parseInt(process.env.SIGNALS_REFRESH_COOLDOWN_MS || '120000', 10) || 120_000)
+);
+const refreshState = {
+  inProgress: false,
+  startedAt: null,
+  finishedAt: null,
+};
+
+function buildRefreshMetadata() {
+  const startedAt = refreshState.startedAt ? refreshState.startedAt.toISOString() : null;
+  const finishedAt = refreshState.finishedAt ? refreshState.finishedAt.toISOString() : null;
+  const nextAllowedRefreshAt = refreshState.finishedAt
+    ? new Date(refreshState.finishedAt.getTime() + REFRESH_COOLDOWN_MS).toISOString()
+    : null;
+
+  return {
+    startedAt,
+    finishedAt,
+    nextAllowedRefreshAt,
+    inProgress: refreshState.inProgress,
+  };
+}
 
 async function getMarketData(symbol) {
   if (!FINNHUB_API_KEY) {
@@ -139,6 +163,28 @@ router.get('/:symbol', async (req, res) => {
 
 // Refresh/Generate new analysis for symbols
 router.post('/refresh', async (req, res) => {
+  const forceRefresh = req.query.force === 'true';
+  const metadata = buildRefreshMetadata();
+
+  if (refreshState.inProgress) {
+    return res.status(202).json({
+      success: false,
+      error: 'refresh already in progress.',
+      ...metadata,
+    });
+  }
+
+  if (!forceRefresh && metadata.nextAllowedRefreshAt && new Date(metadata.nextAllowedRefreshAt) > new Date()) {
+    return res.status(429).json({
+      success: false,
+      error: 'refresh already in progress.',
+      ...metadata,
+    });
+  }
+
+  refreshState.inProgress = true;
+  refreshState.startedAt = new Date();
+
   try {
     const { symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'AUDUSD', 'USDCAD'] } = req.body;
     
@@ -235,10 +281,14 @@ router.post('/refresh', async (req, res) => {
       }
     }
     
-    res.json({ success: true, results });
+    refreshState.finishedAt = new Date();
+    res.json({ success: true, results, ...buildRefreshMetadata() });
   } catch (error) {
     console.error('Refresh signals error:', error);
-    res.status(500).json({ success: false, error: error.message });
+    refreshState.finishedAt = new Date();
+    res.status(500).json({ success: false, error: error.message, ...buildRefreshMetadata() });
+  } finally {
+    refreshState.inProgress = false;
   }
 });
 
