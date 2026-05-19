@@ -1,5 +1,5 @@
 import express from 'express';
-import { neon } from 'neon';
+import { neon } from '@neondatabase/serverless';
 
 const router = express.Router();
 
