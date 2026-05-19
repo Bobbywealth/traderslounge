@@ -4,6 +4,30 @@ import pg from 'pg';
 const { Pool } = pg;
 const router = express.Router();
 
+
+const REFRESH_COOLDOWN_MS = 60 * 1000;
+
+const refreshState = {
+  inProgress: false,
+  startedAt: null,
+  finishedAt: null,
+};
+
+function buildRefreshMetadata() {
+  const startedAt = refreshState.startedAt ? refreshState.startedAt.toISOString() : null;
+  const finishedAt = refreshState.finishedAt ? refreshState.finishedAt.toISOString() : null;
+  const nextAllowedRefreshAt = refreshState.finishedAt
+    ? new Date(refreshState.finishedAt.getTime() + REFRESH_COOLDOWN_MS).toISOString()
+    : null;
+
+  return {
+    inProgress: refreshState.inProgress,
+    startedAt,
+    finishedAt,
+    nextAllowedRefreshAt,
+  };
+}
+
 // Database connection pool
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -296,6 +320,7 @@ router.post('/refresh', async (req, res) => {
     res.status(500).json({ success: false, error: error.message, ...buildRefreshMetadata() });
   } finally {
     refreshState.inProgress = false;
+    refreshState.finishedAt = new Date();
   }
 });
 
