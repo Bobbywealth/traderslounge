@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: traderslounge
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm install; npm run build
+    startCommand: npm run start
+    envVars:
+      - key: VITE_DATABASE_URL
+        value: postgresql://traders_lounge_db_user:0yg1FWCjlBcNZSVJewXIS2mIVDNyl7zn@dpg-d85stamgvqtc73e5j8vg-a/traders_lounge_db
