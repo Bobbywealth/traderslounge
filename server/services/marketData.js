@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { fetchTradeLockerBars } from './tradeLockerOhlc.js';
 
 // Map internal symbols to Yahoo Finance tickers.
 // Forex / metals / indices / crypto all supported via this endpoint.
@@ -38,8 +39,8 @@ const TF_TO_YAHOO = {
   M1:  { interval: '1m',  range: '5d'   },
   M5:  { interval: '5m',  range: '1mo'  },
   M15: { interval: '15m', range: '1mo'  },
-  H1:  { interval: '60m', range: '6mo'  },
-  H4:  { interval: '60m', range: '2y',  resampleFrom: 'H1', resampleHours: 4 },
+  H1:  { interval: '60m', range: '3mo'  },
+  H4:  { interval: '60m', range: '60d', resampleFrom: 'H1', resampleHours: 4 },
   D1:  { interval: '1d',  range: '2y'   },
 };
 
@@ -114,13 +115,69 @@ function resampleBars(bars, hours) {
   return out;
 }
 
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+  'Accept': 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function fetchYahooBars(yahooSymbol, interval, range) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=${interval}&range=${range}`;
-  const response = await axios.get(url, {
-    timeout: 12000,
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TradersLoungeBot/1.0)' },
-  });
-  return parseYahooChart(response.data);
+  const maxAttempts = 3;
+  let lastErr = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const response = await axios.get(url, {
+        timeout: 12000,
+        headers: BROWSER_HEADERS,
+        validateStatus: (s) => s >= 200 && s < 500, // we'll handle 4xx ourselves
+      });
+      if (response.status === 429 || response.status === 403) {
+        lastErr = new Error(`Yahoo HTTP ${response.status}`);
+        await sleep(500 * Math.pow(2, attempt) + Math.random() * 250);
+        continue;
+      }
+      if (response.status >= 400) {
+        throw new Error(`Yahoo HTTP ${response.status}`);
+      }
+      return parseYahooChart(response.data);
+    } catch (err) {
+      lastErr = err;
+      // Retry only on transient errors (timeout, 5xx, network reset).
+      const transient = err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' ||
+        (err.response && err.response.status >= 500);
+      if (!transient || attempt === maxAttempts - 1) throw err;
+      await sleep(500 * Math.pow(2, attempt));
+    }
+  }
+  throw lastErr || new Error('Yahoo fetch failed');
+}
+
+async function fetchBarsForTimeframe(symbol, timeframe) {
+  // Primary source: TradeLocker (broker-quoted, authenticated, no rate limits).
+  // Returns null when not configured or when the symbol/route isn't available,
+  // letting us fall through to Yahoo silently.
+  try {
+    const tlBars = await fetchTradeLockerBars(symbol, timeframe);
+    if (tlBars && tlBars.length > 0) {
+      return { bars: tlBars, source: 'tradelocker' };
+    }
+  } catch (err) {
+    console.warn(`TradeLocker bars error for ${symbol} ${timeframe}: ${err.message}`);
+  }
+
+  // Fallback: Yahoo Finance.
+  const cfg = TF_TO_YAHOO[timeframe];
+  const yahooSymbol = resolveYahooSymbol(symbol);
+  let bars = await fetchYahooBars(yahooSymbol, cfg.interval, cfg.range);
+  if (cfg.resampleHours) {
+    bars = resampleBars(bars, cfg.resampleHours);
+  }
+  return { bars, source: 'yahoo' };
 }
 
 export async function getBars(symbol, timeframe) {
@@ -133,29 +190,47 @@ export async function getBars(symbol, timeframe) {
     return cached.bars;
   }
 
-  const cfg = TF_TO_YAHOO[timeframe];
-  const yahooSymbol = resolveYahooSymbol(symbol);
-  let bars = await fetchYahooBars(yahooSymbol, cfg.interval, cfg.range);
-  if (cfg.resampleHours) {
-    bars = resampleBars(bars, cfg.resampleHours);
-  }
+  const { bars, source } = await fetchBarsForTimeframe(symbol, timeframe);
 
-  cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS[timeframe], bars });
+  // Never cache empty results — otherwise a single throttling event poisons
+  // the cache for the full TTL window.
+  if (bars.length > 0) {
+    cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS[timeframe], bars });
+    console.log(`Bars ${symbol} ${timeframe}: ${bars.length} via ${source}`);
+  }
   return bars;
 }
 
-// Convenience: fetch all timeframes used by the strategy in parallel.
+// Fetch the timeframes the strategy actually needs (D1, H4, H1) serially
+// so we don't fan out parallel Yahoo requests that get rate-limited on
+// shared cloud IPs. H4 is resampled from H1 so we reuse the H1 fetch.
 export async function getMultiTimeframeBars(symbol) {
-  const tfs = ['D1', 'H4', 'H1', 'M15', 'M5'];
-  const results = await Promise.allSettled(tfs.map((tf) => getBars(symbol, tf)));
-  const out = {};
-  tfs.forEach((tf, i) => {
-    const r = results[i];
-    out[tf] = r.status === 'fulfilled' ? r.value : [];
-    if (r.status === 'rejected') {
-      console.warn(`getBars ${symbol} ${tf} failed: ${r.reason?.message || r.reason}`);
+  const out = { D1: [], H4: [], H1: [] };
+  // D1 first — required, longest range, served from a different bucket on Yahoo.
+  try {
+    out.D1 = await getBars(symbol, 'D1');
+  } catch (err) {
+    console.warn(`getBars ${symbol} D1 failed: ${err.message}`);
+  }
+  // Small jitter to look less bot-like.
+  await sleep(150 + Math.random() * 200);
+  // H1 next — also used to build H4.
+  try {
+    out.H1 = await getBars(symbol, 'H1');
+  } catch (err) {
+    console.warn(`getBars ${symbol} H1 failed: ${err.message}`);
+  }
+  // H4 = resample of H1 (no extra network call needed if H1 succeeded).
+  if (out.H1.length) {
+    out.H4 = resampleBars(out.H1, 4);
+  } else {
+    // Fall back to an explicit H4 fetch (different cache key on Yahoo).
+    try {
+      out.H4 = await getBars(symbol, 'H4');
+    } catch (err) {
+      console.warn(`getBars ${symbol} H4 failed: ${err.message}`);
     }
-  });
+  }
   return out;
 }
 
