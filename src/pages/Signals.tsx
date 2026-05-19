@@ -149,8 +149,25 @@ const Signals: React.FC = () => {
   };
 
   const calculatePips = (signal: SignalAnalysis) => {
-    const pips = Math.abs(signal.take_profit - signal.entry_price) * 10000;
+    const pips = Math.abs(signal.take_profit - signal.entry_price) * getPipMultiplier(signal.symbol);
     return pips.toFixed(1);
+  };
+
+  const getPricePrecision = (symbol: string) => {
+    if (symbol.includes('JPY')) return 3;
+    if (symbol === 'XAUUSD') return 2;
+    return 5;
+  };
+
+  const formatSignalPrice = (value: number | null | undefined, symbol: string) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return 'N/A';
+    return value.toFixed(getPricePrecision(symbol));
+  };
+
+  const getPipMultiplier = (symbol: string) => {
+    if (symbol.includes('JPY')) return 100;
+    if (symbol === 'XAUUSD') return 10;
+    return 10000;
   };
 
   return (
@@ -367,15 +384,15 @@ const Signals: React.FC = () => {
                 <div className="grid grid-cols-3 gap-4">
                   <div className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                     <p className="text-xs text-gray-500 mb-1">Entry</p>
-                    <p className="text-lg font-bold text-blue-600">{signal.entry_price?.toFixed(5)}</p>
+                    <p className="text-lg font-bold text-blue-600">{formatSignalPrice(signal.entry_price, signal.symbol)}</p>
                   </div>
                   <div className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                     <p className="text-xs text-gray-500 mb-1">Stop Loss</p>
-                    <p className="text-lg font-bold text-red-600">{signal.stop_loss?.toFixed(5)}</p>
+                    <p className="text-lg font-bold text-red-600">{formatSignalPrice(signal.stop_loss, signal.symbol)}</p>
                   </div>
                   <div className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                     <p className="text-xs text-gray-500 mb-1">Take Profit</p>
-                    <p className="text-lg font-bold text-emerald-600">{signal.take_profit?.toFixed(5)}</p>
+                    <p className="text-lg font-bold text-emerald-600">{formatSignalPrice(signal.take_profit, signal.symbol)}</p>
                   </div>
                 </div>
 
@@ -412,7 +429,7 @@ const Signals: React.FC = () => {
                       <div className="space-y-1">
                         {signal.support_levels?.slice(0, 2).map((level, i) => (
                           <div key={i} className="flex items-center justify-between text-sm">
-                            <span className="text-emerald-600">{level?.toFixed(5)}</span>
+                            <span className="text-emerald-600">{formatSignalPrice(level, signal.symbol)}</span>
                           </div>
                         ))}
                       </div>
@@ -422,7 +439,7 @@ const Signals: React.FC = () => {
                       <div className="space-y-1">
                         {signal.resistance_levels?.slice(0, 2).map((level, i) => (
                           <div key={i} className="flex items-center justify-between text-sm">
-                            <span className="text-red-600">{level?.toFixed(5)}</span>
+                            <span className="text-red-600">{formatSignalPrice(level, signal.symbol)}</span>
                           </div>
                         ))}
                       </div>
