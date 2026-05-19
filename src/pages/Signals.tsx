@@ -509,6 +509,14 @@ const Signals: React.FC = () => {
                         ADR {signal.adr_percent_used.toFixed(0)}%
                       </span>
                     )}
+                    {signal.news_status?.nextEvent && signal.news_status.nextEvent.minutesAway <= 120 && (
+                      <span
+                        className="px-2 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded"
+                        title={`${signal.news_status.nextEvent.name} at ${new Date(signal.news_status.nextEvent.time).toLocaleString()}`}
+                      >
+                        📰 {signal.news_status.nextEvent.name} ({signal.news_status.nextEvent.currency}) in {signal.news_status.nextEvent.minutesAway}m
+                      </span>
+                    )}
                   </div>
 
                   {/* TP ladder */}

@@ -194,6 +194,7 @@ router.post('/refresh', async (req, res) => {
             tp2: analysis.tp2,
             tp3: analysis.tp3,
             adr: analysis.adr,
+            news_status: analysis.news_status || null,
           };
 
           const result = await pool.query(`
