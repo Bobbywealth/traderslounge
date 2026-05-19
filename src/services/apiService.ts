@@ -3,6 +3,18 @@ import { applyHtfBiasPenalty, evaluateHtfBias, type BiasStatus } from '../strate
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://traderslounge.onrender.com';
 
+const buildTradeLockerUrl = (path: string, params: Record<string, string | null | undefined> = {}): string => {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value) {
+      query.set(key, value);
+    }
+  });
+
+  const queryString = query.toString();
+  return queryString ? `${API_BASE_URL}${path}?${queryString}` : `${API_BASE_URL}${path}`;
+};
+
 export interface SignalAnalysis {
   id: string;
   symbol: string;
@@ -67,9 +79,7 @@ export interface RefreshSignalsResponse extends RefreshMetadata {
 export const tradeLockerApi = {
   async connect(): Promise<{ connected: boolean; demo?: boolean; hasCredentials?: boolean }> {
     const sessionId = localStorage.getItem('tl_session_id');
-    const response = await fetch(
-      `${API_BASE_URL}/api/tradelocker/status?sessionId=${sessionId || ''}`
-    );
+    const response = await fetch(buildTradeLockerUrl('/api/tradelocker/status', { sessionId }));
     return response.json();
   },
 
@@ -93,9 +103,7 @@ export const tradeLockerApi = {
 
   async getAccount(): Promise<any> {
     const sessionId = localStorage.getItem('tl_session_id');
-    const url = sessionId
-      ? `${API_BASE_URL}/api/tradelocker/account?sessionId=${sessionId}`
-      : `${API_BASE_URL}/api/tradelocker/account`;
+    const url = buildTradeLockerUrl('/api/tradelocker/account', { sessionId });
     const response = await fetch(url);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Failed to get account');
@@ -104,17 +112,13 @@ export const tradeLockerApi = {
 
   async getPositions(accountId: string): Promise<any[]> {
     const sessionId = localStorage.getItem('tl_session_id');
-    const response = await fetch(
-      `${API_BASE_URL}/api/tradelocker/positions?sessionId=${sessionId || ''}&accountId=${accountId}`
-    );
+    const response = await fetch(buildTradeLockerUrl('/api/tradelocker/positions', { sessionId, accountId }));
     return response.json();
   },
 
   async getOrders(accountId: string): Promise<any[]> {
     const sessionId = localStorage.getItem('tl_session_id');
-    const response = await fetch(
-      `${API_BASE_URL}/api/tradelocker/orders?sessionId=${sessionId || ''}&accountId=${accountId}`
-    );
+    const response = await fetch(buildTradeLockerUrl('/api/tradelocker/orders', { sessionId, accountId }));
     return response.json();
   },
 
