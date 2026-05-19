@@ -211,6 +211,25 @@ async function fetchCoinGeckoBars(symbol, timeframe = 'D1') {
   }
 }
 
+// Swissquote free gold price — no API key needed.
+async function fetchSwissquoteGold(symbol, timeframe = 'D1') {
+  try {
+    const res = await axios.get(
+      'https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD',
+      { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0' } }
+    );
+    const data = res.data;
+    if (!Array.isArray(data) || !data[0]?.spreadProfilePrices?.length) return [];
+    const price = (data[0].spreadProfilePrices[0].bid + data[0].spreadProfilePrices[0].ask) / 2;
+    if (!Number.isFinite(price)) return [];
+    // Generate synthetic bars from the live gold price.
+    return buildSyntheticBars(price, 'XAU', symbol, timeframe);
+  } catch (err) {
+    console.warn(`Swissquote gold fetch failed: ${err.message}`);
+    return [];
+  }
+}
+
 // Map internal symbols to Yahoo Finance tickers.
 // Forex / metals / indices / crypto all supported via this endpoint.
 export const YAHOO_SYMBOL_MAP = {
@@ -438,6 +457,20 @@ async function fetchBarsForTimeframe(symbol, timeframe) {
       }
     } catch (err) {
       console.warn(`CoinGecko error for ${symbol}: ${err.message}`);
+    }
+  }
+
+  // Senary: Swissquote — free, no API key, for XAUUSD (gold) when all else fails.
+  // Returns a single live bid/ask — we generate synthetic bars from it.
+  if ((!bars || bars.length < 5) && symbol === 'XAUUSD') {
+    try {
+      const xauBars = await fetchSwissquoteGold(symbol, timeframe);
+      if (xauBars && xauBars.length > 0) {
+        bars = xauBars;
+        source = 'swissquote';
+      }
+    } catch (err) {
+      console.warn(`Swissquote gold error: ${err.message}`);
     }
   }
 
