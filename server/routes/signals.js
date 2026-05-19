@@ -1,16 +1,13 @@
 import express from 'express';
-import { neon } from '@neondatabase/serverless';
+import pg from 'pg';
 
+const { Pool } = pg;
 const router = express.Router();
 
-// Database connection
-function getDb() {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error('DATABASE_URL not configured');
-  }
-  return neon(connectionString);
-}
+// Database connection pool
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
 
 // Signal schema SQL
 const CREATE_SIGNALS_TABLE = `
@@ -48,8 +45,7 @@ CREATE INDEX IF NOT EXISTS idx_signals_created ON signal_analyses(created_at);
 // Initialize table on startup
 async function initializeTable() {
   try {
-    const sql = getDb();
-    await sql`${CREATE_SIGNALS_TABLE}`;
+    await pool.query(CREATE_SIGNALS_TABLE);
     console.log('Signal analyses table initialized');
   } catch (error) {
     console.error('Failed to initialize signals table:', error.message);
@@ -97,22 +93,28 @@ async function getMarketData(symbol) {
 router.get('/', async (req, res) => {
   try {
     const { symbol, limit = 50, includeExpired = 'false' } = req.query;
-    const sql = getDb();
     
     const limitVal = parseInt(limit);
     
-    let results;
+    let query;
+    let params;
+    
     if (symbol && includeExpired === 'true') {
-      results = await sql`SELECT * FROM signal_analyses WHERE symbol = ${symbol} ORDER BY created_at DESC LIMIT ${limitVal}`;
+      query = 'SELECT * FROM signal_analyses WHERE symbol = $1 ORDER BY created_at DESC LIMIT $2';
+      params = [symbol, limitVal];
     } else if (symbol) {
-      results = await sql`SELECT * FROM signal_analyses WHERE symbol = ${symbol} AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY created_at DESC LIMIT ${limitVal}`;
+      query = 'SELECT * FROM signal_analyses WHERE symbol = $1 AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY created_at DESC LIMIT $2';
+      params = [symbol, limitVal];
     } else if (includeExpired === 'true') {
-      results = await sql`SELECT * FROM signal_analyses ORDER BY created_at DESC LIMIT ${limitVal}`;
+      query = 'SELECT * FROM signal_analyses ORDER BY created_at DESC LIMIT $1';
+      params = [limitVal];
     } else {
-      results = await sql`SELECT * FROM signal_analyses WHERE expires_at IS NULL OR expires_at > NOW() ORDER BY created_at DESC LIMIT ${limitVal}`;
+      query = 'SELECT * FROM signal_analyses WHERE expires_at IS NULL OR expires_at > NOW() ORDER BY created_at DESC LIMIT $1';
+      params = [limitVal];
     }
     
-    res.json({ success: true, signals: results });
+    const result = await pool.query(query, params);
+    res.json({ success: true, signals: result.rows });
   } catch (error) {
     console.error('Get signals error:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -123,15 +125,17 @@ router.get('/', async (req, res) => {
 router.get('/:symbol', async (req, res) => {
   try {
     const { symbol } = req.params;
-    const sql = getDb();
     
-    const results = await sql`SELECT * FROM signal_analyses WHERE symbol = ${symbol} ORDER BY created_at DESC LIMIT 1`;
+    const result = await pool.query(
+      'SELECT * FROM signal_analyses WHERE symbol = $1 ORDER BY created_at DESC LIMIT 1',
+      [symbol]
+    );
     
-    if (results.length === 0) {
+    if (result.rows.length === 0) {
       return res.status(404).json({ success: false, error: 'Signal not found' });
     }
     
-    res.json({ success: true, signal: results[0] });
+    res.json({ success: true, signal: result.rows[0] });
   } catch (error) {
     console.error('Get signal error:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -165,24 +169,17 @@ router.post('/refresh', async (req, res) => {
           const analysis = await analyzeWithPerplexity(symbol, marketData);
           
           // Store in database
-          const sql = getDb();
           const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000); // 4 hours
           
-          const result = await sql`
+          const result = await pool.query(`
             INSERT INTO signal_analyses (
               symbol, analysis_type, direction, entry_price, stop_loss, take_profit,
               risk_reward_ratio, confidence, trend, trend_strength, sentiment,
               reasoning, market_summary, support_levels, resistance_levels,
               key_levels, timeframes, trade_setup, risk_factors, expires_at
             ) VALUES (
-              ${symbol}, 'perplexity_analysis', ${analysis.direction},
-              ${analysis.entry_price}, ${analysis.stop_loss}, ${analysis.take_profit},
-              ${analysis.risk_reward_ratio}, ${analysis.confidence}, ${analysis.trend},
-              ${analysis.trend_strength}, ${analysis.sentiment}, ${analysis.reasoning},
-              ${analysis.market_summary}, ${JSON.stringify(analysis.support_levels)},
-              ${JSON.stringify(analysis.resistance_levels)}, ${JSON.stringify({ key_level_1: analysis.key_level_1, key_level_2: analysis.key_level_2 })},
-              ${JSON.stringify(analysis.timeframes)}, ${JSON.stringify(analysis.trade_setup)},
-              ${JSON.stringify(analysis.risk_factors)}, ${expiresAt}
+              $1, 'perplexity_analysis', $2, $3, $4, $5,
+              $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
             )
             ON CONFLICT (symbol, analysis_type) DO UPDATE SET
               direction = EXCLUDED.direction,
@@ -205,9 +202,29 @@ router.post('/refresh', async (req, res) => {
               expires_at = EXCLUDED.expires_at,
               updated_at = NOW()
             RETURNING *
-          `;
+          `, [
+            symbol,
+            analysis.direction,
+            analysis.entry_price,
+            analysis.stop_loss,
+            analysis.take_profit,
+            analysis.risk_reward_ratio,
+            analysis.confidence,
+            analysis.trend,
+            analysis.trend_strength,
+            analysis.sentiment,
+            analysis.reasoning,
+            analysis.market_summary,
+            JSON.stringify(analysis.support_levels),
+            JSON.stringify(analysis.resistance_levels),
+            JSON.stringify({ key_level_1: analysis.key_level_1, key_level_2: analysis.key_level_2 }),
+            JSON.stringify(analysis.timeframes),
+            JSON.stringify(analysis.trade_setup),
+            JSON.stringify(analysis.risk_factors),
+            expiresAt
+          ]);
           
-          return { symbol, success: true, signal: result[0] };
+          return { symbol, success: true, signal: result.rows[0] };
         } catch (error) {
           console.error(`Failed to analyze ${symbol}:`, error);
           return { symbol, success: false, error: error.message };
@@ -233,9 +250,8 @@ router.post('/refresh', async (req, res) => {
 // Delete old signals
 router.delete('/cleanup', async (req, res) => {
   try {
-    const sql = getDb();
-    const result = await sql`DELETE FROM signal_analyses WHERE expires_at < NOW() OR updated_at < NOW() - INTERVAL '7 days'`;
-    res.json({ success: true, deleted: result.length });
+    const result = await pool.query('DELETE FROM signal_analyses WHERE expires_at < NOW() OR updated_at < NOW() - INTERVAL \'7 days\'');
+    res.json({ success: true, deleted: result.rowCount });
   } catch (error) {
     console.error('Cleanup error:', error);
     res.status(500).json({ success: false, error: error.message });
