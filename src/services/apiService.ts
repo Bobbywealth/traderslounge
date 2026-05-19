@@ -1,4 +1,6 @@
 // API Service for communicating with backend server
+import { applyHtfBiasPenalty, evaluateHtfBias, type BiasStatus } from '../strategy/htfBias';
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://traderslounge.onrender.com';
 
 export interface SignalAnalysis {
@@ -10,6 +12,9 @@ export interface SignalAnalysis {
   take_profit: number;
   risk_reward_ratio: number;
   confidence: number;
+  adjusted_confidence?: number;
+  bias_status?: BiasStatus;
+  no_trade?: boolean;
   trend: string;
   trend_strength: number;
   sentiment: string;
@@ -134,6 +139,25 @@ export const tradeLockerApi = {
   }
 };
 
+
+const mapSignal = (s: any): SignalAnalysis => {
+  const bias = evaluateHtfBias(s.timeframes);
+  const confidence = parseFloat(s.confidence);
+
+  return {
+    ...s,
+    entry_price: parseFloat(s.entry_price),
+    stop_loss: parseFloat(s.stop_loss),
+    take_profit: parseFloat(s.take_profit),
+    risk_reward_ratio: parseFloat(s.risk_reward_ratio),
+    confidence,
+    adjusted_confidence: applyHtfBiasPenalty(confidence, bias),
+    bias_status: bias.status,
+    no_trade: bias.hardInvalid,
+    trend_strength: parseFloat(s.trend_strength),
+  };
+};
+
 // Signals API
 export const signalsApi = {
   async getSignals(symbol?: string, limit: number = 50): Promise<SignalAnalysis[]> {
@@ -148,15 +172,7 @@ export const signalsApi = {
       throw new Error(data.error || 'Failed to fetch signals');
     }
     
-    return data.signals.map((s: any) => ({
-      ...s,
-      entry_price: parseFloat(s.entry_price),
-      stop_loss: parseFloat(s.stop_loss),
-      take_profit: parseFloat(s.take_profit),
-      risk_reward_ratio: parseFloat(s.risk_reward_ratio),
-      confidence: parseFloat(s.confidence),
-      trend_strength: parseFloat(s.trend_strength),
-    }));
+    return data.signals.map(mapSignal);
   },
   
   async getSignal(symbol: string): Promise<SignalAnalysis | null> {
@@ -164,15 +180,7 @@ export const signalsApi = {
       const response = await fetch(`${API_BASE_URL}/api/signals/${symbol}`);
       const data = await response.json();
       const s = data.signal;
-      return s ? {
-        ...s,
-        entry_price: parseFloat(s.entry_price),
-        stop_loss: parseFloat(s.stop_loss),
-        take_profit: parseFloat(s.take_profit),
-        risk_reward_ratio: parseFloat(s.risk_reward_ratio),
-        confidence: parseFloat(s.confidence),
-        trend_strength: parseFloat(s.trend_strength),
-      } : null;
+      return s ? mapSignal(s) : null;
     } catch {
       return null;
     }
@@ -193,15 +201,7 @@ export const signalsApi = {
     
     return data.results.map((r: any) => r.signal ? {
       ...r,
-      signal: {
-        ...r.signal,
-        entry_price: parseFloat(r.signal.entry_price),
-        stop_loss: parseFloat(r.signal.stop_loss),
-        take_profit: parseFloat(r.signal.take_profit),
-        risk_reward_ratio: parseFloat(r.signal.risk_reward_ratio),
-        confidence: parseFloat(r.signal.confidence),
-        trend_strength: parseFloat(r.signal.trend_strength),
-      }
+      signal: mapSignal(r.signal)
     } : r);
   },
   
