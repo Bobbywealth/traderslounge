@@ -11,6 +11,7 @@ const Signals: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [nextAllowedRefreshAt, setNextAllowedRefreshAt] = useState<Date | null>(null);
   const [tlConnected, setTlConnected] = useState(false);
   const [tlChecking, setTlChecking] = useState(false);
   const [tlExecuting, setTlExecuting] = useState<string | null>(null);
@@ -59,12 +60,23 @@ const Signals: React.FC = () => {
   };
 
   const handleRefresh = async () => {
+    if (nextAllowedRefreshAt && nextAllowedRefreshAt > new Date()) {
+      setError(`Refresh cooling down until ${format(nextAllowedRefreshAt, 'PPpp')}.`);
+      return;
+    }
+
     setIsRefreshing(true);
     setError(null);
     try {
-      await signalsApi.refreshSignals(['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD']);
+      const refreshResponse = await signalsApi.refreshSignals(['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD']);
+      if (refreshResponse.nextAllowedRefreshAt) {
+        setNextAllowedRefreshAt(new Date(refreshResponse.nextAllowedRefreshAt));
+      }
       await loadSignals();
     } catch (err) {
+      if (err instanceof Error && 'details' in err && (err as any).details?.nextAllowedRefreshAt) {
+        setNextAllowedRefreshAt(new Date((err as any).details.nextAllowedRefreshAt));
+      }
       setError(err instanceof Error ? err.message : 'Failed to refresh signals');
     } finally {
       setIsRefreshing(false);
@@ -159,7 +171,7 @@ const Signals: React.FC = () => {
           )}
           <button
             onClick={handleRefresh}
-            disabled={isRefreshing}
+            disabled={isRefreshing || (nextAllowedRefreshAt ? nextAllowedRefreshAt > new Date() : false)}
             className="flex items-center space-x-2 px-4 py-2 bg-emerald-500 text-white rounded-lg font-medium hover:bg-emerald-600 transition-colors disabled:opacity-50"
           >
             {isRefreshing ? (
@@ -174,6 +186,11 @@ const Signals: React.FC = () => {
               </>
             )}
           </button>
+          {nextAllowedRefreshAt && nextAllowedRefreshAt > new Date() && (
+            <span className="text-xs text-amber-600 dark:text-amber-400">
+              Cooldown until {formatDistanceToNow(nextAllowedRefreshAt, { addSuffix: true })}
+            </span>
+          )}
           <button
             onClick={() => setShowTlModal(true)}
             className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-colors ${
