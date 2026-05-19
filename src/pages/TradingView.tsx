@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { liveDataService, HarmonicPattern, TrendLine, FibonacciLevel } from '../services/liveDataService';
 import { tradeLockerService, TradeLockerConfig } from '../services/tradeLockerService';
+import { tradeLockerApi } from '../services/apiService';
 
 interface CandlestickData {
   time: UTCTimestamp;
@@ -197,7 +198,14 @@ const TradingView: React.FC = () => {
   };
 
   const fetchTradeLockerCandles = useCallback(async (symbol: string, tf: string): Promise<CandlestickData[]> => {
-    const response = await fetch(`/api/tradelocker/history?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(tf)}&count=250`);
+    const sessionId = localStorage.getItem('tl_session_id');
+    const params = new URLSearchParams({
+      symbol,
+      timeframe: tf,
+      count: '250',
+      ...(sessionId ? { sessionId } : {}),
+    });
+    const response = await fetch(`/api/tradelocker/history?${params.toString()}`);
     if (!response.ok) {
       throw new Error(`Failed to fetch history: ${response.status}`);
     }
@@ -418,7 +426,9 @@ const TradingView: React.FC = () => {
 
   const loadTradeLockerInstruments = useCallback(async () => {
     try {
-      const response = await fetch('/api/tradelocker/instruments');
+      const sessionId = localStorage.getItem('tl_session_id');
+      const params = new URLSearchParams(sessionId ? { sessionId } : {});
+      const response = await fetch(`/api/tradelocker/instruments?${params.toString()}`);
       if (!response.ok) {
         throw new Error(`Failed to fetch instruments: ${response.status}`);
       }
@@ -441,6 +451,25 @@ const TradingView: React.FC = () => {
     }
   }, [loadCandlesForSymbol, selectedSymbol, timeframe]);
 
+
+
+  const checkExistingTradeLockerConnection = useCallback(async () => {
+    try {
+      const status = await tradeLockerApi.connect();
+      if (!status.connected) {
+        setTradeLockerConnected(false);
+        return;
+      }
+
+      setTradeLockerConnected(true);
+      setIsConnected(true);
+      setSelectedBroker('tradelocker');
+      await loadTradeLockerInstruments();
+    } catch (error) {
+      console.error('Failed to restore TradeLocker session:', error);
+      setTradeLockerConnected(false);
+    }
+  }, [loadTradeLockerInstruments]);
 
   const getSymbolVolatility = (symbol: string): number => {
     // No mock volatility - return 0, real data should come from broker
@@ -647,8 +676,8 @@ const TradingView: React.FC = () => {
   }, [isLive, loadCandlesForSymbol, selectedSymbol, timeframe]);
 
   useEffect(() => {
-    loadTradeLockerInstruments();
-  }, [loadTradeLockerInstruments]);
+    checkExistingTradeLockerConnection();
+  }, [checkExistingTradeLockerConnection]);
 
   // Handle symbol change
   const handleSymbolChange = (newSymbol: string) => {
