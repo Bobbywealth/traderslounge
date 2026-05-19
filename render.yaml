@@ -35,4 +35,4 @@ services:
       - key: PERPLEXITY_API_KEY
         value: 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
       - key: FINNHUB_API_KEY
-        sync: false
+        sync: false  # NOTE: set actual key value in Render dashboard manually (sync=false keeps it out of git)
