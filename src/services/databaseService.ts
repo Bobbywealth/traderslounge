@@ -1,23 +1,22 @@
 /**
  * Database Service for TradersLounge
  * 
- * This service connects to Netlify Postgres (Neon) for persistent storage.
+ * This service connects to Render PostgreSQL for persistent storage.
  * 
- * Setup Instructions:
- * 1. Create a Postgres database in Netlify Dashboard:
- *    - Go to: app.netlify.com → traderslounge → Integrations → Databases
- *    - Click "Create Postgres Database" → Select Neon
- *    - Copy the connection string to Netlify Environment Variables as DATABASE_URL
+ * Connection:
+ * - Host: dpg-d85stamgvqtc73e5j8vg-a.oregon-postgres.render.com
+ * - Database: traders_lounge_db
+ * - User: traders_lounge_db_user
  * 
- * 2. The DATABASE_URL should look like:
- *    postgresql://username:password@host/dbname?sslmode=require
+ * The DATABASE_URL should be set as VITE_DATABASE_URL in environment variables.
  * 
  * Note: For frontend-only apps, database calls should go through
- * Netlify Functions (serverless functions). This service is designed
+ * serverless functions (API routes). This service is designed
  * to be used in serverless functions, not directly from the client.
+ * For production, consider using an API layer to protect credentials.
  */
 
-import { neon, NeonQueryFunction } from '@neondatabase/serverless';
+import { neon } from '@neondatabase/serverless';
 
 // Type definitions for our database tables
 export interface User {
@@ -36,7 +35,7 @@ export interface BrokerConnection {
   name: string;
   is_demo: boolean;
   is_active: boolean;
-  credentials_encrypted: string; // Encrypted JSON
+  credentials_encrypted: string;
   created_at: Date;
   last_sync_at: Date | null;
 }
@@ -149,16 +148,12 @@ CREATE INDEX IF NOT EXISTS idx_broker_connections_user_id ON broker_connections(
 
 /**
  * Get a database connection
- * @returns Neon Query Function
  */
-export function getDb(): NeonQueryFunction<false, false> {
-  // For client-side: use VITE_DATABASE_URL (not recommended for production)
-  // For server-side (Netlify Functions): use DATABASE_URL
-  const connectionString = import.meta.env.VITE_DATABASE_URL as string || 
-                          (typeof process !== 'undefined' ? process.env.DATABASE_URL : undefined);
+function getDb() {
+  const connectionString = import.meta.env.VITE_DATABASE_URL as string;
   
   if (!connectionString) {
-    throw new Error('DATABASE_URL environment variable is not set. Please configure your Netlify Postgres database.');
+    throw new Error('VITE_DATABASE_URL environment variable is not set. Please configure your Render PostgreSQL database.');
   }
   
   return neon(connectionString);
@@ -170,23 +165,25 @@ export function getDb(): NeonQueryFunction<false, false> {
  */
 export async function initializeDatabase(): Promise<void> {
   const sql = getDb();
-  await sql(SCHEMA);
+  const statements = SCHEMA.split(';').filter(s => s.trim());
+  for (const statement of statements) {
+    if (statement.trim()) {
+      await sql([statement] as unknown as TemplateStringsArray);
+    }
+  }
   console.log('Database schema initialized successfully');
 }
 
 // User operations
 export async function getUser(userId: string): Promise<User | null> {
   const sql = getDb();
-  const result = await sql('SELECT * FROM users WHERE id = $1', [userId]);
+  const result = await sql`SELECT * FROM users WHERE id = ${userId}`;
   return result[0] as User | null;
 }
 
 export async function createUser(email: string, name: string): Promise<User> {
   const sql = getDb();
-  const result = await sql(
-    'INSERT INTO users (email, name) VALUES ($1, $2) RETURNING *',
-    [email, name]
-  );
+  const result = await sql`INSERT INTO users (email, name) VALUES (${email}, ${name}) RETURNING *`;
   return result[0] as User;
 }
 
@@ -199,47 +196,37 @@ export async function saveBrokerConnection(
   encryptedCredentials: string
 ): Promise<BrokerConnection> {
   const sql = getDb();
-  const result = await sql(
-    `INSERT INTO broker_connections (user_id, broker_type, name, is_demo, credentials_encrypted)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [userId, brokerType, name, isDemo, encryptedCredentials]
-  );
+  const result = await sql`INSERT INTO broker_connections (user_id, broker_type, name, is_demo, credentials_encrypted) VALUES (${userId}, ${brokerType}, ${name}, ${isDemo}, ${encryptedCredentials}) RETURNING *`;
   return result[0] as BrokerConnection;
 }
 
 export async function getBrokerConnections(userId: string): Promise<BrokerConnection[]> {
   const sql = getDb();
-  const result = await sql(
-    'SELECT * FROM broker_connections WHERE user_id = $1 ORDER BY created_at DESC',
-    [userId]
-  );
+  const result = await sql`SELECT * FROM broker_connections WHERE user_id = ${userId} ORDER BY created_at DESC`;
   return result as BrokerConnection[];
 }
 
 // Trade operations
 export async function saveTrade(trade: Omit<Trade, 'id' | 'created_at'>): Promise<Trade> {
   const sql = getDb();
-  const result = await sql(
-    `INSERT INTO trades (user_id, broker_connection_id, external_trade_id, symbol, type, volume,
-     open_price, close_price, stop_loss, take_profit, open_time, close_time, profit, commission,
-     swap, status, comment)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *`,
-    [
-      trade.user_id, trade.broker_connection_id, trade.external_trade_id, trade.symbol,
-      trade.type, trade.volume, trade.open_price, trade.close_price, trade.stop_loss,
-      trade.take_profit, trade.open_time, trade.close_time, trade.profit, trade.commission,
-      trade.swap, trade.status, trade.comment
-    ]
-  );
+  const result = await sql`
+    INSERT INTO trades (
+      user_id, broker_connection_id, external_trade_id, symbol, type, volume,
+      open_price, close_price, stop_loss, take_profit, open_time, close_time,
+      profit, commission, swap, status, comment
+    ) VALUES (
+      ${trade.user_id}, ${trade.broker_connection_id}, ${trade.external_trade_id},
+      ${trade.symbol}, ${trade.type}, ${trade.volume}, ${trade.open_price},
+      ${trade.close_price}, ${trade.stop_loss}, ${trade.take_profit}, ${trade.open_time},
+      ${trade.close_time}, ${trade.profit}, ${trade.commission}, ${trade.swap},
+      ${trade.status}, ${trade.comment}
+    ) RETURNING *`;
   return result[0] as Trade;
 }
 
 export async function getTrades(userId: string, limit = 100): Promise<Trade[]> {
   const sql = getDb();
-  const result = await sql(
-    'SELECT * FROM trades WHERE user_id = $1 ORDER BY open_time DESC LIMIT $2',
-    [userId, limit]
-  );
+  const result = await sql`SELECT * FROM trades WHERE user_id = ${userId} ORDER BY open_time DESC LIMIT ${limit}`;
   return result as Trade[];
 }
 
@@ -248,36 +235,22 @@ export async function savePerformanceRecord(
   record: Omit<PerformanceRecord, 'id' | 'created_at'>
 ): Promise<PerformanceRecord> {
   const sql = getDb();
-  const result = await sql(
-    `INSERT INTO performance_records (user_id, date, total_pnl, daily_pnl, win_count,
-     loss_count, total_trades, win_rate)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     ON CONFLICT (user_id, date) DO UPDATE SET
-       total_pnl = EXCLUDED.total_pnl,
-       daily_pnl = EXCLUDED.daily_pnl,
-       win_count = EXCLUDED.win_count,
-       loss_count = EXCLUDED.loss_count,
-       total_trades = EXCLUDED.total_trades,
-       win_rate = EXCLUDED.win_rate
-     RETURNING *`,
-    [
-      record.user_id, record.date, record.total_pnl, record.daily_pnl, record.win_count,
-      record.loss_count, record.total_trades, record.win_rate
-    ]
-  );
+  const result = await sql`
+    INSERT INTO performance_records (user_id, date, total_pnl, daily_pnl, win_count, loss_count, total_trades, win_rate)
+    VALUES (${record.user_id}, ${record.date}, ${record.total_pnl}, ${record.daily_pnl}, ${record.win_count}, ${record.loss_count}, ${record.total_trades}, ${record.win_rate})
+    ON CONFLICT (user_id, date) DO UPDATE SET
+      total_pnl = EXCLUDED.total_pnl,
+      daily_pnl = EXCLUDED.daily_pnl,
+      win_count = EXCLUDED.win_count,
+      loss_count = EXCLUDED.loss_count,
+      total_trades = EXCLUDED.total_trades,
+      win_rate = EXCLUDED.win_rate
+    RETURNING *`;
   return result[0] as PerformanceRecord;
 }
 
-export async function getPerformanceHistory(
-  userId: string,
-  days = 30
-): Promise<PerformanceRecord[]> {
+export async function getPerformanceHistory(userId: string, days = 30): Promise<PerformanceRecord[]> {
   const sql = getDb();
-  const result = await sql(
-    `SELECT * FROM performance_records 
-     WHERE user_id = $1 AND date >= CURRENT_DATE - INTERVAL '${days} days'
-     ORDER BY date DESC`,
-    [userId]
-  );
+  const result = await sql`SELECT * FROM performance_records WHERE user_id = ${userId} AND date >= CURRENT_DATE - INTERVAL '${days} days' ORDER BY date DESC`;
   return result as PerformanceRecord[];
 }
