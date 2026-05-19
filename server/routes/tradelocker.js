@@ -86,7 +86,7 @@ async function getAutoAuthTokens() {
 }
 
 // Helper: get or refresh valid tokens
-async function getValidTokens(sessionId = null) {
+export async function getValidTokens(sessionId = null) {
   if (sessionId && tokenStore.has(sessionId)) {
     const session = tokenStore.get(sessionId);
     if (session.expiresAt > Date.now() + 60000) {
@@ -115,7 +115,7 @@ async function getValidTokens(sessionId = null) {
 }
 
 // Make authenticated request to TradeLocker
-async function tlRequest(method, path, tokens, data = null, params = null) {
+export async function tlRequest(method, path, tokens, data = null, params = null) {
   const headers = {
     'Authorization': `Bearer ${tokens.accessToken}`,
     'Content-Type': 'application/json'

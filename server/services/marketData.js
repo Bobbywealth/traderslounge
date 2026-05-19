@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { fetchTradeLockerBars } from './tradeLockerOhlc.js';
 
 // Map internal symbols to Yahoo Finance tickers.
 // Forex / metals / indices / crypto all supported via this endpoint.
@@ -156,6 +157,29 @@ async function fetchYahooBars(yahooSymbol, interval, range) {
   throw lastErr || new Error('Yahoo fetch failed');
 }
 
+async function fetchBarsForTimeframe(symbol, timeframe) {
+  // Primary source: TradeLocker (broker-quoted, authenticated, no rate limits).
+  // Returns null when not configured or when the symbol/route isn't available,
+  // letting us fall through to Yahoo silently.
+  try {
+    const tlBars = await fetchTradeLockerBars(symbol, timeframe);
+    if (tlBars && tlBars.length > 0) {
+      return { bars: tlBars, source: 'tradelocker' };
+    }
+  } catch (err) {
+    console.warn(`TradeLocker bars error for ${symbol} ${timeframe}: ${err.message}`);
+  }
+
+  // Fallback: Yahoo Finance.
+  const cfg = TF_TO_YAHOO[timeframe];
+  const yahooSymbol = resolveYahooSymbol(symbol);
+  let bars = await fetchYahooBars(yahooSymbol, cfg.interval, cfg.range);
+  if (cfg.resampleHours) {
+    bars = resampleBars(bars, cfg.resampleHours);
+  }
+  return { bars, source: 'yahoo' };
+}
+
 export async function getBars(symbol, timeframe) {
   if (!SUPPORTED_TIMEFRAMES.includes(timeframe)) {
     throw new Error(`Unsupported timeframe: ${timeframe}`);
@@ -166,17 +190,13 @@ export async function getBars(symbol, timeframe) {
     return cached.bars;
   }
 
-  const cfg = TF_TO_YAHOO[timeframe];
-  const yahooSymbol = resolveYahooSymbol(symbol);
-  let bars = await fetchYahooBars(yahooSymbol, cfg.interval, cfg.range);
-  if (cfg.resampleHours) {
-    bars = resampleBars(bars, cfg.resampleHours);
-  }
+  const { bars, source } = await fetchBarsForTimeframe(symbol, timeframe);
 
   // Never cache empty results — otherwise a single throttling event poisons
   // the cache for the full TTL window.
   if (bars.length > 0) {
     cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS[timeframe], bars });
+    console.log(`Bars ${symbol} ${timeframe}: ${bars.length} via ${source}`);
   }
   return bars;
 }
