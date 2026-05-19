@@ -50,6 +50,19 @@ export interface RefreshResult {
   error?: string;
 }
 
+export interface RefreshMetadata {
+  startedAt: string | null;
+  finishedAt: string | null;
+  nextAllowedRefreshAt: string | null;
+  inProgress: boolean;
+}
+
+export interface RefreshSignalsResponse extends RefreshMetadata {
+  success: boolean;
+  results: RefreshResult[];
+  error?: string;
+}
+
 // TradeLocker API
 export const tradeLockerApi = {
   async connect(): Promise<{ connected: boolean; demo?: boolean; hasCredentials?: boolean }> {
@@ -186,23 +199,44 @@ export const signalsApi = {
     }
   },
   
-  async refreshSignals(symbols: string[] = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'AUDUSD', 'USDCAD']): Promise<RefreshResult[]> {
-    const response = await fetch(`${API_BASE_URL}/api/signals/refresh`, {
+  async refreshSignals(
+    symbols: string[] = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'AUDUSD', 'USDCAD'],
+    options: { force?: boolean } = {}
+  ): Promise<RefreshSignalsResponse> {
+    const params = new URLSearchParams();
+    if (options.force) params.set('force', 'true');
+
+    const response = await fetch(`${API_BASE_URL}/api/signals/refresh?${params.toString()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ symbols })
     });
     
     const data = await response.json();
-    
-    if (!data.success) {
-      throw new Error(data.error || 'Failed to refresh signals');
-    }
-    
-    return data.results.map((r: any) => r.signal ? {
+
+    const mappedResults = (data.results || []).map((r: any) => r.signal ? {
       ...r,
       signal: mapSignal(r.signal)
     } : r);
+
+    const payload: RefreshSignalsResponse = {
+      success: data.success,
+      error: data.error,
+      startedAt: data.startedAt ?? null,
+      finishedAt: data.finishedAt ?? null,
+      nextAllowedRefreshAt: data.nextAllowedRefreshAt ?? null,
+      inProgress: !!data.inProgress,
+      results: mappedResults
+    };
+
+    if (!response.ok || !data.success) {
+      const message = data.error || 'Failed to refresh signals';
+      const error = new Error(message) as Error & { details?: RefreshSignalsResponse };
+      error.details = payload;
+      throw error;
+    }
+
+    return payload;
   },
   
   async cleanup(): Promise<number> {
