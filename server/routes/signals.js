@@ -79,8 +79,9 @@ initializeTable();
 
 // Import perplexity service
 import { analyzeWithPerplexity } from './perplexity.js';
+import axios from 'axios';
 
-// Use lightweight baseline market data so signal generation relies only on Perplexity API access.
+// Fallback baseline prices used only when live market data cannot be fetched.
 const BASELINE_PRICES = {
   EURUSD: 1.08,
   GBPUSD: 1.27,
@@ -90,15 +91,65 @@ const BASELINE_PRICES = {
   USDCAD: 1.36,
 };
 
-async function getMarketData(symbol) {
-  const currentPrice = BASELINE_PRICES[symbol] ?? 1.0;
+// Map our internal symbols to Yahoo Finance tickers (no API key required).
+const YAHOO_SYMBOL_MAP = {
+  EURUSD: 'EURUSD=X',
+  GBPUSD: 'GBPUSD=X',
+  USDJPY: 'JPY=X',
+  XAUUSD: 'XAUUSD=X',
+  AUDUSD: 'AUDUSD=X',
+  USDCAD: 'CAD=X',
+  NZDUSD: 'NZDUSD=X',
+  USDCHF: 'CHF=X',
+  XAGUSD: 'XAGUSD=X',
+  BTCUSD: 'BTC-USD',
+  ETHUSD: 'ETH-USD',
+};
+
+async function fetchYahooQuote(symbol) {
+  const yahooSymbol = YAHOO_SYMBOL_MAP[symbol] || `${symbol}=X`;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1d&range=2d`;
+
+  const response = await axios.get(url, {
+    timeout: 10000,
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TradersLoungeBot/1.0)' },
+  });
+
+  const result = response.data?.chart?.result?.[0];
+  if (!result) throw new Error('Empty Yahoo response');
+
+  const meta = result.meta || {};
+  const currentPrice = Number(meta.regularMarketPrice);
+  if (!Number.isFinite(currentPrice) || currentPrice <= 0) {
+    throw new Error('No regularMarketPrice in Yahoo response');
+  }
+
+  const high24h = Number(meta.regularMarketDayHigh) || currentPrice * 1.005;
+  const low24h = Number(meta.regularMarketDayLow) || currentPrice * 0.995;
+  const previousClose = Number(meta.chartPreviousClose) || Number(meta.previousClose) || currentPrice;
+  const changePercent = previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
 
   return {
     currentPrice,
-    high24h: currentPrice * 1.008,
-    low24h: currentPrice * 0.992,
-    changePercent: 0,
+    high24h,
+    low24h,
+    changePercent: Number(changePercent.toFixed(3)),
   };
+}
+
+async function getMarketData(symbol) {
+  try {
+    return await fetchYahooQuote(symbol);
+  } catch (error) {
+    console.warn(`Live price fetch failed for ${symbol}, falling back to baseline: ${error.message}`);
+    const currentPrice = BASELINE_PRICES[symbol] ?? 1.0;
+    return {
+      currentPrice,
+      high24h: currentPrice * 1.008,
+      low24h: currentPrice * 0.992,
+      changePercent: 0,
+    };
+  }
 }
 
 // Get all signals
@@ -182,21 +233,13 @@ router.post('/refresh', async (req, res) => {
     const { symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'AUDUSD', 'USDCAD'] } = req.body;
     
     if (!process.env.PERPLEXITY_API_KEY) {
-      return res.status(500).json({ 
-        success: false, 
-        error: 'PERPLEXITY_API_KEY not configured' 
+      return res.status(500).json({
+        success: false,
+        error: 'PERPLEXITY_API_KEY not configured'
       });
     }
 
-    if (!process.env.FINNHUB_API_KEY) {
-      console.warn('Refresh skipped: FINNHUB_API_KEY is not configured');
-      return res.status(503).json({
-        success: false,
-        error_code: 'FINNHUB_API_KEY_MISSING',
-        error: 'Market data service is temporarily unavailable. Please try again later.'
-      });
-    }
-    
+
     const results = [];
     
     // Process 4 symbols at a time
@@ -269,14 +312,7 @@ router.post('/refresh', async (req, res) => {
           
           return { symbol, success: true, signal: result.rows[0] };
         } catch (error) {
-          const isExpectedConfigError = error?.message?.includes('FINNHUB_API_KEY');
-
-          if (isExpectedConfigError) {
-            console.warn(`Failed to analyze ${symbol}: ${error.message}`);
-          } else {
-            console.error(`Failed to analyze ${symbol}:`, error);
-          }
-
+          console.error(`Failed to analyze ${symbol}:`, error);
           return { symbol, success: false, error: error.message };
         }
       });

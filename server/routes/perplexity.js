@@ -11,11 +11,13 @@ export async function analyzeWithPerplexity(symbol, marketData) {
 
   const prompt = `You are an expert forex and commodities trading analyst. Analyze ${symbol} and provide a comprehensive trading analysis.
 
-Current Market Data:
+Current Market Data (LIVE — use these exact reference values; do NOT substitute prices from your training data):
 - Current Price: ${marketData.currentPrice}
 - 24h High: ${marketData.high24h}
 - 24h Low: ${marketData.low24h}
 - Daily Change: ${marketData.changePercent}%
+
+All price fields you return (entry_price, stop_loss, take_profit, support_levels, resistance_levels, key_level_1.price, key_level_2.price) MUST be realistic levels near the Current Price above. Entry should be within ~0.5% of Current Price for FX pairs (or within ~1% for XAUUSD). Match the precision of the Current Price.
 
 Provide your analysis in the following JSON format ONLY (no other text):
 {
