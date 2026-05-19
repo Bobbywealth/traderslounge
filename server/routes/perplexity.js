@@ -9,6 +9,11 @@ export async function analyzeWithPerplexity(symbol, marketData) {
     throw new Error('PERPLEXITY_API_KEY not configured');
   }
 
+  // If no market data available, skip analysis
+  if (!marketData.currentPrice) {
+    throw new Error(`Market data not available for ${symbol}`);
+  }
+
   const prompt = `You are an expert forex and commodities trading analyst. Analyze ${symbol} and provide a comprehensive trading analysis.
 
 Current Market Data:
@@ -17,11 +22,13 @@ Current Market Data:
 - 24h Low: ${marketData.low24h}
 - Daily Change: ${marketData.changePercent}%
 
+IMPORTANT: The entry_price MUST be based on or very close to the current market price provided above. Entry price should reflect where you would enter a trade given the current market conditions.
+
 Provide your analysis in the following JSON format ONLY (no other text):
 {
   "direction": "buy" or "sell",
   "confidence": 0-100,
-  "entry_price": number,
+  "entry_price": number (MUST be close to current price),
   "stop_loss": number,
   "take_profit": number,
   "risk_reward_ratio": number,

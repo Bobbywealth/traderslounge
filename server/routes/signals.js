@@ -56,36 +56,45 @@ initializeTable();
 // Import perplexity service
 import { analyzeWithPerplexity } from './perplexity.js';
 
-// Finnhub API for market data
-const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY;
-
+// Yahoo Finance API for market data (free, no API key needed)
 async function getMarketData(symbol) {
-  if (!FINNHUB_API_KEY) {
-    // Return mock data if no API key
-    return {
-      currentPrice: 1.0425,
-      high24h: 1.0480,
-      low24h: 1.0380,
-      changePercent: 0.25
-    };
-  }
-
   try {
-    // Get quote data
-    const quoteResponse = await fetch(
-      `https://finnhub.io/api/v1/quote?symbol=OANDA:${symbol.substring(0, 3)}_${symbol.substring(3, 6)}&token=${FINNHUB_API_KEY}`
+    // Map symbol to Yahoo Finance format (e.g., EURUSD -> EURUSD=X)
+    const yahooSymbol = `${symbol}=X`;
+    
+    const response = await fetch(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=1d`
     );
-    const quote = await quoteResponse.json();
+    
+    if (!response.ok) {
+      throw new Error(`Yahoo Finance API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    const result = data?.chart?.result?.[0];
+    
+    if (!result || !result.meta) {
+      throw new Error('Invalid response from Yahoo Finance');
+    }
+    
+    const meta = result.meta;
+    const quote = result.indicators?.quote?.[0] || {};
     
     return {
-      currentPrice: quote.c || 1.0425,
-      high24h: quote.h || (quote.c * 1.008),
-      low24h: quote.l || (quote.c * 0.992),
-      changePercent: quote.dp || 0
+      currentPrice: meta.regularMarketPrice || meta.previousClose,
+      high24h: meta.regularMarketDayHigh || meta.previousClose,
+      low24h: meta.regularMarketDayLow || meta.previousClose,
+      changePercent: meta.regularMarketChangePercent || 0
     };
   } catch (error) {
     console.error(`Failed to get market data for ${symbol}:`, error);
-    throw error;
+    // Fallback to a default reasonable value instead of hardcoded mock
+    return {
+      currentPrice: null,
+      high24h: null,
+      low24h: null,
+      changePercent: 0
+    };
   }
 }
 
