@@ -1,5 +1,5 @@
 import React from 'react';
-import { TrendingUp, TrendingDown, DollarSign, Target } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Target, Sparkles } from 'lucide-react';
 import MetricCard from '../components/MetricCard';
 import PerformanceChart from '../components/PerformanceChart';
 import TradingChart from '../components/TradingChart';
@@ -60,23 +60,36 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Welcome Section */}
-      <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-6 text-white">
-        <h1 className="text-2xl font-bold mb-2">Good morning, {user?.name || 'Trader'}!</h1>
-        {accounts.length > 0 ? (
-          <p className="text-emerald-100">
-            Connected to {accounts.length} broker account{accounts.length !== 1 ? 's' : ''}. 
-            {totalPnL > 0 && ` You're up $${totalPnL.toFixed(2)} today!`}
-          </p>
-        ) : (
-          <p className="text-emerald-100">
-            Welcome to your professional trading dashboard. Connect your brokers to get started!
-          </p>
-        )}
+      {/* Welcome Section - Enhanced with gradient and glow */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-600 p-8 shadow-xl">
+        {/* Decorative glow orbs */}
+        <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-3xl"></div>
+        <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-teal-400/20 rounded-full blur-2xl"></div>
+        
+        {/* Content */}
+        <div className="relative z-10">
+          <div className="flex items-center gap-2 mb-2">
+            <Sparkles className="w-5 h-5 text-emerald-200 animate-pulse-subtle" />
+            <span className="text-sm font-medium text-emerald-100 uppercase tracking-wide">Trading Lounge</span>
+          </div>
+          <h1 className="text-3xl font-bold mb-2 text-white drop-shadow-sm">
+            Good morning, {user?.name || 'Trader'}!
+          </h1>
+          {accounts.length > 0 ? (
+            <p className="text-emerald-100/90 text-lg">
+              Connected to {accounts.length} broker account{accounts.length !== 1 ? 's' : ''}. 
+              {totalPnL > 0 && ` You're up $${totalPnL.toFixed(2)} today!`}
+            </p>
+          ) : (
+            <p className="text-emerald-100/90 text-lg">
+              Welcome to your professional trading dashboard. Connect your brokers to get started!
+            </p>
+          )}
+        </div>
       </div>
 
-      {/* Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* Metrics Grid - Enhanced cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
         {metrics.map((metric, index) => (
           <MetricCard key={index} {...metric} />
         ))}
@@ -84,34 +97,42 @@ const Dashboard: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Performance Chart */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 dashboard-card p-5 card-hover">
           <PerformanceChart />
         </div>
 
         {/* Quick Actions */}
-        <QuickActions />
+        <div className="dashboard-card p-5 card-hover">
+          <QuickActions />
+        </div>
       </div>
 
-      {/* Additional Charts */}
+      {/* Additional Charts - Enhanced with glass effect */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <TradingChart 
-          symbol="GBPUSD" 
-          timeframe="4H" 
-          height={350}
-          showVolume={false}
-          chartType="line"
-        />
-        <TradingChart 
-          symbol="XAUUSD" 
-          timeframe="1D" 
-          height={350}
-          showVolume={true}
-          chartType="area"
-        />
+        <div className="dashboard-card p-5 card-hover overflow-hidden">
+          <TradingChart 
+            symbol="GBPUSD" 
+            timeframe="4H" 
+            height={350}
+            showVolume={false}
+            chartType="line"
+          />
+        </div>
+        <div className="dashboard-card p-5 card-hover overflow-hidden">
+          <TradingChart 
+            symbol="XAUUSD" 
+            timeframe="1D" 
+            height={350}
+            showVolume={true}
+            chartType="area"
+          />
+        </div>
       </div>
 
       {/* Recent Trades */}
-      <RecentTrades />
+      <div className="dashboard-card p-5 card-hover">
+        <RecentTrades />
+      </div>
     </div>
   );
 };

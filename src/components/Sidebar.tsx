@@ -9,7 +9,8 @@ import {
   MessageSquare,
   BarChart3,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Sparkles
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -31,31 +32,41 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
   const location = useLocation();
 
   return (
-    <div className={`fixed left-0 top-0 h-full bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transition-all duration-300 z-40 ${
+    <div className={`fixed left-0 top-0 h-full glass-dark border-r border-gray-700/50 transition-all duration-300 z-40 backdrop-blur-xl ${
       collapsed ? 'w-16' : 'w-72'
     }`}>
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 border-b border-gray-700/50">
         {!collapsed && (
-          <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
-              <TrendingUp className="w-5 h-5 text-white" />
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/25">
+              <Sparkles className="w-5 h-5 text-white" />
             </div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">TradersLounge</h1>
+            <div>
+              <h1 className="text-lg font-bold text-white">TradersLounge</h1>
+              <p className="text-xs text-emerald-400">Professional Trading</p>
+            </div>
+          </div>
+        )}
+        {collapsed && (
+          <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/25 mx-auto">
+            <Zap className="w-5 h-5 text-white" />
           </div>
         )}
         <button
           onClick={onToggle}
-          className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200"
+          className="p-2 rounded-xl hover:bg-white/10 transition-all duration-200 group"
         >
           {collapsed ? (
-            <ChevronRight className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-white transition-colors" />
           ) : (
-            <ChevronLeft className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            <ChevronLeft className="w-5 h-5 text-gray-400 group-hover:text-white transition-colors" />
           )}
         </button>
       </div>
 
-      <nav className="mt-6 px-4">
+      {/* Navigation */}
+      <nav className="mt-6 px-3">
         {navigation.map((item) => {
           const isActive = location.pathname === item.href;
           const Icon = item.icon;
@@ -64,20 +75,41 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
             <Link
               key={item.name}
               to={item.href}
-              className={`flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200 mb-1 group ${
+              className={`flex items-center px-3 py-3 rounded-xl text-sm font-medium transition-all duration-200 mb-1 group ${
                 isActive
-                  ? 'bg-emerald-500 text-white'
-                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/25'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
               }`}
             >
               <Icon className={`w-5 h-5 ${collapsed ? '' : 'mr-3'} ${
-                isActive ? 'text-white' : 'text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-300'
+                isActive ? 'text-white' : 'group-hover:text-emerald-400'
               }`} />
               {!collapsed && <span>{item.name}</span>}
+              
+              {/* Active indicator dot when collapsed */}
+              {collapsed && isActive && (
+                <div className="absolute right-2 w-1.5 h-1.5 bg-white rounded-full" />
+              )}
             </Link>
           );
         })}
       </nav>
+
+      {/* Footer - Upgrade CTA */}
+      {!collapsed && (
+        <div className="absolute bottom-4 left-4 right-4">
+          <div className="bg-gradient-to-br from-emerald-500/10 to-teal-500/10 rounded-xl p-4 border border-emerald-500/20">
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wide">Upgrade Available</span>
+            </div>
+            <p className="text-xs text-gray-400 mb-3">Unlock advanced features and priority support</p>
+            <button className="w-full py-2 px-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-sm font-semibold rounded-lg hover:shadow-lg hover:shadow-emerald-500/25 transition-all duration-200">
+              Upgrade Now
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
