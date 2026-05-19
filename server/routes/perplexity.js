@@ -2,6 +2,60 @@ import axios from 'axios';
 
 const PERPLEXITY_API_URL = 'https://api.perplexity.ai';
 
+// Fetch live market data for a symbol using Perplexity's web search.
+// Used as a fallback when primary price sources (Yahoo, etc.) are unavailable.
+export async function fetchPerplexityPrice(symbol) {
+  const apiKey = process.env.PERPLEXITY_API_KEY;
+  if (!apiKey) {
+    throw new Error('PERPLEXITY_API_KEY not configured');
+  }
+
+  const prompt = `Look up the current live market price for ${symbol} right now using your web search.
+Return ONLY valid JSON in this exact shape (no markdown, no explanation):
+{
+  "currentPrice": number,
+  "high24h": number,
+  "low24h": number,
+  "changePercent": number
+}
+All values must be numbers (no strings, no units). Use the latest available real-time price.`;
+
+  const response = await axios.post(
+    `${PERPLEXITY_API_URL}/chat/completions`,
+    {
+      model: 'sonar',
+      messages: [
+        { role: 'system', content: 'You are a market data lookup service. Respond with valid JSON only.' },
+        { role: 'user', content: prompt },
+      ],
+      max_tokens: 300,
+      temperature: 0,
+    },
+    {
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      timeout: 30000,
+    }
+  );
+
+  let content = (response.data?.choices?.[0]?.message?.content || '').trim();
+  if (content.startsWith('```json')) content = content.slice(7);
+  else if (content.startsWith('```')) content = content.slice(3);
+  if (content.endsWith('```')) content = content.slice(0, -3);
+
+  const parsed = JSON.parse(content.trim());
+  const currentPrice = Number(parsed.currentPrice);
+  if (!Number.isFinite(currentPrice) || currentPrice <= 0) {
+    throw new Error('Perplexity returned invalid currentPrice');
+  }
+
+  return {
+    currentPrice,
+    high24h: Number(parsed.high24h) || currentPrice * 1.005,
+    low24h: Number(parsed.low24h) || currentPrice * 0.995,
+    changePercent: Number(parsed.changePercent) || 0,
+  };
+}
+
 export async function analyzeWithPerplexity(symbol, marketData) {
   const apiKey = process.env.PERPLEXITY_API_KEY;
   

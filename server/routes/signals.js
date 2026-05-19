@@ -78,7 +78,7 @@ async function initializeTable() {
 initializeTable();
 
 // Import perplexity service
-import { analyzeWithPerplexity } from './perplexity.js';
+import { analyzeWithPerplexity, fetchPerplexityPrice } from './perplexity.js';
 import axios from 'axios';
 
 // Fallback baseline prices used only when live market data cannot be fetched.
@@ -137,19 +137,35 @@ async function fetchYahooQuote(symbol) {
   };
 }
 
+// Ordered list of live-price providers. Each must return
+// { currentPrice, high24h, low24h, changePercent } or throw.
+// Add another LLM-backed provider here if needed (e.g. OpenAI, Anthropic).
+const PRICE_PROVIDERS = [
+  { name: 'yahoo', fetch: fetchYahooQuote },
+  { name: 'perplexity', fetch: fetchPerplexityPrice },
+];
+
 async function getMarketData(symbol) {
-  try {
-    return await fetchYahooQuote(symbol);
-  } catch (error) {
-    console.warn(`Live price fetch failed for ${symbol}, falling back to baseline: ${error.message}`);
-    const currentPrice = BASELINE_PRICES[symbol] ?? 1.0;
-    return {
-      currentPrice,
-      high24h: currentPrice * 1.008,
-      low24h: currentPrice * 0.992,
-      changePercent: 0,
-    };
+  for (const provider of PRICE_PROVIDERS) {
+    try {
+      const data = await provider.fetch(symbol);
+      if (data && Number.isFinite(data.currentPrice) && data.currentPrice > 0) {
+        console.log(`Market data for ${symbol} via ${provider.name}: ${data.currentPrice}`);
+        return data;
+      }
+    } catch (error) {
+      console.warn(`Price provider ${provider.name} failed for ${symbol}: ${error.message}`);
+    }
   }
+
+  console.warn(`All live price providers failed for ${symbol}, using baseline fallback`);
+  const currentPrice = BASELINE_PRICES[symbol] ?? 1.0;
+  return {
+    currentPrice,
+    high24h: currentPrice * 1.008,
+    low24h: currentPrice * 0.992,
+    changePercent: 0,
+  };
 }
 
 // Get all signals
