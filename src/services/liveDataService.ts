@@ -1,6 +1,10 @@
 // LIVE MARKET DATA SERVICE - Requires API keys for real data
 import axios from 'axios';
 
+// Canonical confirmation candle rules shared by all trade-trigger scanners:
+// docs/strategy/confirmation-candle.md
+export const CONFIRMATION_CANDLE_RULES_DOC = 'docs/strategy/confirmation-candle.md';
+
 export interface LivePrice {
   symbol: string;
   bid: number;
