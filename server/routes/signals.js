@@ -56,32 +56,25 @@ initializeTable();
 // Import perplexity service
 import { analyzeWithPerplexity } from './perplexity.js';
 
-// Finnhub API for market data
-const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY;
+// Use lightweight baseline market data so signal generation relies only on Perplexity API access.
+const BASELINE_PRICES = {
+  EURUSD: 1.08,
+  GBPUSD: 1.27,
+  USDJPY: 155.0,
+  XAUUSD: 2350.0,
+  AUDUSD: 0.66,
+  USDCAD: 1.36,
+};
 
 async function getMarketData(symbol) {
-  if (!FINNHUB_API_KEY) {
-    // Defensive fallback: refresh route should guard this before calling per symbol.
-    throw new Error(`FINNHUB_API_KEY missing while fetching market data for ${symbol}`);
-  }
+  const currentPrice = BASELINE_PRICES[symbol] ?? 1.0;
 
-  try {
-    // Get quote data
-    const quoteResponse = await fetch(
-      `https://finnhub.io/api/v1/quote?symbol=OANDA:${symbol.substring(0, 3)}_${symbol.substring(3, 6)}&token=${FINNHUB_API_KEY}`
-    );
-    const quote = await quoteResponse.json();
-    
-    return {
-      currentPrice: quote.c || 1.0425,
-      high24h: quote.h || (quote.c * 1.008),
-      low24h: quote.l || (quote.c * 0.992),
-      changePercent: quote.dp || 0
-    };
-  } catch (error) {
-    console.error(`Failed to get market data for ${symbol}:`, error);
-    throw error;
-  }
+  return {
+    currentPrice,
+    high24h: currentPrice * 1.008,
+    low24h: currentPrice * 0.992,
+    changePercent: 0,
+  };
 }
 
 // Get all signals
@@ -139,6 +132,28 @@ router.get('/:symbol', async (req, res) => {
 
 // Refresh/Generate new analysis for symbols
 router.post('/refresh', async (req, res) => {
+  const forceRefresh = req.query.force === 'true';
+  const metadata = buildRefreshMetadata();
+
+  if (refreshState.inProgress) {
+    return res.status(202).json({
+      success: false,
+      error: 'refresh already in progress.',
+      ...metadata,
+    });
+  }
+
+  if (!forceRefresh && metadata.nextAllowedRefreshAt && new Date(metadata.nextAllowedRefreshAt) > new Date()) {
+    return res.status(429).json({
+      success: false,
+      error: 'refresh already in progress.',
+      ...metadata,
+    });
+  }
+
+  refreshState.inProgress = true;
+  refreshState.startedAt = new Date();
+
   try {
     const { symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'AUDUSD', 'USDCAD'] } = req.body;
     
@@ -251,10 +266,36 @@ router.post('/refresh', async (req, res) => {
       }
     }
     
-    res.json({ success: true, results });
+    const total = results.length;
+    const failed = results.filter((result) => !result.success).length;
+    const succeeded = total - failed;
+    const summary = { total, succeeded, failed };
+
+    if (failed === 0) {
+      return res.status(200).json({ success: true, summary, results });
+    }
+
+    if (succeeded > 0) {
+      return res.status(207).json({
+        success: false,
+        partial: true,
+        summary,
+        results
+      });
+    }
+
+    return res.status(503).json({
+      success: false,
+      summary,
+      results,
+      error: 'Failed to refresh signals for all symbols'
+    });
   } catch (error) {
     console.error('Refresh signals error:', error);
-    res.status(500).json({ success: false, error: error.message });
+    refreshState.finishedAt = new Date();
+    res.status(500).json({ success: false, error: error.message, ...buildRefreshMetadata() });
+  } finally {
+    refreshState.inProgress = false;
   }
 });
 
