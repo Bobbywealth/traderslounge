@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle } from 'lightweight-charts';
+import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts';
 import { 
   TrendingUp, 
   Settings, 
@@ -13,17 +13,33 @@ import {
   Activity,
   Target,
   Zap,
-  RefreshCw
+  RefreshCw,
+  LineChart,
+  CandlestickChart,
+  BarChart2
 } from 'lucide-react';
 import { liveDataService, HarmonicPattern, TrendLine, FibonacciLevel } from '../services/liveDataService';
 
 interface CandlestickData {
-  time: number;
+  time: UTCTimestamp;
   open: number;
   high: number;
   low: number;
   close: number;
 }
+
+interface LineDataPoint {
+  time: UTCTimestamp;
+  value: number;
+}
+
+interface VolumeData {
+  time: UTCTimestamp;
+  value: number;
+  color: string;
+}
+
+type ChartType = 'candlestick' | 'line' | 'area';
 
 interface SymbolInfo {
   symbol: string;
@@ -35,9 +51,15 @@ interface SymbolInfo {
 
 const TradingView: React.FC = () => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
+  const volumeContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const volumeChartRef = useRef<IChartApi | null>(null);
+  const mainSeriesRef = useRef<ISeriesApi<'Candlestick'> | ISeriesApi<'Line'> | ISeriesApi<'Area'> | null>(null);
+  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const chartInitialized = useRef<boolean>(false);
+  const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const [chartType, setChartType] = useState<ChartType>('candlestick');
+  const [showVolume, setShowVolume] = useState(true);
   
   // State management
   const [selectedSymbol, setSelectedSymbol] = useState('EURUSD');
@@ -317,7 +339,7 @@ const TradingView: React.FC = () => {
     harmonicPatterns.forEach((pattern, index) => {
       if (pattern.status === 'completed') {
         // Draw pattern lines
-        const patternSeries = chartRef.current!.addLineSeries({
+        const patternSeries = chartRef.current!.addSeries(LineSeries, {
           color: pattern.direction === 'bullish' ? '#10b981' : '#ef4444',
           lineWidth: 2,
           lineStyle: LineStyle.Dashed,
@@ -337,9 +359,9 @@ const TradingView: React.FC = () => {
           patternSeries.setData(lineData);
 
           // Draw PRZ (Potential Reversal Zone)
-          const przSeries = chartRef.current!.addLineSeries({
+          const przSeries = chartRef.current!.addSeries(LineSeries, {
             color: pattern.direction === 'bullish' ? '#10b98150' : '#ef444450',
-            lineWidth: 8,
+            lineWidth: 2,
             title: 'PRZ',
           });
 
@@ -361,7 +383,7 @@ const TradingView: React.FC = () => {
 
     trendLines.forEach((trendLine) => {
       if (trendLine.isActive && trendLine.points.length >= 2) {
-        const trendSeries = chartRef.current!.addLineSeries({
+        const trendSeries = chartRef.current!.addSeries(LineSeries, {
           color: trendLine.type === 'support' ? '#3b82f6' : '#f59e0b',
           lineWidth: 2,
           lineStyle: LineStyle.Solid,
@@ -387,10 +409,10 @@ const TradingView: React.FC = () => {
     if (!chartRef.current || !showFibonacci) return;
 
     fibonacciLevels.forEach((level) => {
-      const fibSeries = chartRef.current!.addLineSeries({
+      const fibSeries = chartRef.current!.addSeries(LineSeries, {
         color: level.strength === 'strong' ? '#8b5cf6' : 
                level.strength === 'medium' ? '#a78bfa' : '#c4b5fd',
-        lineWidth: level.strength === 'strong' ? 2 : 1,
+        lineWidth: 1,
         lineStyle: LineStyle.Dotted,
         title: `Fib ${(level.level * 100).toFixed(1)}%`,
       });
