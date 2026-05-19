@@ -10,6 +10,7 @@ const Signals: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorHint, setErrorHint] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [tlConnected, setTlConnected] = useState(false);
   const [tlChecking, setTlChecking] = useState(false);
@@ -45,12 +46,30 @@ const Signals: React.FC = () => {
   const loadSignals = async () => {
     setIsLoading(true);
     setError(null);
+    setErrorHint(null);
     try {
       const data = await signalsApi.getSignals();
       setSignals(data);
       setLastUpdated(new Date());
     } catch (err) {
-      setError('API server not yet deployed. Go to Render Dashboard → Blueprints → Apply "render.yaml" to deploy the API server.');
+      const message = err instanceof Error ? err.message : 'Failed to load signals.';
+      const normalizedMessage = message.toLowerCase();
+      const isNetworkError = normalizedMessage.includes('failed to fetch') ||
+        normalizedMessage.includes('networkerror') ||
+        normalizedMessage.includes('network request failed');
+      const isBackendError = normalizedMessage.includes('request failed (') ||
+        normalizedMessage.includes('status');
+
+      if (isNetworkError) {
+        setError(`Network error: ${message}`);
+        setErrorHint('Check your internet connection and verify the API service is reachable.');
+      } else if (isBackendError) {
+        setError(`Backend error: ${message}`);
+        setErrorHint('If this is a fresh deployment, apply "render.yaml" in Render Dashboard → Blueprints.');
+      } else {
+        setError(message);
+        setErrorHint('Deployment hint: Render Dashboard → Blueprints → Apply "render.yaml" if the API is not deployed yet.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -274,7 +293,12 @@ const Signals: React.FC = () => {
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-5 h-5 text-red-600" />
-            <p className="text-red-800 dark:text-red-200">{error}</p>
+            <div>
+              <p className="text-red-800 dark:text-red-200">{error}</p>
+              {errorHint && (
+                <p className="text-red-700/80 dark:text-red-300/80 text-sm mt-1">{errorHint}</p>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -53,6 +53,23 @@ export interface RefreshResult {
   error?: string;
 }
 
+
+const parseJsonSafe = async (response: Response): Promise<any> => {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+};
+
+const createHttpError = (response: Response, data: any, fallback: string): Error => {
+  const payloadMessage = data?.error || data?.message;
+  const statusPrefix = `Request failed (${response.status} ${response.statusText})`;
+  return new Error(payloadMessage ? `${statusPrefix}: ${payloadMessage}` : `${statusPrefix}: ${fallback}`);
+};
+
 // TradeLocker API
 export const tradeLockerApi = {
   async connect(): Promise<{ connected: boolean; demo?: boolean; hasCredentials?: boolean }> {
@@ -150,10 +167,14 @@ export const signalsApi = {
     params.set('limit', limit.toString());
     
     const response = await fetch(`${API_BASE_URL}/api/signals?${params}`);
-    const data = await response.json();
-    
-    if (!data.success) {
-      throw new Error(data.error || 'Failed to fetch signals');
+    const data = await parseJsonSafe(response);
+
+    if (!response.ok) {
+      throw createHttpError(response, data, 'Failed to fetch signals');
+    }
+
+    if (!data?.success) {
+      throw new Error(data?.error || data?.message || 'Failed to fetch signals');
     }
     
     return data.signals.map((s: any) => ({
