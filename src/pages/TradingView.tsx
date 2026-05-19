@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts';
 import { 
   TrendingUp, 
@@ -16,9 +16,12 @@ import {
   RefreshCw,
   LineChart,
   CandlestickChart,
-  BarChart2
+  BarChart2,
+  Link,
+  Link2Off
 } from 'lucide-react';
 import { liveDataService, HarmonicPattern, TrendLine, FibonacciLevel } from '../services/liveDataService';
+import { tradeLockerService, TradeLockerConfig } from '../services/tradeLockerService';
 
 interface CandlestickData {
   time: UTCTimestamp;
@@ -128,12 +131,147 @@ const TradingView: React.FC = () => {
     { value: '1w', label: '1W' },
   ];
 
-  const brokers = [
-    { value: 'polygon', label: 'Polygon.io', status: 'connected' },
-    { value: 'alpha_vantage', label: 'Alpha Vantage', status: 'connected' },
-    { value: 'finnhub', label: 'Finnhub', status: 'disconnected' },
-    { value: 'iex', label: 'IEX Cloud', status: 'demo' },
-  ];
+  // TradeLocker connection state
+  const [tradeLockerConnected, setTradeLockerConnected] = useState(false);
+  const [tradeLockerCredentials, setTradeLockerCredentials] = useState({
+    email: '',
+    password: '',
+    server: 'demo',
+    isDemo: true
+  });
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  
+  // TradeLocker connection function
+  const connectToTradeLocker = async () => {
+    if (!tradeLockerCredentials.email || !tradeLockerCredentials.password) {
+      alert('Please enter your TradeLocker credentials');
+      return;
+    }
+
+    try {
+      console.log('🔌 Connecting to TradeLocker...');
+      
+      // Authenticate with TradeLocker
+      const authResponse = await tradeLockerService.authenticate({
+        email: tradeLockerCredentials.email,
+        password: tradeLockerCredentials.password,
+        server: tradeLockerCredentials.server,
+        isDemo: tradeLockerCredentials.isDemo,
+      });
+
+      console.log('✅ TradeLocker authenticated:', authResponse.accessToken ? 'Token received' : 'No token');
+      setTradeLockerConnected(true);
+      setIsConnected(true);
+      setShowLoginModal(false);
+
+      // Initialize WebSocket for real-time data
+      initializeTradeLockerWebSocket();
+      
+    } catch (error) {
+      console.error('❌ TradeLocker connection failed:', error);
+      alert('Failed to connect to TradeLocker. Please check your credentials.');
+      setTradeLockerConnected(false);
+      setIsConnected(false);
+    }
+  };
+
+  // Initialize WebSocket connection to TradeLocker
+  const initializeTradeLockerWebSocket = () => {
+    const wsUrl = tradeLockerCredentials.isDemo 
+      ? 'wss://demo.tradelocker.com/streaming-api' 
+      : 'wss://live.tradelocker.com/streaming-api';
+
+    try {
+      console.log(`🔗 Connecting to WebSocket: ${wsUrl}`);
+      
+      // Note: TradeLocker may use different WebSocket URL format
+      // This is a placeholder - you'll need to check TradeLocker's actual WebSocket API
+      const ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        console.log('✅ WebSocket connected');
+        setIsConnected(true);
+        
+        // Subscribe to symbol data
+        ws.send(JSON.stringify({
+          type: 'subscribe',
+          symbol: selectedSymbol,
+          timeframe: timeframe
+        }));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          if (data.type === 'quote' || data.type === 'candlestick') {
+            // Update chart with real data
+            const newCandle = {
+              time: Math.floor(new Date(data.timestamp).getTime() / 1000) as any,
+              open: data.open,
+              high: data.high,
+              low: data.low,
+              close: data.close,
+            };
+            
+            if (candlestickSeriesRef.current) {
+              candlestickSeriesRef.current.update(newCandle);
+            }
+            
+            setCurrentPrice(data.close);
+          }
+        } catch (error) {
+          console.warn('WebSocket data parse error:', error);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+
+      ws.onclose = () => {
+        console.log('🔌 WebSocket disconnected');
+        setIsConnected(false);
+        // Attempt reconnection after 5 seconds
+        setTimeout(() => {
+          if (tradeLockerConnected) {
+            initializeTradeLockerWebSocket();
+          }
+        }, 5000);
+      };
+
+      wsRef.current = ws;
+    } catch (error) {
+      console.error('Failed to initialize WebSocket:', error);
+    }
+  };
+
+  // Disconnect from TradeLocker
+  const disconnectFromTradeLocker = () => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    tradeLockerService.disconnect();
+    setTradeLockerConnected(false);
+    setIsConnected(false);
+  };
+
+  // Subscribe to symbol changes
+  useEffect(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'unsubscribe',
+        symbol: selectedSymbol,
+      }));
+      wsRef.current.send(JSON.stringify({
+        type: 'subscribe',
+        symbol: selectedSymbol,
+        timeframe: timeframe
+      }));
+    }
+  }, [selectedSymbol, timeframe]);
 
   // Symbol search functionality
   const handleSymbolSearch = (term: string) => {
@@ -273,17 +411,15 @@ const TradingView: React.FC = () => {
         crosshair: { mode: 1 },
         rightPriceScale: {
           borderColor: '#485563',
-          textColor: '#d1d5db',
         },
         timeScale: {
           borderColor: '#485563',
-          textColor: '#d1d5db',
         },
         width: chartContainerRef.current.clientWidth,
         height: chartContainerRef.current.clientHeight,
       });
 
-      const candlestickSeries = chart.addCandlestickSeries({
+      const candlestickSeries = chart.addSeries(CandlestickSeries, {
         upColor: '#10b981',
         downColor: '#ef4444',
         borderDownColor: '#ef4444',
@@ -580,18 +716,24 @@ const TradingView: React.FC = () => {
 
           {/* Right Section - Controls */}
           <div className="flex items-center space-x-4">
-            {/* Broker Selection */}
-            <select 
-              value={selectedBroker}
-              onChange={(e) => setSelectedBroker(e.target.value)}
-              className="bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-emerald-500 focus:outline-none"
-            >
-              {brokers.map(broker => (
-                <option key={broker.value} value={broker.value}>
-                  {broker.label} ({broker.status})
-                </option>
-              ))}
-            </select>
+            {/* TradeLocker Connection */}
+            {tradeLockerConnected ? (
+              <button
+                onClick={disconnectFromTradeLocker}
+                className="flex items-center space-x-2 px-4 py-2 rounded bg-red-600 hover:bg-red-700 transition-colors"
+              >
+                <Link2Off className="w-4 h-4" />
+                <span>Disconnect TradeLocker</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowLoginModal(true)}
+                className="flex items-center space-x-2 px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-700 transition-colors"
+              >
+                <Link className="w-4 h-4" />
+                <span>Connect TradeLocker</span>
+              </button>
+            )}
 
             {/* Live Data Toggle */}
             <button
@@ -759,6 +901,84 @@ const TradingView: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* TradeLocker Login Modal */}
+      {showLoginModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <h2 className="text-2xl font-bold text-white mb-4 flex items-center">
+              <Link className="w-6 h-6 mr-2 text-emerald-500" />
+              Connect to TradeLocker
+            </h2>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={tradeLockerCredentials.email}
+                  onChange={(e) => setTradeLockerCredentials({ ...tradeLockerCredentials, email: e.target.value })}
+                  className="w-full bg-gray-700 text-white rounded px-3 py-2 border border-gray-600 focus:border-emerald-500 focus:outline-none"
+                  placeholder="your@email.com"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Password</label>
+                <input
+                  type="password"
+                  value={tradeLockerCredentials.password}
+                  onChange={(e) => setTradeLockerCredentials({ ...tradeLockerCredentials, password: e.target.value })}
+                  className="w-full bg-gray-700 text-white rounded px-3 py-2 border border-gray-600 focus:border-emerald-500 focus:outline-none"
+                  placeholder="Your password"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Server</label>
+                <select
+                  value={tradeLockerCredentials.server}
+                  onChange={(e) => setTradeLockerCredentials({ ...tradeLockerCredentials, server: e.target.value })}
+                  className="w-full bg-gray-700 text-white rounded px-3 py-2 border border-gray-600 focus:border-emerald-500 focus:outline-none"
+                >
+                  <option value="demo">Demo Server</option>
+                  <option value="live">Live Server</option>
+                </select>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="isDemo"
+                  checked={tradeLockerCredentials.isDemo}
+                  onChange={(e) => setTradeLockerCredentials({ ...tradeLockerCredentials, isDemo: e.target.checked })}
+                  className="rounded border-gray-600 text-emerald-500 focus:ring-emerald-500"
+                />
+                <label htmlFor="isDemo" className="text-sm text-gray-400">Use Demo Account</label>
+              </div>
+            </div>
+            
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={connectToTradeLocker}
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2 px-4 rounded transition-colors"
+              >
+                Connect
+              </button>
+              <button
+                onClick={() => setShowLoginModal(false)}
+                className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+            
+            <p className="text-xs text-gray-500 mt-4 text-center">
+              Your credentials are only used to authenticate with TradeLocker and are never stored on our servers.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
