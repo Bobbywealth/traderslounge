@@ -317,5 +317,53 @@ export const BROKER_CONFIGS: Record<BrokerType, BrokerConfig> = {
         ]
       }
     ]
+  },
+  trade_locker: {
+    name: 'trade_locker',
+    displayName: 'Trade Locker',
+    type: 'trade_locker',
+    apiEndpoint: 'https://demo.tradelocker.com/backend-api',
+    documentation: 'https://docs.tradelocker.com',
+    supportedFeatures: ['real_time_data', 'historical_data', 'trade_execution', 'account_info', 'position_management', 'order_management'],
+    fields: [
+      {
+        key: 'serverUrl',
+        label: 'Environment',
+        type: 'select',
+        required: true,
+        options: [
+          { value: 'https://demo.tradelocker.com/backend-api', label: 'Demo Trading' },
+          { value: 'https://live.tradelocker.com/backend-api', label: 'Live Trading' }
+        ]
+      },
+      {
+        key: 'email',
+        label: 'Email',
+        type: 'text',
+        required: true,
+        placeholder: 'your@email.com',
+      },
+      {
+        key: 'password',
+        label: 'Password',
+        type: 'password',
+        required: true,
+        placeholder: 'Your TradeLocker password',
+      },
+      {
+        key: 'server',
+        label: 'Server',
+        type: 'text',
+        required: true,
+        placeholder: 'Broker Server Name',
+      },
+      {
+        key: 'accountId',
+        label: 'Account ID',
+        type: 'text',
+        required: false,
+        placeholder: 'Trading Account ID (optional)',
+      }
+    ]
   }
 };

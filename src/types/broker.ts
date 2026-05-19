@@ -6,6 +6,12 @@ export interface BrokerCredentials {
   apiSecret: string;
   accountId?: string;
   serverUrl?: string;
+  // Trade Locker specific
+  email?: string;
+  password?: string;
+  server?: string;
+  accessToken?: string;
+  refreshToken?: string;
   isDemo: boolean;
   isActive: boolean;
   createdAt: Date;
@@ -57,7 +63,8 @@ export type BrokerType =
   | 'oanda'
   | 'fxcm'
   | 'alpaca'
-  | 'binance';
+  | 'binance'
+  | 'trade_locker';
 
 export interface BrokerConfig {
   name: string;

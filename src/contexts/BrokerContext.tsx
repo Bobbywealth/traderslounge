@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { BrokerCredentials, BrokerAccount, BrokerTrade, ConnectionStatus } from '../types/broker';
+import { tradeLockerService } from '../services/tradeLockerService';
 
 interface BrokerContextType {
   credentials: BrokerCredentials[];
@@ -78,7 +79,36 @@ export const BrokerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }));
 
     try {
-      // Simulate API call to test connection
+      // Handle Trade Locker specific authentication
+      if (cred.brokerType === 'trade_locker') {
+        const authResponse = await tradeLockerService.authenticate({
+          email: cred.email || '',
+          password: cred.password || '',
+          server: cred.server || '',
+          accountId: cred.accountId,
+          isDemo: cred.isDemo,
+        });
+
+        // Store tokens for later use
+        updateCredentials(id, {
+          accessToken: authResponse.accessToken,
+          refreshToken: authResponse.refreshToken,
+        });
+
+        setConnectionStatus(prev => ({
+          ...prev,
+          [id]: {
+            isConnected: true,
+            lastPing: new Date(),
+            latency: 0,
+            error: undefined
+          }
+        }));
+
+        return true;
+      }
+
+      // Simulate API call to test connection for other brokers
       await new Promise(resolve => setTimeout(resolve, 2000));
       
       // Mock successful connection
@@ -113,45 +143,94 @@ export const BrokerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     setIsLoading(true);
     try {
-      // Simulate API calls to fetch account data and trades
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      let mockAccount: BrokerAccount;
+      let mockTrades: BrokerTrade[];
 
-      // Mock account data
-      const mockAccount: BrokerAccount = {
-        id: `account_${id}`,
-        brokerName: cred.name,
-        accountNumber: cred.accountId || 'DEMO123456',
-        accountType: cred.isDemo ? 'demo' : 'live',
-        balance: 10000 + Math.random() * 50000,
-        equity: 10000 + Math.random() * 50000,
-        margin: Math.random() * 5000,
-        freeMargin: 8000 + Math.random() * 40000,
-        marginLevel: 100 + Math.random() * 200,
-        currency: 'USD',
-        leverage: 100,
-        isConnected: true,
-        lastUpdate: new Date(),
-      };
+      // Handle Trade Locker specific sync
+      if (cred.brokerType === 'trade_locker' && tradeLockerService.isConnected()) {
+        try {
+          // Fetch real positions from Trade Locker
+          const positions = await tradeLockerService.getPositions();
+          
+          mockAccount = {
+            id: `account_${id}`,
+            brokerName: cred.name,
+            accountNumber: cred.accountId || 'TL-DEMO',
+            accountType: cred.isDemo ? 'demo' : 'live',
+            balance: 10000,
+            equity: 10000,
+            margin: 0,
+            freeMargin: 10000,
+            marginLevel: 0,
+            currency: 'USD',
+            leverage: 100,
+            isConnected: true,
+            lastUpdate: new Date(),
+          };
 
-      // Mock trades data
-      const mockTrades: BrokerTrade[] = Array.from({ length: 10 }, (_, i) => ({
-        id: `trade_${id}_${i}`,
-        brokerTradeId: `${Math.floor(Math.random() * 1000000)}`,
-        symbol: ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD'][Math.floor(Math.random() * 4)],
-        type: Math.random() > 0.5 ? 'buy' : 'sell',
-        volume: parseFloat((Math.random() * 2).toFixed(2)),
-        openPrice: 1.0800 + Math.random() * 0.1,
-        closePrice: Math.random() > 0.3 ? 1.0800 + Math.random() * 0.1 : undefined,
-        stopLoss: 1.0700 + Math.random() * 0.05,
-        takeProfit: 1.0900 + Math.random() * 0.05,
-        openTime: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000),
-        closeTime: Math.random() > 0.3 ? new Date() : undefined,
-        profit: (Math.random() - 0.5) * 1000,
-        commission: -Math.random() * 10,
-        swap: (Math.random() - 0.5) * 5,
-        status: Math.random() > 0.3 ? 'closed' : 'open',
-        comment: 'Imported from broker',
-      }));
+          // Convert Trade Locker positions to our format
+          mockTrades = positions.map((pos) => ({
+            id: `trade_${id}_${pos.id}`,
+            brokerTradeId: pos.id,
+            symbol: pos.symbol,
+            type: pos.type,
+            volume: pos.volume,
+            openPrice: pos.openPrice,
+            closePrice: undefined,
+            stopLoss: pos.stopLoss,
+            takeProfit: pos.takeProfit,
+            openTime: new Date(pos.openTime),
+            closeTime: undefined,
+            profit: pos.profit,
+            commission: 0,
+            swap: 0,
+            status: 'open',
+            comment: 'Trade Locker',
+          }));
+        } catch (error) {
+          console.error('Failed to fetch Trade Locker positions:', error);
+          throw error;
+        }
+      } else {
+        // Simulate API calls for other brokers
+        await new Promise(resolve => setTimeout(resolve, 3000));
+
+        mockAccount = {
+          id: `account_${id}`,
+          brokerName: cred.name,
+          accountNumber: cred.accountId || 'DEMO123456',
+          accountType: cred.isDemo ? 'demo' : 'live',
+          balance: 10000 + Math.random() * 50000,
+          equity: 10000 + Math.random() * 50000,
+          margin: Math.random() * 5000,
+          freeMargin: 8000 + Math.random() * 40000,
+          marginLevel: 100 + Math.random() * 200,
+          currency: 'USD',
+          leverage: 100,
+          isConnected: true,
+          lastUpdate: new Date(),
+        };
+
+        // Mock trades data
+        mockTrades = Array.from({ length: 10 }, (_, i) => ({
+          id: `trade_${id}_${i}`,
+          brokerTradeId: `${Math.floor(Math.random() * 1000000)}`,
+          symbol: ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD'][Math.floor(Math.random() * 4)],
+          type: Math.random() > 0.5 ? 'buy' : 'sell',
+          volume: parseFloat((Math.random() * 2).toFixed(2)),
+          openPrice: 1.0800 + Math.random() * 0.1,
+          closePrice: Math.random() > 0.3 ? 1.0800 + Math.random() * 0.1 : undefined,
+          stopLoss: 1.0700 + Math.random() * 0.05,
+          takeProfit: 1.0900 + Math.random() * 0.05,
+          openTime: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000),
+          closeTime: Math.random() > 0.3 ? new Date() : undefined,
+          profit: (Math.random() - 0.5) * 1000,
+          commission: -Math.random() * 10,
+          swap: (Math.random() - 0.5) * 5,
+          status: Math.random() > 0.3 ? 'closed' : 'open',
+          comment: 'Imported from broker',
+        }));
+      }
 
       setAccounts(prev => {
         const filtered = prev.filter(acc => acc.id !== mockAccount.id);
