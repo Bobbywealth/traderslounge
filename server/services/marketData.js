@@ -239,16 +239,26 @@ async function fetchBarsForTimeframe(symbol, timeframe) {
   }
 
   // Tertiary: Yahoo Finance.
+  let bars = [];
+  let source = null;
   const cfg = TF_TO_YAHOO[timeframe];
   const yahooSymbol = resolveYahooSymbol(symbol);
-  let bars = await fetchYahooBars(yahooSymbol, cfg.interval, cfg.range);
-  if (cfg.resampleHours) {
-    bars = resampleBars(bars, cfg.resampleHours);
+  try {
+    let yahooBars = await fetchYahooBars(yahooSymbol, cfg.interval, cfg.range);
+    if (cfg.resampleHours) {
+      yahooBars = resampleBars(yahooBars, cfg.resampleHours);
+    }
+    if (yahooBars.length >= 5) {
+      bars = yahooBars;
+      source = 'yahoo';
+    }
+  } catch (err) {
+    console.warn(`Yahoo bars error for ${symbol} ${timeframe}: ${err.message}`);
   }
-  let source = 'yahoo';
 
-  // Quaternary: Finnhub — fallback for forex & metals when Yahoo/TradeLocker fail.
-  if (!bars.length || bars.length < 5) {
+  // Quaternary: Finnhub — fallback for forex & metals when Yahoo/TradeLocker return
+  // fewer than 5 bars (which happens when Yahoo throttles or returns stale data).
+  if (!bars || bars.length < 5) {
     try {
       const fhBars = await fetchFinnhubBars(symbol, timeframe);
       if (fhBars && fhBars.length > 0) {
@@ -260,7 +270,7 @@ async function fetchBarsForTimeframe(symbol, timeframe) {
     }
   }
 
-  return { bars, source };
+  return { bars: bars || [], source: source || 'unknown' };
 }
 
 export async function getBars(symbol, timeframe) {
