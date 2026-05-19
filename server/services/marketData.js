@@ -1,14 +1,16 @@
 // Frankfurter fallback — free, no API key needed. Returns OHLCV bars for forex pairs.
 // Covers the 7 FX pairs Frankfurter supports (USDJPY, GBPJPY, USDCAD, USDCHF).
+// Also handles EUR/USD and GBP/USD via cross-rate conversion.
 // Generates synthetic intraday bars from daily rate history.
 // Used as last-resort fallback when TradeLocker/Yahoo/Binance all fail.
 const FRANKFURTER_BASE = 'https://api.frankfurter.app';
 
 // Maps internal symbol → Frankfurter currency code (quote currency).
 // base is always USD. e.g. USDJPY → quote=JPY, rate = USD/JPY.
+// null = not supported by Frankfurter.
 const FRANKFURTER_QUOTES = {
-  EURUSD: null,   // EUR/USD — base is EUR, quote is USD — not supported by Frankfurter
-  GBPUSD: null,   // GBP/USD — base is GBP, quote is USD — not supported by Frankfurter
+  EURUSD: null,   // EUR/USD — base is EUR, quote is USD — not directly supported
+  GBPUSD: null,   // GBP/USD — base is GBP, quote is USD — not directly supported
   USDJPY: 'JPY',
   GBPJPY: 'JPY',
   AUDUSD: null,   // AUD/USD — base is AUD, quote is USD — not supported
@@ -103,43 +105,53 @@ function buildSyntheticBars(rate, quote, symbol, timeframe) {
   return bars.slice(-90); // last 90 daily bars
 }
 
-async function fetchFrankfurterRate(symbol, timeframe = 'D1') {
+async function fetchFrankfurterBars(symbol, timeframe = 'D1') {
   const quote = FRANKFURTER_QUOTES[symbol];
-  if (!quote) return [];
-  try {
-    // Try time-series first for historical data.
-    const days = HISTORY_DAYS[timeframe] || 30;
-    const endDate = new Date().toISOString().split('T')[0];
-    const startDate = new Date(Date.now() - days * 86400000).toISOString().split('T')[0];
-    const tsUrl = `${FRANKFURTER_BASE}/${startDate}..${endDate}?base=USD&symbols=${quote}`;
-    const tsRes = await axios.get(tsUrl, { timeout: 8000 });
-    const tsData = tsRes.data;
+  if (!quote && symbol !== 'EURUSD' && symbol !== 'GBPUSD') return [];
 
-    if (tsData.rates && Object.keys(tsData.rates).length > 0) {
+  try {
+    let rate, quoteCurrency, baseCurrency;
+
+    if (symbol === 'EURUSD') {
+      // Cross-rate: EUR/USD = EUR->USD. Frankfurter gives USD/EUR, so invert it.
+      const res = await axios.get(`${FRANKFURTER_BASE}/latest?base=EUR&symbols=USD`, { timeout: 8000 });
+      if (!res.data.rates?.USD) return [];
+      rate = 1 / res.data.rates.USD; // EUR/USD
+      baseCurrency = 'EUR';
+      quoteCurrency = 'USD';
+    } else if (symbol === 'GBPUSD') {
+      // Cross-rate: GBP/USD = GBP->USD. Frankfurter gives USD/GBP, so invert it.
+      const res = await axios.get(`${FRANKFURTER_BASE}/latest?base=GBP&symbols=USD`, { timeout: 8000 });
+      if (!res.data.rates?.USD) return [];
+      rate = 1 / res.data.rates.USD; // GBP/USD
+      baseCurrency = 'GBP';
+      quoteCurrency = 'USD';
+    } else {
+      quoteCurrency = quote;
+      const days = HISTORY_DAYS[timeframe] || 30;
+      const endDate = new Date().toISOString().split('T')[0];
+      const startDate = new Date(Date.now() - days * 86400000).toISOString().split('T')[0];
+      const tsUrl = `${FRANKFURTER_BASE}/${startDate}..${endDate}?base=USD&symbols=${quoteCurrency}`;
+      const tsRes = await axios.get(tsUrl, { timeout: 8000 });
+      const tsData = tsRes.data;
+      if (!tsData.rates || Object.keys(tsData.rates).length === 0) return [];
       const dates = Object.keys(tsData.rates).sort();
       const bars = dates.map((dateStr) => {
-        const rate = tsData.rates[dateStr][quote];
+        const r = tsData.rates[dateStr][quoteCurrency];
         const t = new Date(dateStr).getTime();
-        return { time: t, open: rate, high: rate, low: rate, close: rate, volume: 0 };
+        return { time: t, open: r, high: r, low: r, close: r, volume: 0 };
       });
-
-      // Generate synthetic intraday bars from daily rates.
       if (timeframe === 'H1' || timeframe === 'H4' || timeframe === 'M15' || timeframe === 'M5') {
         const lastRate = bars.length > 0 ? bars[bars.length - 1].close : 160;
-        return buildSyntheticBars(lastRate, quote, symbol, timeframe);
+        return buildSyntheticBars(lastRate, quoteCurrency, symbol, timeframe);
       }
-
       return bars;
     }
 
-    // Fallback to latest rate + synthetic bars.
-    const latestRes = await axios.get(`${FRANKFURTER_BASE}/latest?base=USD&symbols=${quote}`, { timeout: 8000 });
-    const latestData = latestRes.data;
-    if (!latestData.rates || !latestData.rates[quote]) return [];
-    const rate = latestData.rates[quote];
-    return buildSyntheticBars(rate, quote, symbol, timeframe);
+    // For EURUSD and GBPUSD — generate synthetic intraday bars from latest rate.
+    return buildSyntheticBars(rate, quoteCurrency, symbol, timeframe);
   } catch (err) {
-    console.warn(`Frankfurter rate error for ${symbol}: ${err.message}`);
+    console.warn(`Frankfurter bars error for ${symbol}: ${err.message}`);
     return [];
   }
 }
@@ -147,6 +159,57 @@ async function fetchFrankfurterRate(symbol, timeframe = 'D1') {
 import axios from 'axios';
 import { fetchTradeLockerBars } from './tradeLockerOhlc.js';
 import { fetchBinanceBars } from './binanceOhlc.js';
+
+// CoinGecko: free keyless API for crypto OHLCV.
+// Used as fallback when Binance is blocked on Render's server IPs.
+// Maps internal symbol → CoinGecko coin id.
+const COINGECKO_SYMBOLS = {
+  BTCUSD: 'bitcoin',
+  ETHUSD: 'ethereum',
+  XRPUSD: 'ripple',
+  LTCUSD: 'litecoin',
+  DOTUSD: 'polkadot',
+  XLMUSD: 'stellar',
+  BATUSD: 'basic-attention-token',
+  NEOUSD: 'neo',
+  BTC: 'bitcoin',
+  ETH: 'ethereum',
+  XRP: 'ripple',
+  LTC: 'litecoin',
+  DOT: 'polkadot',
+  XLM: 'stellar',
+  BAT: 'basic-attention-token',
+  NEO: 'neo',
+};
+
+async function fetchCoinGeckoBars(symbol, timeframe = 'D1') {
+  const coinId = COINGECKO_SYMBOLS[symbol];
+  if (!coinId) return [];
+
+  // Map our timeframe to CoinGecko days parameter.
+  // CoinGecko's OHLC endpoint only supports: 1, 7, 14, 30, 90, 180, 365, max.
+  const TF_TO_CG_DAYS = { D1: 30, H4: 7, H1: 1, M15: 1, M5: 1 };
+  const days = TF_TO_CG_DAYS[timeframe] || 30;
+
+  try {
+    const url = `https://api.coingecko.com/api/v3/coins/${coinId}/ohlc?vs_currency=usd&days=${days}`;
+    const res = await axios.get(url, { timeout: 10000 });
+    const klines = res.data;
+    if (!Array.isArray(klines) || klines.length === 0) return [];
+
+    return klines.map((k) => ({
+      time: k[0],
+      open: k[1],
+      high: k[2],
+      low: k[3],
+      close: k[4],
+      volume: 0,
+    }));
+  } catch (err) {
+    console.warn(`CoinGecko bars failed for ${symbol}: ${err.response?.status} ${err.message}`);
+    return [];
+  }
+}
 
 // Map internal symbols to Yahoo Finance tickers.
 // Forex / metals / indices / crypto all supported via this endpoint.
@@ -341,23 +404,40 @@ async function fetchBarsForTimeframe(symbol, timeframe) {
     if (yahooBars.length >= 5) {
       bars = yahooBars;
       source = 'yahoo';
+    } else {
+      console.warn(`Yahoo returned ${yahooBars.length} bars for ${symbol} ${timeframe} (need >=5) — falling through to Frankfurter/CoinGecko`);
     }
   } catch (err) {
     console.warn(`Yahoo bars error for ${symbol} ${timeframe}: ${err.message}`);
   }
 
   // Quaternary: Frankfurter — free spot rate for USD-based forex pairs.
+  // Also covers EUR/USD and GBP/USD via EUR->USD conversion.
   // Generates synthetic intraday bars for strategy analysis.
-  // Covers: USDJPY, GBPJPY, USDCAD, USDCHF. Does NOT cover EUR/USD or GBP/USD.
+  // Covers: USDJPY, GBPJPY, USDCAD, USDCHF, EURUSD, GBPUSD.
   if (!bars || bars.length < 5) {
     try {
-      const fwBars = await fetchFrankfurterRate(symbol, timeframe);
+      const fwBars = await fetchFrankfurterBars(symbol, timeframe);
       if (fwBars && fwBars.length > 0) {
         bars = fwBars;
         source = 'frankfurter';
       }
     } catch (err) {
-      console.warn(`Frankfurter rate error for ${symbol}: ${err.message}`);
+      console.warn(`Frankfurter error for ${symbol}: ${err.message}`);
+    }
+  }
+
+  // Quinary: CoinGecko — free, no API key, for crypto when Binance/Yahoo fail.
+  // Covers BTC, ETH, XRP, LTC, DOT, XLM, BAT, NEO.
+  if ((!bars || bars.length < 5) && COINGECKO_SYMBOLS[symbol]) {
+    try {
+      const cgBars = await fetchCoinGeckoBars(symbol, timeframe);
+      if (cgBars && cgBars.length > 0) {
+        bars = cgBars;
+        source = 'coingecko';
+      }
+    } catch (err) {
+      console.warn(`CoinGecko error for ${symbol}: ${err.message}`);
     }
   }
 
