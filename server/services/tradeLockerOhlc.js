@@ -186,8 +186,12 @@ export async function fetchTradeLockerBars(symbol, timeframe) {
     return null;
   }
 
-  const to = Date.now();
-  const from = to - lookback;
+  // TradeLocker's /trade/history expects Unix seconds, not milliseconds.
+  // Passing ms makes the server interpret from/to as year ~56000 and return
+  // an empty bar set silently — visible in production as
+  // "TradeLocker: empty bars for X H1/H4" despite a 200 OK response.
+  const to = Math.floor(Date.now() / 1000);
+  const from = Math.floor((Date.now() - lookback) / 1000);
   const params = {
     routeId,
     tradableInstrumentId,

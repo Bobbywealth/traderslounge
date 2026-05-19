@@ -9,6 +9,13 @@ const LIVE_BASE_URL = 'https://live.tradelocker.com/backend-api';
 // Store tokens + account info in memory
 const tokenStore = new Map();
 
+// Cache for the env-var-based auto-auth flow. Without this, every call
+// to getValidTokens(null) re-runs the full /auth/jwt/token + /trade/accounts
+// dance, which TradeLocker rate-limits aggressively (we observed 429s
+// after ~10 back-to-back auths during a signals refresh).
+let autoAuthCache = null;
+let autoAuthInFlight = null;
+
 // Auto-authenticate and fetch account info
 async function getAutoAuthTokens() {
   const email = process.env.TRADELOCKER_EMAIL;
@@ -85,6 +92,28 @@ async function getAutoAuthTokens() {
   }
 }
 
+// Auto-auth with caching + in-flight dedupe. Concurrent callers during a
+// signals refresh share a single auth round-trip instead of all hammering
+// /auth/jwt/token in parallel.
+async function getCachedAutoAuthTokens() {
+  if (autoAuthCache && autoAuthCache.expiresAt > Date.now() + 60_000) {
+    return autoAuthCache;
+  }
+  if (autoAuthInFlight) {
+    return autoAuthInFlight;
+  }
+  autoAuthInFlight = (async () => {
+    try {
+      const tokens = await getAutoAuthTokens();
+      autoAuthCache = tokens;
+      return tokens;
+    } finally {
+      autoAuthInFlight = null;
+    }
+  })();
+  return autoAuthInFlight;
+}
+
 // Helper: get or refresh valid tokens
 export async function getValidTokens(sessionId = null) {
   if (sessionId && tokenStore.has(sessionId)) {
@@ -111,7 +140,7 @@ export async function getValidTokens(sessionId = null) {
       tokenStore.delete(sessionId);
     }
   }
-  return getAutoAuthTokens();
+  return getCachedAutoAuthTokens();
 }
 
 // Make authenticated request to TradeLocker
