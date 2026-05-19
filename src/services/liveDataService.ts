@@ -1,5 +1,6 @@
 // LIVE MARKET DATA SERVICE - Requires API keys for real data
 import axios from 'axios';
+import { calculateFibonacciFromSwings } from '../indicators/fibonacci';
 
 export interface LivePrice {
   symbol: string;
@@ -282,23 +283,32 @@ class LiveDataService {
   }
 
   // FIBONACCI LEVELS
-  async calculateFibonacciLevels(symbol: string, high: number, low: number): Promise<FibonacciLevel[]> {
-    const range = high - low;
-    const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1, 1.272, 1.618, 2.618];
-    
-    return levels.map(level => ({
-      level,
-      price: low + (range * level),
-      type: level <= 1 ? 'retracement' : 'extension',
-      strength: this.getFibStrength(level)
-    }));
+  async calculateFibonacciLevels(symbol: string, _high?: number, _low?: number): Promise<FibonacciLevel[]> {
+    try {
+      const priceData = await this.getPriceHistory(symbol, 250);
+      const bars = priceData.map((candle: any) => ({
+        time: candle.time,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+      }));
+
+      const { levels } = calculateFibonacciFromSwings(bars, {
+        swingDetector: {
+          leftBars: 3,
+          rightBars: 3,
+          minSwingDistance: { mode: 'atr', value: 0.5, atrPeriod: 14 },
+          invalidation: { replaceWithMoreExtreme: true, requireAlternation: true },
+        },
+      });
+
+      return levels;
+    } catch (error) {
+      console.error('Fibonacci calculation failed:', error);
+      return [];
+    }
   }
 
-  private getFibStrength(level: number): 'weak' | 'medium' | 'strong' {
-    if ([0.382, 0.618, 0.786].includes(level)) return 'strong';
-    if ([0.236, 0.5, 1.272, 1.618].includes(level)) return 'medium';
-    return 'weak';
-  }
 
   // ADR CALCULATION
   async calculateADR(symbol: string): Promise<ADRData | null> {
