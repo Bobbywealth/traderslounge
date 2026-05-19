@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import { tradeLockerRouter } from './routes/tradelocker.js';
 import { signalsRouter } from './routes/signals.js';
-import { perplexityRouter } from './routes/perplexity.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -26,7 +25,6 @@ app.get('/health', (req, res) => {
 // API Routes
 app.use('/api/tradelocker', tradeLockerRouter);
 app.use('/api/signals', signalsRouter);
-app.use('/api/perplexity', perplexityRouter);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
