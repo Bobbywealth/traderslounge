@@ -28,10 +28,36 @@ function buildRefreshMetadata() {
   };
 }
 
-// Database connection pool
+// Database connection pool with retry logic
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  max: 5,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
 });
+
+// Handle pool errors gracefully
+pool.on('error', (err) => {
+  console.error('Unexpected database pool error:', err.message);
+});
+
+async function getPool() {
+  try {
+    const client = await pool.connect();
+    client.release();
+    return pool;
+  } catch (err) {
+    console.error('Database connection failed, retrying...', err.message);
+    // Create a new pool if the old one is broken
+    const newPool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 5,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
+    });
+    return newPool;
+  }
+}
 
 // Signal schema SQL
 const CREATE_SIGNALS_TABLE = `
