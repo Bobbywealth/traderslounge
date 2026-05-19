@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Star, Clock, Target, AlertTriangle, CheckCircle, X, Play, Pause, Filter, Search, BarChart3, Activity, Zap, Wifi, WifiOff } from 'lucide-react';
+import { TrendingUp, TrendingDown, Star, Clock, Target, AlertTriangle, CheckCircle, X, Filter, Search, BarChart3, Activity, Wifi, WifiOff, Settings } from 'lucide-react';
 import { format } from 'date-fns';
 import { liveDataService, HarmonicPattern, FibonacciLevel, ADRData, TrendLine, SessionData, LivePrice } from '../services/liveDataService';
 
@@ -37,38 +37,47 @@ const Signals: React.FC = () => {
   const [isLive, setIsLive] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
   const [livePrices, setLivePrices] = useState<Map<string, LivePrice>>(new Map());
-
-  // Add loading state
   const [isLoading, setIsLoading] = useState(true);
   const [notifications, setNotifications] = useState<string[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [isConfigured, setIsConfigured] = useState(false);
+  const [loadingError, setLoadingError] = useState<string | null>(null);
+
+  // Check if service is configured
+  useEffect(() => {
+    setIsConfigured(liveDataService.isConfigured());
+    
+    if (!liveDataService.isConfigured()) {
+      setIsLoading(false);
+    }
+  }, []);
 
   // LIVE DATA INITIALIZATION
   useEffect(() => {
+    if (!liveDataService.isConfigured()) {
+      setIsLoading(false);
+      return;
+    }
+
     console.log('🚀 INITIALIZING LIVE TRADING SYSTEM...');
     
-    // Subscribe to live price updates
     const handlePriceUpdate = (price: LivePrice) => {
       setLivePrices(prev => new Map(prev.set(price.symbol, price)));
       setIsConnected(true);
     };
 
-    // Subscribe to new signal opportunities
     const handleNewSignalOpportunity = (data: any) => {
       console.log(`🎯 New signal opportunity detected for ${data.symbol} at ${data.price}`);
-      // Regenerate signals when market moves significantly
       setTimeout(() => loadLiveSignals(), 1000);
     };
 
     liveDataService.subscribe('price', handlePriceUpdate);
     liveDataService.subscribe('new_signal_opportunity', handleNewSignalOpportunity);
     
-    // Load initial signals
     loadLiveSignals();
 
-    // Auto-refresh signals every 30 seconds
     const refreshInterval = setInterval(() => {
-      if (isConnected) {
+      if (isConnected && liveDataService.isConfigured()) {
         console.log('🔄 Auto-refreshing signals...');
         loadLiveSignals();
       }
@@ -84,6 +93,12 @@ const Signals: React.FC = () => {
 
   // GENERATE REAL LIVE SIGNALS
   const loadLiveSignals = async () => {
+    if (!liveDataService.isConfigured()) {
+      setSignals([]);
+      setIsLoading(false);
+      return;
+    }
+
     console.log('📊 LOADING LIVE SIGNALS...');
     setIsLoading(true);
     const symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD'];
@@ -92,8 +107,9 @@ const Signals: React.FC = () => {
 
     for (const symbol of symbols) {
       try {
-        // Get current market price first
         const currentPrice = await liveDataService.getCurrentPrice(symbol);
+        if (currentPrice === null) continue;
+        
         console.log(`📈 ${symbol} current price: ${currentPrice}`);
         
         // HARMONIC PATTERNS
@@ -123,16 +139,17 @@ const Signals: React.FC = () => {
 
         // ADR BREAKOUTS
         const adrData = await liveDataService.calculateADR(symbol);
-        const adrSignal = createADRSignal(adrData, currentPrice);
-        const adrKey = `adr_${symbol}`;
-        if (adrSignal && !processedSignals.has(adrKey)) {
-          newSignals.push(adrSignal);
-          processedSignals.add(adrKey);
+        if (adrData) {
+          const adrSignal = createADRSignal(adrData, currentPrice);
+          const adrKey = `adr_${symbol}`;
+          if (adrSignal && !processedSignals.has(adrKey)) {
+            newSignals.push(adrSignal);
+            processedSignals.add(adrKey);
+          }
         }
 
         // TRENDLINE BREAKS
         const trendLines = await liveDataService.detectTrendLines(symbol);
-        // Only take the STRONGEST trendline per symbol to avoid duplicates
         const strongestTrendLine = trendLines
           .filter(tl => tl.isActive)
           .sort((a, b) => b.strength - a.strength)[0];
@@ -153,7 +170,6 @@ const Signals: React.FC = () => {
       }
     }
 
-    // Remove any remaining duplicates by symbol + type combination
     const uniqueSignals = newSignals.filter((signal, index, self) => 
       index === self.findIndex(s => 
         s.symbol === signal.symbol && 
@@ -162,7 +178,7 @@ const Signals: React.FC = () => {
       )
     );
     setSignals(uniqueSignals);
-    console.log(`✅ LOADED ${uniqueSignals.length} UNIQUE LIVE SIGNALS`);
+    console.log(`✅ LOADED ${uniqueSignals.length} LIVE SIGNALS`);
     setIsLoading(false);
   };
 
@@ -171,11 +187,10 @@ const Signals: React.FC = () => {
     const currentPrice = marketPrice;
     const direction = pattern.direction === 'bullish' ? 'buy' : 'sell';
     
-    // Calculate proper SL/TP based on pattern structure and market price
     const patternRange = Math.abs(pattern.prz.max - pattern.prz.min);
     const riskMultiplier = pattern.symbol === 'XAUUSD' ? 2.0 : 
                           pattern.symbol.includes('JPY') ? 0.3 : 1.5;
-    const rewardMultiplier = riskMultiplier * 2; // 1:2 RR
+    const rewardMultiplier = riskMultiplier * 2;
     
     let entry, stopLoss, takeProfit;
     if (direction === 'buy') {
@@ -197,7 +212,7 @@ const Signals: React.FC = () => {
       stopLoss,
       takeProfit,
       currentPrice,
-      confidence: Math.floor(pattern.confidence / 20), // Convert to 1-5 stars
+      confidence: Math.floor(pattern.confidence / 20),
       timeframe: '1H',
       reason: `${pattern.type} harmonic pattern completed at ${pattern.completion}% with ${pattern.confidence.toFixed(0)}% confidence. PRZ: ${pattern.prz.min.toFixed(5)}-${pattern.prz.max.toFixed(5)}`,
       timestamp: new Date(),
@@ -214,11 +229,10 @@ const Signals: React.FC = () => {
     const strongLevels = fibLevels.filter(level => level.strength === 'strong' && Math.abs(level.price - marketPrice) < marketPrice * 0.01);
     if (strongLevels.length === 0) return null;
 
-    const fibLevel = strongLevels[0]; // Use first strong level
+    const fibLevel = strongLevels[0];
     const currentPrice = marketPrice;
     const direction = currentPrice < fibLevel.price ? 'buy' : 'sell';
 
-    // Calculate SL/TP based on fibonacci level structure
     const priceDistance = Math.abs(fibLevel.price - currentPrice);
     const riskDistance = symbol === 'XAUUSD' ? Math.max(8.0, priceDistance * 1.5) : 
                         symbol.includes('JPY') ? Math.max(0.25, priceDistance * 1.5) :
@@ -258,15 +272,13 @@ const Signals: React.FC = () => {
 
   // CREATE ADR SIGNAL
   const createADRSignal = (adrData: ADRData, marketPrice: number): LiveTradingSignal | null => {
-    if (adrData.rangePercent > 80) return null; // Already extended
+    if (adrData.rangePercent > 80) return null;
 
-    // Determine direction based on current position in daily range
     const midRange = (adrData.dailyHigh + adrData.dailyLow) / 2;
     const direction = marketPrice < midRange ? 'buy' : 'sell';
     const currentPrice = marketPrice;
 
-    // Use ADR-based risk management
-    const adrRisk = adrData.averageDailyRange * 0.15; // 15% of ADR as risk
+    const adrRisk = adrData.averageDailyRange * 0.15;
     const remainingRange = direction === 'buy' ? 
       (adrData.projectedHigh - currentPrice) : 
       (currentPrice - adrData.projectedLow);
@@ -307,7 +319,7 @@ const Signals: React.FC = () => {
   const createTrendLineSignal = (trendLine: TrendLine, marketPrice: number): LiveTradingSignal | null => {
     const maxDistance = trendLine.symbol === 'XAUUSD' ? 8.0 : 
                        trendLine.symbol.includes('JPY') ? 0.15 : 0.003;
-    if (trendLine.distance > maxDistance) return null; // Too far from line
+    if (trendLine.distance > maxDistance) return null;
 
     const direction = trendLine.type === 'support' ? 'buy' : 'sell';
     const trendLinePrice = trendLine.points[trendLine.points.length - 1].price;
@@ -316,10 +328,9 @@ const Signals: React.FC = () => {
       Math.min(trendLinePrice, marketPrice + (trendLine.distance * 0.5));
     const currentPrice = marketPrice;
 
-    // Risk based on trendline strength and distance
     const baseRisk = trendLine.symbol === 'XAUUSD' ? 5.0 : 
                     trendLine.symbol.includes('JPY') ? 0.20 : 0.0012;
-    const riskAdjustment = (100 - trendLine.strength) / 100; // Lower strength = higher risk
+    const riskAdjustment = (100 - trendLine.strength) / 100;
     const actualRisk = baseRisk * (1 + riskAdjustment);
     
     let stopLoss, takeProfit;
@@ -352,24 +363,9 @@ const Signals: React.FC = () => {
     };
   };
 
-  // Add error boundary for signal loading
-  const [loadingError, setLoadingError] = useState<string | null>(null);
-
-  // Update loadLiveSignals with error handling
-  const loadLiveSignalsWithErrorHandling = async () => {
-    try {
-      setLoadingError(null);
-      await loadLiveSignals();
-    } catch (error) {
-      console.error('Failed to load signals:', error);
-      setLoadingError('Failed to load trading signals. Using demo data.');
-      setIsLoading(false);
-    }
-  };
-
   // LIVE PRICE UPDATES
   useEffect(() => {
-    if (!isLive) return;
+    if (!isLive || !liveDataService.isConfigured()) return;
 
     const interval = setInterval(() => {
       setSignals(prevSignals => {
@@ -380,7 +376,6 @@ const Signals: React.FC = () => {
           const newPrice = livePrice.bid;
           let newStatus = signal.status;
 
-          // Check if TP or SL hit
           if (signal.status === 'active') {
             if (signal.direction === 'buy') {
               if (newPrice >= signal.takeProfit) newStatus = 'hit_tp';
@@ -406,27 +401,16 @@ const Signals: React.FC = () => {
 
   // NOTIFICATION SYSTEM
   const addNotification = (message: string) => {
-    setNotifications(prev => [message, ...prev.slice(0, 4)]); // Keep last 5 notifications
-    
-    // Play sound alert
-    if (soundEnabled) {
-      try {
-        const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT');
-        audio.volume = 0.3;
-        audio.play().catch(() => {}); // Ignore errors if audio fails
-      } catch (error) {
-        // Ignore audio errors
-      }
-    }
+    setNotifications(prev => [message, ...prev.slice(0, 4)]);
   };
 
   // Monitor for signal status changes
   useEffect(() => {
     signals.forEach(signal => {
       if (signal.status === 'hit_tp') {
-        addNotification(`🎯 ${signal.symbol} ${signal.direction.toUpperCase()} signal hit Take Profit! +${Math.abs(signal.pips || 0)} pips`);
+        addNotification(`🎯 ${signal.symbol} ${signal.direction.toUpperCase()} signal hit Take Profit!`);
       } else if (signal.status === 'hit_sl') {
-        addNotification(`⚠️ ${signal.symbol} ${signal.direction.toUpperCase()} signal hit Stop Loss. -${Math.abs(signal.pips || 0)} pips`);
+        addNotification(`⚠️ ${signal.symbol} ${signal.direction.toUpperCase()} signal hit Stop Loss.`);
       }
     });
   }, [signals]);
@@ -511,7 +495,7 @@ const Signals: React.FC = () => {
       pnl = -Math.abs(signal.entry - signal.stopLoss);
     }
     
-    return pnl * 10000; // Convert to pips
+    return pnl * 10000;
   };
 
   return (
@@ -525,43 +509,52 @@ const Signals: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center space-x-4">
-          <button
-            onClick={() => setIsLive(!isLive)}
-            className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-colors duration-200 ${
-              isLive 
-                ? 'bg-emerald-500 text-white hover:bg-emerald-600' 
-                : 'bg-gray-500 text-white hover:bg-gray-600'
-            }`}
-          >
-            {isLive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-            <span>{isLive ? 'LIVE' : 'PAUSED'}</span>
-          </button>
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              {isConnected ? (
-                <Wifi className="w-5 h-5 text-emerald-500" />
-              ) : (
-                <WifiOff className="w-5 h-5 text-red-500" />
-              )}
-              <div className={`w-3 h-3 rounded-full ${isConnected && isLive ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`}></div>
-              <span className="text-sm text-gray-600 dark:text-gray-400">
-                {isConnected ? 'LIVE DATA' : 'CONNECTING...'}
-              </span>
-            </div>
-            
-            {/* Sound Toggle */}
+          {liveDataService.isConfigured() && (
             <button
-              onClick={() => setSoundEnabled(!soundEnabled)}
-              className={`p-2 rounded-lg transition-colors ${
-                soundEnabled ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900 dark:text-emerald-400' : 'bg-gray-100 text-gray-400 dark:bg-gray-700'
+              onClick={() => setIsLive(!isLive)}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-colors duration-200 ${
+                isLive 
+                  ? 'bg-emerald-500 text-white hover:bg-emerald-600' 
+                  : 'bg-gray-500 text-white hover:bg-gray-600'
               }`}
-              title={soundEnabled ? 'Sound alerts enabled' : 'Sound alerts disabled'}
             >
-              🔊
+              <span>{isLive ? 'LIVE' : 'PAUSED'}</span>
             </button>
+          )}
+          <div className="flex items-center space-x-2">
+            {isConfigured && isConnected ? (
+              <Wifi className="w-5 h-5 text-emerald-500" />
+            ) : (
+              <WifiOff className="w-5 h-5 text-gray-400" />
+            )}
+            <span className="text-sm text-gray-600 dark:text-gray-400">
+              {isConfigured ? (isConnected ? 'LIVE DATA' : 'CONNECTING...') : 'NOT CONFIGURED'}
+            </span>
           </div>
         </div>
       </div>
+
+      {/* API Key Not Configured Warning */}
+      {!isConfigured && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-6">
+          <div className="flex items-start space-x-4">
+            <Settings className="w-6 h-6 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-1" />
+            <div>
+              <h4 className="font-semibold text-amber-900 dark:text-amber-100">API Keys Required</h4>
+              <p className="text-sm text-amber-800 dark:text-amber-200 mt-1">
+                To display live trading signals, you need to configure the following API keys:
+              </p>
+              <ul className="mt-2 space-y-1 text-sm text-amber-800 dark:text-amber-200">
+                <li>• <strong>VITE_FINNHUB_API_KEY</strong> - For live market data and price feeds</li>
+                <li>• <strong>VITE_PERPLEXITY_API_KEY</strong> - For AI-powered analysis (optional)</li>
+              </ul>
+              <p className="text-sm text-amber-800 dark:text-amber-200 mt-3">
+                Add these environment variables in your Render dashboard or .env file.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Notifications */}
       {notifications.length > 0 && (
@@ -584,55 +577,57 @@ const Signals: React.FC = () => {
       )}
 
       {/* Live Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Swing Trades</p>
-              <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                {filteredSignals.filter(s => s.status === 'active').length}
-              </p>
+      {isConfigured && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Active Signals</p>
+                <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                  {filteredSignals.filter(s => s.status === 'active').length}
+                </p>
+              </div>
+              <Activity className="w-8 h-8 text-emerald-500" />
             </div>
-            <Activity className="w-8 h-8 text-emerald-500" />
           </div>
-        </div>
-        
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Weekly Win Rate</p>
-              <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                {((filteredSignals.filter(s => s.status === 'hit_tp').length / Math.max(1, filteredSignals.filter(s => s.status !== 'active').length)) * 100).toFixed(0)}%
-              </p>
+          
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Win Rate</p>
+                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                  {((filteredSignals.filter(s => s.status === 'hit_tp').length / Math.max(1, filteredSignals.filter(s => s.status !== 'active').length)) * 100).toFixed(0)}%
+                </p>
+              </div>
+              <Target className="w-8 h-8 text-blue-500" />
             </div>
-            <Target className="w-8 h-8 text-blue-500" />
           </div>
-        </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Big Pips</p>
-              <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-                +{filteredSignals.reduce((sum, s) => sum + calculatePnL(s), 0).toFixed(0)}
-              </p>
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Total Pips</p>
+                <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                  {filteredSignals.reduce((sum, s) => sum + calculatePnL(s), 0).toFixed(0)}
+                </p>
+              </div>
+              <TrendingUp className="w-8 h-8 text-purple-500" />
             </div>
-            <TrendingUp className="w-8 h-8 text-purple-500" />
           </div>
-        </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Major Pairs</p>
-              <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">
-                {livePrices.size}
-              </p>
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Pairs Tracked</p>
+                <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                  {livePrices.size}
+                </p>
+              </div>
+              <BarChart3 className="w-8 h-8 text-orange-500" />
             </div>
-            <BarChart3 className="w-8 h-8 text-orange-500" />
           </div>
         </div>
-      </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
@@ -686,7 +681,7 @@ const Signals: React.FC = () => {
         <div className="bg-white dark:bg-gray-800 rounded-xl p-8 border border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-center space-x-3">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
-            <span className="text-gray-600 dark:text-gray-400">Loading live trading signals...</span>
+            <span className="text-gray-600 dark:text-gray-400">Loading trading signals...</span>
           </div>
         </div>
       )}
@@ -699,12 +694,6 @@ const Signals: React.FC = () => {
             <div>
               <h4 className="font-medium text-red-900 dark:text-red-100">Loading Error</h4>
               <p className="text-sm text-red-800 dark:text-red-200">{loadingError}</p>
-              <button
-                onClick={loadLiveSignalsWithErrorHandling}
-                className="mt-2 text-sm text-red-600 dark:text-red-400 hover:underline"
-              >
-                Try Again
-              </button>
             </div>
           </div>
         </div>
@@ -858,29 +847,22 @@ const Signals: React.FC = () => {
                 )}
               </div>
             </div>
-
-            {/* Action Button */}
-            {signal.status === 'active' && (
-              <button className={`w-full mt-4 py-2 px-4 rounded-lg font-medium transition-colors duration-200 flex items-center justify-center space-x-2 ${
-                signal.direction === 'buy'
-                  ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
-                  : 'bg-red-500 hover:bg-red-600 text-white'
-              }`}>
-                <Zap className="w-4 h-4" />
-                <span>Execute Trade</span>
-              </button>
-            )}
           </div>
         ))}
       </div>
       )}
 
+      {/* No Signals State */}
       {!isLoading && !loadingError && filteredSignals.length === 0 && (
         <div className="text-center py-12">
           <BarChart3 className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No signals found</h3>
+          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+            {isConfigured ? 'No signals found' : 'API Not Configured'}
+          </h3>
           <p className="text-gray-600 dark:text-gray-400">
-            {isConnected ? 'Analyzing markets for new opportunities...' : 'Connecting to live data feed...'}
+            {isConfigured 
+              ? 'Analyzing markets for new opportunities...' 
+              : 'Configure your API keys to enable live trading signals.'}
           </p>
         </div>
       )}

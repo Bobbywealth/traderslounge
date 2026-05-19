@@ -1,4 +1,4 @@
-// REAL LIVE MARKET DATA SERVICE
+// LIVE MARKET DATA SERVICE - Requires API keys for real data
 import axios from 'axios';
 
 export interface LivePrice {
@@ -19,7 +19,7 @@ export interface HarmonicPattern {
   symbol: string;
   type: 'Gartley' | 'Butterfly' | 'Bat' | 'Crab' | 'Cypher' | 'ABCD';
   direction: 'bullish' | 'bearish';
-  completion: number; // 0-100%
+  completion: number;
   points: {
     X: { price: number; time: Date };
     A: { price: number; time: Date };
@@ -33,7 +33,7 @@ export interface HarmonicPattern {
     CD_BC: number;
     AD_XA: number;
   };
-  prz: { // Potential Reversal Zone
+  prz: {
     min: number;
     max: number;
   };
@@ -90,38 +90,39 @@ class LiveDataService {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private subscribers: Map<string, Function[]> = new Map();
+  private isInitialized = false;
 
-  // API Keys - Users need to configure these
-  private readonly API_KEYS = {
-    FINNHUB: localStorage.getItem('api_finnhub') || '',
-    ALPHA_VANTAGE: localStorage.getItem('api_alpha_vantage') || 'N35281CO4LORS4CU',
-    POLYGON: localStorage.getItem('api_polygon') || 'demo',
-    FXCM: localStorage.getItem('api_fxcm') || 'demo',
-    NEWSAPI: localStorage.getItem('api_newsApi') || 'c57dc72d29424da3a896faf4e7fd380b',
-  };
+  // API Keys from environment
+  private readonly FINNHUB_API_KEY = import.meta.env.VITE_FINNHUB_API_KEY || '';
+  private readonly PERPLEXITY_API_KEY = import.meta.env.VITE_PERPLEXITY_API_KEY || '';
 
   constructor() {
-    this.initializeWebSocket();
+    if (this.FINNHUB_API_KEY) {
+      this.initializeWebSocket();
+    }
+  }
+
+  // Check if service is configured
+  isConfigured(): boolean {
+    return !!this.FINNHUB_API_KEY;
   }
 
   // REAL-TIME WEBSOCKET CONNECTION
   private initializeWebSocket() {
-    // Use configured Finnhub API key
-    if (!this.API_KEYS.FINNHUB || this.API_KEYS.FINNHUB === 'demo' || this.API_KEYS.FINNHUB === '') {
-      console.log('⚠️ No valid Finnhub API key configured, using mock data stream');
-      this.startMockDataStream();
+    if (!this.FINNHUB_API_KEY) {
+      console.log('⚠️ No Finnhub API key configured. Please add VITE_FINNHUB_API_KEY to your environment.');
+      this.isInitialized = true;
       return;
     }
 
     try {
       console.log('🚀 CONNECTING TO FINNHUB LIVE DATA...');
-      this.ws = new WebSocket(`wss://ws.finnhub.io?token=${this.API_KEYS.FINNHUB}`);
+      this.ws = new WebSocket(`wss://ws.finnhub.io?token=${this.FINNHUB_API_KEY}`);
       
       this.ws.onopen = () => {
         console.log('✅ FINNHUB WEBSOCKET CONNECTED!');
         this.reconnectAttempts = 0;
         
-        // Subscribe to major forex pairs
         const symbols = [
           'OANDA:EUR_USD', 
           'OANDA:GBP_USD', 
@@ -132,31 +133,27 @@ class LiveDataService {
         ];
         symbols.forEach(symbol => {
           this.ws?.send(JSON.stringify({ type: 'subscribe', symbol }));
-          console.log(`📊 Subscribed to ${symbol}`);
         });
       };
 
       this.ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        console.log('📈 Live data received:', data);
         this.handleLiveData(data);
       };
 
       this.ws.onclose = () => {
-        console.log('❌ Finnhub WebSocket disconnected, attempting reconnect...');
+        console.log('❌ Finnhub WebSocket disconnected');
         this.reconnect();
       };
 
       this.ws.onerror = (error) => {
         console.error('❌ Finnhub WebSocket error:', error);
-        console.log('💡 Please configure a valid Finnhub API key in API Configuration');
-        this.startMockDataStream();
       };
     } catch (error) {
       console.error('❌ Failed to initialize Finnhub WebSocket:', error);
-      console.log('💡 Please configure a valid Finnhub API key in API Configuration');
-      this.startMockDataStream();
     }
+    
+    this.isInitialized = true;
   }
 
   private reconnect() {
@@ -181,8 +178,8 @@ class LiveDataService {
           ask: price + (spread / 2),
           spread,
           timestamp: new Date(trade.t),
-          change: this.calculatePriceChange(symbol, price),
-          changePercent: this.calculatePercentChange(symbol, price),
+          change: 0,
+          changePercent: 0,
           high24h: price * 1.008,
           low24h: price * 0.992,
           volume24h: trade.v || 1000000,
@@ -205,49 +202,26 @@ class LiveDataService {
     return spreads[symbol] || 0.0002;
   }
 
-  private priceHistory: Map<string, number[]> = new Map();
-
-  private calculatePriceChange(symbol: string, currentPrice: number): number {
-    const history = this.priceHistory.get(symbol) || [];
-    if (history.length === 0) {
-      this.priceHistory.set(symbol, [currentPrice]);
-      return 0;
-    }
-    
-    const previousPrice = history[history.length - 1];
-    const change = currentPrice - previousPrice;
-    
-    // Keep last 100 prices
-    history.push(currentPrice);
-    if (history.length > 100) history.shift();
-    this.priceHistory.set(symbol, history);
-    
-    return change;
-  }
-
-  private calculatePercentChange(symbol: string, currentPrice: number): number {
-    const history = this.priceHistory.get(symbol) || [];
-    if (history.length < 24) return 0;
-    
-    const price24hAgo = history[Math.max(0, history.length - 24)];
-    return ((currentPrice - price24hAgo) / price24hAgo) * 100;
-  }
   // HARMONIC PATTERN DETECTION
   async detectHarmonicPatterns(symbol: string): Promise<HarmonicPattern[]> {
+    if (!this.isConfigured()) {
+      console.warn('⚠️ Service not configured. Add VITE_FINNHUB_API_KEY to environment.');
+      return [];
+    }
+
     try {
       const priceData = await this.getPriceHistory(symbol, 200);
-      const patterns = this.analyzeHarmonicPatterns(priceData);
+      const patterns = this.analyzeHarmonicPatterns(priceData, symbol);
       return patterns;
     } catch (error) {
       console.error('Harmonic pattern detection failed:', error);
-      return this.getMockHarmonicPatterns(symbol);
+      return [];
     }
   }
 
-  private analyzeHarmonicPatterns(priceData: any[]): HarmonicPattern[] {
+  private analyzeHarmonicPatterns(priceData: any[], symbol: string): HarmonicPattern[] {
     const patterns: HarmonicPattern[] = [];
     
-    // GARTLEY PATTERN DETECTION
     for (let i = 50; i < priceData.length - 50; i++) {
       const X = priceData[i - 40];
       const A = priceData[i - 30];
@@ -255,19 +229,17 @@ class LiveDataService {
       const C = priceData[i - 10];
       const D = priceData[i];
 
-      // Calculate Fibonacci ratios
       const AB_XA = Math.abs(B.close - A.close) / Math.abs(A.close - X.close);
       const BC_AB = Math.abs(C.close - B.close) / Math.abs(B.close - A.close);
       const CD_BC = Math.abs(D.close - C.close) / Math.abs(C.close - B.close);
       const AD_XA = Math.abs(D.close - A.close) / Math.abs(A.close - X.close);
 
-      // Gartley ratios: AB=0.618 XA, BC=0.382-0.886 AB, CD=1.272 BC, AD=0.786 XA
       if (this.isGartleyPattern(AB_XA, BC_AB, CD_BC, AD_XA)) {
         const direction = D.close > X.close ? 'bullish' : 'bearish';
         
         patterns.push({
           id: `gartley_${i}_${Date.now()}`,
-          symbol: 'EURUSD',
+          symbol,
           type: 'Gartley',
           direction,
           completion: 95,
@@ -328,10 +300,16 @@ class LiveDataService {
     return 'weak';
   }
 
-  // ADR (AVERAGE DAILY RANGE) CALCULATION
-  async calculateADR(symbol: string): Promise<ADRData> {
+  // ADR CALCULATION
+  async calculateADR(symbol: string): Promise<ADRData | null> {
+    if (!this.isConfigured()) {
+      return null;
+    }
+
     try {
       const dailyData = await this.getDailyData(symbol, 20);
+      if (dailyData.length === 0) return null;
+      
       const ranges = dailyData.map((day: any) => day.high - day.low);
       const averageDailyRange = ranges.reduce((a: number, b: number) => a + b, 0) / ranges.length;
       
@@ -351,24 +329,29 @@ class LiveDataService {
         session: this.getCurrentSession()
       };
     } catch (error) {
-      return this.getMockADRData(symbol);
+      console.error('ADR calculation failed:', error);
+      return null;
     }
   }
 
   // TRENDLINE DETECTION
   async detectTrendLines(symbol: string): Promise<TrendLine[]> {
+    if (!this.isConfigured()) {
+      return [];
+    }
+
     try {
       const priceData = await this.getPriceHistory(symbol, 100);
       return this.analyzeTrendLines(priceData, symbol);
     } catch (error) {
-      return this.getMockTrendLines(symbol);
+      console.error('Trendline detection failed:', error);
+      return [];
     }
   }
 
   private analyzeTrendLines(priceData: any[], symbol: string): TrendLine[] {
     const trendLines: TrendLine[] = [];
     
-    // Find support lines (connecting lows)
     const lows = this.findLocalLows(priceData);
     for (let i = 0; i < lows.length - 1; i++) {
       for (let j = i + 1; j < lows.length; j++) {
@@ -376,7 +359,7 @@ class LiveDataService {
         const point2 = lows[j];
         const slope = (point2.price - point1.price) / (point2.time - point1.time);
         
-        if (Math.abs(slope) < 0.001) { // Nearly horizontal
+        if (Math.abs(slope) < 0.001) {
           const touches = this.countTrendLineTouches(priceData, point1, point2, 'support');
           
           if (touches >= 2) {
@@ -400,7 +383,7 @@ class LiveDataService {
       }
     }
 
-    return trendLines.slice(0, 5); // Return top 5 strongest lines
+    return trendLines.slice(0, 5);
   }
 
   private findLocalLows(data: any[]): any[] {
@@ -416,7 +399,7 @@ class LiveDataService {
 
   private countTrendLineTouches(data: any[], point1: any, point2: any, type: 'support' | 'resistance'): number {
     let touches = 0;
-    const tolerance = 0.0005; // 5 pips tolerance
+    const tolerance = 0.0005;
     
     for (const candle of data) {
       const linePrice = this.calculateTrendLinePrice(point1, point2, candle.time);
@@ -446,309 +429,111 @@ class LiveDataService {
   }
 
   async getSessionData(): Promise<SessionData[]> {
-    const sessions: SessionData[] = [];
-    const currentSession = this.getCurrentSession();
-    
-    // Mock session data - in real implementation, fetch from API
-    sessions.push({
-      session: 'asian',
-      isActive: currentSession === 'asian',
-      open: 1.0420,
-      high: 1.0435,
-      low: 1.0415,
-      close: 1.0428,
-      volume: 1200000,
-      volatility: 0.65,
-      timeRemaining: currentSession === 'asian' ? '3h 45m' : '0h 0m'
-    });
-
-    return sessions;
+    return [];
   }
 
   // API DATA FETCHING
   async getPriceHistory(symbol: string, periods: number = 100): Promise<any[]> {
-    if (!this.API_KEYS.ALPHA_VANTAGE || this.API_KEYS.ALPHA_VANTAGE === 'demo') {
-      return this.generateMockPriceData(periods);
+    if (!this.FINNHUB_API_KEY) {
+      console.warn('⚠️ No API key configured. Cannot fetch price history.');
+      return [];
     }
 
     try {
-      const fromSymbol = symbol.substring(0, 3);
-      const toSymbol = symbol.substring(3, 6);
-      
-      const response = await axios.get(`https://www.alphavantage.co/query`, {
+      const response = await axios.get(`https://finnhub.io/api/v1/forex/candle`, {
         params: {
-          function: 'FX_INTRADAY',
-          from_symbol: fromSymbol,
-          to_symbol: toSymbol,
-          interval: '5min',
-          apikey: this.API_KEYS.ALPHA_VANTAGE,
-          outputsize: 'compact'
+          symbol: `OANDA:${symbol.substring(0, 3)}_${symbol.substring(3, 6)}`,
+          resolution: '5',
+          from: Math.floor(Date.now() / 1000) - (periods * 5 * 60),
+          to: Math.floor(Date.now() / 1000),
+          token: this.FINNHUB_API_KEY
         }
       });
 
-      const timeSeries = response.data['Time Series (5min)'];
-      
-      if (!timeSeries || typeof timeSeries !== 'object') {
-        console.warn(`Alpha Vantage: No data for ${symbol}, using mock data`);
-        return this.generateMockPriceData(periods);
+      if (response.data.s === 'no_data') {
+        console.warn(`Finnhub: No data for ${symbol}`);
+        return [];
       }
-      
-      const priceData = Object.entries(timeSeries).map(([time, data]: [string, any]) => ({
-        time: new Date(time).getTime(),
-        open: parseFloat(data['1. open']),
-        high: parseFloat(data['2. high']),
-        low: parseFloat(data['3. low']),
-        close: parseFloat(data['4. close']),
-        volume: parseFloat(data['5. volume'] || '1000000'),
-      })).slice(0, periods).reverse(); // Most recent first
-      
-      console.log(`✅ Alpha Vantage: Loaded ${priceData.length} candles for ${symbol}`);
-      return priceData;
+
+      const candles = response.data.t || [];
+      const opens = response.data.o || [];
+      const highs = response.data.h || [];
+      const lows = response.data.l || [];
+      const closes = response.data.c || [];
+
+      return candles.map((time: number, i: number) => ({
+        time: time * 1000,
+        open: opens[i],
+        high: highs[i],
+        low: lows[i],
+        close: closes[i]
+      })).slice(-periods);
     } catch (error) {
-      console.error(`Alpha Vantage error for ${symbol}:`, error);
-      return this.generateMockPriceData(periods);
+      console.error(`Price history fetch failed for ${symbol}:`, error);
+      return [];
     }
   }
 
-  // GET CURRENT MARKET PRICE
-  async getCurrentPrice(symbol: string): Promise<number> {
+  async getCurrentPrice(symbol: string): Promise<number | null> {
+    if (!this.FINNHUB_API_KEY) {
+      return null;
+    }
+
     try {
-      const priceData = await this.getPriceHistory(symbol, 1);
-      if (priceData.length > 0) {
-        return priceData[0].close;
+      const response = await axios.get(`https://finnhub.io/api/v1/quote`, {
+        params: {
+          symbol: `OANDA:${symbol.substring(0, 3)}_${symbol.substring(3, 6)}`,
+          token: this.FINNHUB_API_KEY
+        }
+      });
+
+      if (response.data.c) {
+        return response.data.c;
       }
+      return null;
     } catch (error) {
       console.error(`Failed to get current price for ${symbol}:`, error);
+      return null;
     }
-    
-    // Fallback to base price
-    return this.getBasePrice(symbol);
   }
+
   private async getDailyData(symbol: string, days: number): Promise<any[]> {
-    // Mock daily data for ADR calculation
-    const data = [];
-    const basePrice = 1.0425;
-    
-    for (let i = days; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      
-      const open = basePrice + (Math.random() - 0.5) * 0.01;
-      const close = open + (Math.random() - 0.5) * 0.008;
-      const high = Math.max(open, close) + Math.random() * 0.005;
-      const low = Math.min(open, close) - Math.random() * 0.005;
-      
-      data.push({ time: date.getTime(), open, high, low, close });
+    if (!this.FINNHUB_API_KEY) {
+      return [];
     }
-    
-    return data;
-  }
 
-  // ENHANCED MOCK DATA WITH REALISTIC MARKET BEHAVIOR
-  private startMockDataStream() {
-    const symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD'];
-    
-    // Store price history for realistic movements
-    const priceHistory: Map<string, number[]> = new Map();
-    symbols.forEach(symbol => {
-      priceHistory.set(symbol, [this.getBasePrice(symbol)]);
-    });
-    
-    symbols.forEach(symbol => {
-      setInterval(() => {
-        const history = priceHistory.get(symbol) || [];
-        const lastPrice = history[history.length - 1] || this.getBasePrice(symbol);
-        const volatility = this.getVolatility(symbol);
-        const spread = this.getTypicalSpread(symbol);
-        
-        // More realistic price movement with trend bias
-        const trendBias = this.calculateTrendBias(history);
-        const randomWalk = (Math.random() - 0.5) * volatility * 0.3;
-        const trendComponent = trendBias * volatility * 0.1;
-        const price = lastPrice + randomWalk + trendComponent;
-        
-        // Update price history (keep last 100 prices)
-        history.push(price);
-        if (history.length > 100) history.shift();
-        priceHistory.set(symbol, history);
-        
-        const change = price - lastPrice;
-        const changePercent = (change / lastPrice) * 100;
-        
-        const mockPrice: LivePrice = {
-          symbol,
-          bid: price - (spread / 2),
-          ask: price + (spread / 2),
-          spread,
-          timestamp: new Date(),
-          change,
-          changePercent,
-          high24h: Math.max(...history.slice(-24)) || price * 1.008,
-          low24h: Math.min(...history.slice(-24)) || price * 0.992,
-          volume24h: Math.floor(Math.random() * 2000000) + 1000000,
-        };
-        
-        this.notifySubscribers('price', mockPrice);
-        
-        // Trigger signal generation on significant moves
-        if (Math.abs(changePercent) > 0.1) {
-          this.checkForNewSignals(symbol, price);
+    try {
+      const response = await axios.get(`https://finnhub.io/api/v1/forex/candle`, {
+        params: {
+          symbol: `OANDA:${symbol.substring(0, 3)}_${symbol.substring(3, 6)}`,
+          resolution: 'D',
+          from: Math.floor(Date.now() / 1000) - (days * 24 * 60 * 60),
+          to: Math.floor(Date.now() / 1000),
+          token: this.FINNHUB_API_KEY
         }
-      }, 1500 + Math.random() * 1000); // More frequent updates
-    });
-  }
-
-  private calculateTrendBias(history: number[]): number {
-    if (history.length < 10) return 0;
-    
-    const recent = history.slice(-10);
-    const older = history.slice(-20, -10);
-    
-    if (older.length === 0) return 0;
-    
-    const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
-    const olderAvg = older.reduce((a, b) => a + b, 0) / older.length;
-    
-    return recentAvg > olderAvg ? 0.3 : -0.3; // Trend continuation bias
-  }
-
-  private checkForNewSignals(symbol: string, price: number) {
-    // Emit signal generation events
-    this.notifySubscribers('new_signal_opportunity', { symbol, price, timestamp: new Date() });
-  }
-
-  private getVolatility(symbol: string): number {
-    const volatilities: Record<string, number> = {
-      'EURUSD': 0.008,
-      'GBPUSD': 0.012,
-      'USDJPY': 1.2,
-      'XAUUSD': 25.0,
-    };
-    return volatilities[symbol] || 0.008;
-  }
-
-  private generateMockPriceData(periods: number, symbol?: string): any[] {
-    const data = [];
-    const basePrice = symbol ? this.getBasePrice(symbol) : 1.0425;
-    const volatility = symbol ? this.getVolatility(symbol) : 0.008;
-    let price = basePrice;
-    const now = Date.now();
-    
-    for (let i = periods; i >= 0; i--) {
-      const time = now - (i * 5 * 60 * 1000); // 5-minute intervals
-      const change = (Math.random() - 0.5) * volatility * 0.3;
-      const open = price;
-      const close = price + change;
-      const high = Math.max(open, close) + Math.random() * volatility * 0.1;
-      const low = Math.min(open, close) - Math.random() * volatility * 0.1;
-      
-      data.push({ 
-        time, 
-        open: parseFloat(open.toFixed(symbol?.includes('JPY') ? 3 : 5)), 
-        high: parseFloat(high.toFixed(symbol?.includes('JPY') ? 3 : 5)), 
-        low: parseFloat(low.toFixed(symbol?.includes('JPY') ? 3 : 5)), 
-        close: parseFloat(close.toFixed(symbol?.includes('JPY') ? 3 : 5)),
-        volume: Math.floor(Math.random() * 1000000) + 500000
       });
-      price = close;
+
+      if (response.data.s === 'no_data') {
+        return [];
+      }
+
+      const candles = response.data.t || [];
+      const opens = response.data.o || [];
+      const highs = response.data.h || [];
+      const lows = response.data.l || [];
+      const closes = response.data.c || [];
+
+      return candles.map((time: number, i: number) => ({
+        time: time * 1000,
+        open: opens[i],
+        high: highs[i],
+        low: lows[i],
+        close: closes[i]
+      }));
+    } catch (error) {
+      console.error(`Daily data fetch failed for ${symbol}:`, error);
+      return [];
     }
-    
-    return data.reverse(); // Most recent first
-  }
-
-  private getBasePrice(symbol: string): number {
-    const prices: Record<string, number> = {
-      'EURUSD': 1.0425,
-      'GBPUSD': 1.2580,
-      'USDJPY': 157.25,
-      'AUDUSD': 0.6245,
-      'USDCAD': 1.4385,
-      'XAUUSD': 2685.50,
-    };
-    return prices[symbol] || 1.0425;
-  }
-
-  private getMockHarmonicPatterns(symbol: string): HarmonicPattern[] {
-    const basePrice = this.getBasePrice(symbol);
-    const variation = symbol === 'EURUSD' ? 0.005 : 
-                     symbol === 'GBPUSD' ? 0.008 :
-                     symbol === 'USDJPY' ? 1.5 :
-                     symbol === 'XAUUSD' ? 15.0 : 0.005;
-    
-    // Generate unique patterns per symbol
-    const patternTypes: Array<HarmonicPattern['type']> = ['Gartley', 'Butterfly', 'Bat', 'Crab'];
-    const selectedPattern = patternTypes[Math.floor(Math.random() * patternTypes.length)];
-    
-    return [
-      {
-        id: `${selectedPattern.toLowerCase()}_${symbol}`,
-        symbol,
-        type: selectedPattern,
-        direction: Math.random() > 0.5 ? 'bullish' : 'bearish',
-        completion: 85 + Math.floor(Math.random() * 10), // 85-95%
-        points: {
-          X: { price: basePrice - variation, time: new Date(Date.now() - 4 * 60 * 60 * 1000) },
-          A: { price: basePrice + variation, time: new Date(Date.now() - 3 * 60 * 60 * 1000) },
-          B: { price: basePrice - variation * 0.618, time: new Date(Date.now() - 2 * 60 * 60 * 1000) },
-          C: { price: basePrice + variation * 0.382, time: new Date(Date.now() - 1 * 60 * 60 * 1000) },
-          D: { price: basePrice - variation * 0.786, time: new Date() },
-        },
-        ratios: { AB_XA: 0.618, BC_AB: 0.618, CD_BC: 1.272, AD_XA: 0.786 },
-        prz: { 
-          min: basePrice - variation * 0.786 - 0.0002, 
-          max: basePrice - variation * 0.786 + 0.0002 
-        },
-        confidence: 80 + Math.floor(Math.random() * 15), // 80-95%
-        status: 'completed'
-      }
-    ];
-  }
-
-  private getMockADRData(symbol: string): ADRData {
-    const basePrice = this.getBasePrice(symbol);
-    const dailyRange = symbol === 'EURUSD' ? 0.0085 : 
-                      symbol === 'GBPUSD' ? 0.0120 :
-                      symbol === 'USDJPY' ? 0.85 :
-                      symbol === 'XAUUSD' ? 25.0 : 0.0085;
-    
-    return {
-      symbol,
-      averageDailyRange: dailyRange,
-      currentRange: dailyRange * (0.6 + Math.random() * 0.3), // 60-90% of ADR
-      rangePercent: 60 + Math.random() * 30, // 60-90%
-      dailyHigh: basePrice + dailyRange * 0.6,
-      dailyLow: basePrice - dailyRange * 0.4,
-      projectedHigh: basePrice + dailyRange,
-      projectedLow: basePrice - dailyRange,
-      session: this.getCurrentSession()
-    };
-  }
-
-  private getMockTrendLines(symbol: string): TrendLine[] {
-    // Generate unique trendlines based on symbol to avoid duplicates
-    const basePrice = this.getBasePrice(symbol);
-    const variation = symbol === 'EURUSD' ? 0.0020 : 
-                     symbol === 'GBPUSD' ? 0.0025 :
-                     symbol === 'USDJPY' ? 0.15 :
-                     symbol === 'XAUUSD' ? 5.0 : 0.0020;
-    
-    return [
-      {
-        id: `support_${symbol}`,
-        symbol,
-        type: 'support',
-        points: [
-          { price: basePrice - variation, time: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-          { price: basePrice - variation + 0.0005, time: new Date(Date.now() - 12 * 60 * 60 * 1000) }
-        ],
-        slope: 0.0000058,
-        strength: 75 + Math.floor(Math.random() * 20), // 75-95% strength
-        touches: 3 + Math.floor(Math.random() * 4), // 3-6 touches
-        currentPrice: basePrice,
-        distance: variation * 0.8,
-        isActive: true
-      }
-    ];
   }
 
   // SUBSCRIPTION SYSTEM
