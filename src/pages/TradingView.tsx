@@ -87,6 +87,7 @@ const TradingView: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [symbolSuggestions, setSymbolSuggestions] = useState<SymbolInfo[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [availableSymbols, setAvailableSymbols] = useState<SymbolInfo[]>([]);
   const [selectedBroker, setSelectedBroker] = useState('polygon');
   
   // Technical analysis data
@@ -97,8 +98,73 @@ const TradingView: React.FC = () => {
   const [showTrendLines, setShowTrendLines] = useState(true);
   const [showFibonacci, setShowFibonacci] = useState(false);
 
-  // Symbol database - populated from broker connection
-  const symbolDatabase: SymbolInfo[] = [];
+  const mapTradeLockerType = (instrument: any): SymbolInfo['type'] => {
+    const rawType = String(
+      instrument?.type ??
+      instrument?.instrumentType ??
+      instrument?.assetType ??
+      instrument?.category ??
+      ''
+    ).toLowerCase();
+
+    if (rawType.includes('crypto')) return 'crypto';
+    if (rawType.includes('stock') || rawType.includes('equity')) return 'stock';
+    if (rawType.includes('commodity') || rawType.includes('metal')) return 'commodity';
+    return 'forex';
+  };
+
+  const parseTradeLockerInstruments = (payload: any): SymbolInfo[] => {
+    const rawItems = Array.isArray(payload)
+      ? payload
+      : (payload?.d || payload?.instruments || payload?.data || []);
+
+    if (!Array.isArray(rawItems)) return [];
+
+    return rawItems
+      .map((instrument: any): SymbolInfo | null => {
+        const symbol = String(
+          instrument?.symbol ??
+          instrument?.name ??
+          instrument?.code ??
+          ''
+        ).trim();
+        if (!symbol) return null;
+
+        return {
+          symbol,
+          name: String(instrument?.description ?? instrument?.displayName ?? symbol),
+          exchange: String(instrument?.exchange ?? 'TradeLocker'),
+          type: mapTradeLockerType(instrument),
+          price: Number(instrument?.lastPrice ?? instrument?.price ?? 0) || undefined,
+        };
+      })
+      .filter((item): item is SymbolInfo => item !== null);
+  };
+
+  const loadTradeLockerInstruments = useCallback(async () => {
+    try {
+      const response = await fetch('/api/tradelocker/instruments');
+      if (!response.ok) {
+        throw new Error(`Failed to fetch instruments: ${response.status}`);
+      }
+
+      const payload = await response.json();
+      const instruments = parseTradeLockerInstruments(payload);
+      setAvailableSymbols(instruments);
+
+      const selectedExists = instruments.some((item) => item.symbol === selectedSymbol);
+      if (!selectedExists && instruments.length > 0) {
+        const defaultSymbol = instruments[0].symbol;
+        setSelectedSymbol(defaultSymbol);
+        setSearchTerm(defaultSymbol);
+        loadCandlesForSymbol(defaultSymbol, timeframe);
+        loadSymbolData(defaultSymbol);
+      }
+    } catch (error) {
+      console.error('Failed to load TradeLocker instruments:', error);
+      setAvailableSymbols([]);
+    }
+  }, [loadCandlesForSymbol, selectedSymbol, timeframe]);
 
   const timeframes = [
     { value: '1m', label: '1m' },
@@ -189,6 +255,7 @@ const TradingView: React.FC = () => {
       setTradeLockerConnected(true);
       setIsConnected(true);
       setShowLoginModal(false);
+      await loadTradeLockerInstruments();
 
       // Initialize WebSocket for real-time data
       initializeTradeLockerWebSocket();
@@ -578,6 +645,10 @@ const TradingView: React.FC = () => {
     return () => clearInterval(interval);
   }, [isLive, loadCandlesForSymbol, selectedSymbol, timeframe]);
 
+  useEffect(() => {
+    loadTradeLockerInstruments();
+  }, [loadTradeLockerInstruments]);
+
   // Handle symbol change
   const handleSymbolChange = (newSymbol: string) => {
     setSelectedSymbol(newSymbol);
@@ -595,6 +666,8 @@ const TradingView: React.FC = () => {
   const getSymbolInfo = (symbol: string): SymbolInfo | undefined => {
     return symbolDatabase.find(s => s.symbol === symbol);
   };
+
+  const symbolDatabase = availableSymbols;
 
   const currentSymbolInfo = getSymbolInfo(selectedSymbol);
 
