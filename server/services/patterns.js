@@ -1,7 +1,7 @@
 // Fibonacci levels, liquidity sweep detection, and XABCD harmonic pattern matching.
 import { detectSwings } from './indicators.js';
 
-const FIB_LEVELS = [0.236, 0.382, 0.5, 0.618, 0.705, 0.786];
+const FIB_LEVELS = [0.236, 0.382, 0.5, 0.618, 0.705, 0.786, 0.886];
 const FIB_EXTENSIONS = [1.272, 1.618, 2.0, 2.618];
 
 // Fibonacci retracement on the latest qualifying swing (most recent
