@@ -67,6 +67,8 @@ class Scanner:
     # Refresh ForexFactory feed every N seconds (default 6h)
     news_refresh_seconds: int = 6 * 3600
     _last_news_refresh: float = 0.0
+    # Path to a trigger file the API can touch to request an immediate scan
+    scan_request_path: Optional[str] = None
 
     def scan_once(self) -> List[ScanResult]:
         self._maybe_refresh_news()
@@ -119,4 +121,27 @@ class Scanner:
                 log.exception("scan_once crashed")
             elapsed = time.monotonic() - started
             sleep_for = max(1.0, self.config.scan_interval_seconds - elapsed)
-            self.clock.sleep(sleep_for)
+            # Sleep in short slices so a refresh trigger from the API can
+            # wake us up without waiting the full interval.
+            slept = 0.0
+            slice_s = 1.0
+            while slept < sleep_for:
+                self.clock.sleep(min(slice_s, sleep_for - slept))
+                slept += slice_s
+                if self._scan_requested():
+                    log.info("scan trigger detected — running immediately")
+                    break
+
+    def _scan_requested(self) -> bool:
+        path = getattr(self, "scan_request_path", None)
+        if not path:
+            return False
+        from pathlib import Path as _P
+        p = _P(path)
+        if p.exists():
+            try:
+                p.unlink()
+            except OSError:
+                pass
+            return True
+        return False

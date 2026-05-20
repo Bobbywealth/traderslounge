@@ -68,6 +68,79 @@ async function get<T>(path: string, query?: Record<string, string | number>): Pr
   return res.json() as Promise<T>;
 }
 
+export interface BwtsPosition {
+  id: string;
+  opened_at: number;
+  closed_at: number | null;
+  pair: string;
+  direction: SignalDirection;
+  lot_size: number;
+  entry: number;
+  stop_loss: number;
+  tp1: number;
+  tp2: number;
+  tp3: number;
+  status: string;
+  half_closed: number;
+  closed_pnl_usd: number;
+}
+
+export interface BwtsClosedTrade {
+  id: number;
+  position_id: string | null;
+  pair: string;
+  direction: SignalDirection;
+  opened_at: number;
+  closed_at: number;
+  entry: number;
+  exit_price: number;
+  stop_loss: number;
+  tp1: number;
+  tp2: number;
+  lot_size: number;
+  sl_pips: number;
+  pnl_usd: number;
+  r_multiple: number;
+  outcome: string;
+}
+
+export interface BwtsJournalStats {
+  trades: number;
+  wins: number;
+  losses: number;
+  win_rate: number;
+  gross_profit: number;
+  gross_loss: number;
+  profit_factor: number;
+  avg_r: number;
+  total_pnl: number;
+}
+
+export interface BwtsKillStatus {
+  engaged: boolean;
+  reason: string;
+  path?: string;
+}
+
+async function post<T>(path: string, body: any): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+  if (!res.ok) {
+    let msg = `${res.status} ${res.statusText}`;
+    try {
+      const b = await res.json();
+      msg = b?.error || msg;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+  return (await res.json().catch(() => ({}))) as T;
+}
+
 export const bwtsApi = {
   health: () => get<BwtsHealth>('/api/health'),
   pairs: () => get<{ pairs: string[] }>('/api/pairs'),
@@ -75,6 +148,18 @@ export const bwtsApi = {
   signals: (opts?: { pair?: string; tier?: SignalTier; limit?: number }) =>
     get<{ signals: BwtsSignal[]; count: number }>('/api/signals', opts as any),
   signal: (id: number) => get<{ signal: BwtsSignal }>(`/api/signals/${id}`),
+
+  positions: () => get<{ positions: BwtsPosition[]; count: number }>('/api/positions'),
+  journal: (opts?: { pair?: string; limit?: number }) =>
+    get<{ trades: BwtsClosedTrade[]; count: number }>('/api/journal', opts as any),
+  journalStats: () => get<BwtsJournalStats>('/api/journal/stats'),
+
+  killStatus: () => get<BwtsKillStatus>('/api/kill-switch'),
+  setKill: (engaged: boolean, reason?: string) =>
+    post<BwtsKillStatus>('/api/kill-switch', { engaged, reason }),
+
+  requestScan: () => post<{ queued: boolean }>('/api/scans/refresh', {}),
+
   baseUrl: () => BASE,
 };
 

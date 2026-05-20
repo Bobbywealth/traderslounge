@@ -46,6 +46,7 @@ def main() -> int:
         news_client=news_client,
         repository=repo,
         emit_threshold=cfg.good_threshold,
+        scan_request_path=os.environ.get("SCAN_REQUEST_PATH", "/tmp/bwts.scan_request"),
     )
     scanner.run_forever()
     return 0
