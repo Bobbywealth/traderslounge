@@ -1,0 +1,11 @@
+# Python deps for the Bobby Wealth Trading System scanner services.
+#
+# The core scanner (modules, scoring engine, brokers, API, backtester)
+# is stdlib-only and runs without any of these installed. The deps
+# below enable optional production features:
+#
+#   psycopg     — Postgres signal repository (Step 4 adapter). Used when
+#                 DATABASE_URL is set; otherwise SQLite fallback.
+#
+# Pin floors loosely so Render can pick a current binary wheel.
+psycopg[binary]>=3.1,<4
