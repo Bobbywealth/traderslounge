@@ -113,17 +113,17 @@ async function fetchFrankfurterBars(symbol, timeframe = 'D1') {
     let rate, quoteCurrency, baseCurrency;
 
     if (symbol === 'EURUSD') {
-      // Cross-rate: EUR/USD = EUR->USD. Frankfurter gives USD/EUR, so invert it.
+      // Cross-rate: EUR/USD = EUR->USD. Frankfurter returns 1 EUR = X USD.
       const res = await axios.get(`${FRANKFURTER_BASE}/latest?base=EUR&symbols=USD`, { timeout: 8000 });
       if (!res.data.rates?.USD) return [];
-      rate = 1 / res.data.rates.USD; // EUR/USD
+      rate = res.data.rates.USD; // Already EUR/USD (e.g. 1.162)
       baseCurrency = 'EUR';
       quoteCurrency = 'USD';
     } else if (symbol === 'GBPUSD') {
-      // Cross-rate: GBP/USD = GBP->USD. Frankfurter gives USD/GBP, so invert it.
+      // Cross-rate: GBP/USD = GBP->USD. Frankfurter returns 1 GBP = X USD.
       const res = await axios.get(`${FRANKFURTER_BASE}/latest?base=GBP&symbols=USD`, { timeout: 8000 });
       if (!res.data.rates?.USD) return [];
-      rate = 1 / res.data.rates.USD; // GBP/USD
+      rate = res.data.rates.USD; // Already GBP/USD (e.g. 1.270)
       baseCurrency = 'GBP';
       quoteCurrency = 'USD';
     } else {
