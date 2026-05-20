@@ -1,7 +1,7 @@
 // Twelve Data — free tier: 800 requests/day, real OHLCV bars for forex + metals.
 // Primary fallback for all forex pairs when TradeLocker has no data.
 // Twelve Data symbol format: EUR/USD, GBP/JPY, XAU/USD (no '=' suffix).
-const TWELVE_API_KEY = 'd0fa9f1760f9404b8d87a84183cb6997';
+const TWELVE_API_KEY = process.env.TWELVE_DATA_API_KEY || '';
 const TWELVE_BASE = 'https://api.twelvedata.com';
 
 // Map internal symbol → Twelve Data ticker format.
