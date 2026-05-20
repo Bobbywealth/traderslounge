@@ -10,7 +10,12 @@ import {
   BarChart3,
   ChevronLeft,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  Activity,
+  Briefcase,
+  BookOpen,
+  Play,
+  Settings as SettingsIcon,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -18,14 +23,35 @@ interface SidebarProps {
   onToggle: () => void;
 }
 
-const navigation = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Trades', href: '/trades', icon: TrendingUp },
-  { name: 'TradingView', href: '/tradingview', icon: BarChart3 },
-  { name: 'Calendar', href: '/calendar', icon: Calendar },
-  { name: 'Signals', href: '/signals', icon: Zap },
-  { name: 'Education', href: '/education', icon: GraduationCap },
-  { name: 'Community', href: '/community', icon: MessageSquare },
+type NavSection = { heading?: string; items: { name: string; href: string; icon: any }[] };
+
+const navigation: NavSection[] = [
+  {
+    items: [
+      { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+    ],
+  },
+  {
+    heading: 'Trading System',
+    items: [
+      { name: 'Live Scanner', href: '/scanner', icon: Activity },
+      { name: 'Signals', href: '/signals', icon: Zap },
+      { name: 'Positions', href: '/positions', icon: Briefcase },
+      { name: 'Journal', href: '/journal', icon: BookOpen },
+      { name: 'Backtester', href: '/backtester', icon: Play },
+      { name: 'Settings', href: '/settings', icon: SettingsIcon },
+    ],
+  },
+  {
+    heading: 'Tools',
+    items: [
+      { name: 'Trades', href: '/trades', icon: TrendingUp },
+      { name: 'TradingView', href: '/tradingview', icon: BarChart3 },
+      { name: 'Calendar', href: '/calendar', icon: Calendar },
+      { name: 'Education', href: '/education', icon: GraduationCap },
+      { name: 'Community', href: '/community', icon: MessageSquare },
+    ],
+  },
 ];
 
 const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
@@ -72,33 +98,39 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
       </div>
 
       {/* Navigation */}
-      <nav className="mt-6 px-3">
-        {navigation.map((item) => {
-          const isActive = location.pathname === item.href;
-          const Icon = item.icon;
-          
-          return (
-            <Link
-              key={item.name}
-              to={item.href}
-              className={`flex items-center px-3 py-3 rounded-xl text-sm font-medium transition-all duration-200 mb-1 group ${
-                isActive
-                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/25'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <Icon className={`w-5 h-5 ${collapsed ? '' : 'mr-3'} ${
-                isActive ? 'text-white' : 'group-hover:text-emerald-400'
-              }`} />
-              {!collapsed && <span>{item.name}</span>}
-              
-              {/* Active indicator dot when collapsed */}
-              {collapsed && isActive && (
-                <div className="absolute right-2 w-1.5 h-1.5 bg-white rounded-full" />
-              )}
-            </Link>
-          );
-        })}
+      <nav className="mt-6 px-3 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 220px)' }}>
+        {navigation.map((section, sIdx) => (
+          <div key={sIdx} className={sIdx > 0 ? 'mt-6' : ''}>
+            {section.heading && !collapsed && (
+              <h3 className="px-3 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                {section.heading}
+              </h3>
+            )}
+            {section.items.map((item) => {
+              const isActive = location.pathname === item.href;
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.name}
+                  to={item.href}
+                  className={`relative flex items-center px-3 py-3 rounded-xl text-sm font-medium transition-all duration-200 mb-1 group ${
+                    isActive
+                      ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/25'
+                      : 'text-gray-400 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  <Icon className={`w-5 h-5 ${collapsed ? '' : 'mr-3'} ${
+                    isActive ? 'text-white' : 'group-hover:text-emerald-400'
+                  }`} />
+                  {!collapsed && <span>{item.name}</span>}
+                  {collapsed && isActive && (
+                    <div className="absolute right-2 w-1.5 h-1.5 bg-white rounded-full" />
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       {/* Footer - Upgrade CTA */}
