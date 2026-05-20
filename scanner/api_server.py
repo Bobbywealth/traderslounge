@@ -16,8 +16,10 @@ import sys
 
 from .api import ApiState, make_server
 from .config import load_from_env
+from .kill_switch import KillSwitch
 from .persistence import SQLiteRepository
 from .postgres_repo import PostgresRepository, is_available as pg_available
+from .trade_repo import SQLiteClosedTradeRepository, SQLitePositionRepository
 
 
 def main() -> int:
@@ -39,9 +41,24 @@ def main() -> int:
         logging.info("using SQLite at %s", path)
         repo = SQLiteRepository(path)
 
+    db_path_for_aux = os.environ.get("SIGNAL_DB_PATH", "scanner.db")
+    # Positions + closed trades share the SQLite file the workers write to.
+    # When using Postgres, the same Postgres connection will eventually back
+    # these (added with the Postgres adapter in a follow-up).
+    position_repo = SQLitePositionRepository(db_path_for_aux)
+    closed_trade_repo = SQLiteClosedTradeRepository(db_path_for_aux)
+    kill_switch = KillSwitch()
+    scan_request_path = os.environ.get("SCAN_REQUEST_PATH", "/tmp/bwts.scan_request")
+
     host = os.environ.get("API_HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))
-    state = ApiState(repository=repo, config=cfg)
+    state = ApiState(
+        repository=repo, config=cfg,
+        position_repo=position_repo,
+        closed_trade_repo=closed_trade_repo,
+        kill_switch=kill_switch,
+        scan_request_path=scan_request_path,
+    )
     server = make_server(state, host=host, port=port)
     print(f"API listening on http://{host}:{port}", file=sys.stderr)
     try:

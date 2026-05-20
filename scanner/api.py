@@ -22,7 +22,9 @@ from typing import Optional
 from urllib.parse import parse_qs, urlsplit
 
 from .config import Config
+from .kill_switch import KillSwitch
 from .persistence import SignalRepository
+from .trade_repo import ClosedTradeRepository, PositionRepository
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +34,10 @@ class ApiState:
     """Container so the handler class can find runtime deps."""
     repository: SignalRepository
     config: Config
+    position_repo: Optional[PositionRepository] = None
+    closed_trade_repo: Optional[ClosedTradeRepository] = None
+    kill_switch: Optional[KillSwitch] = None
+    scan_request_path: Optional[str] = None  # path to scan trigger file
 
 
 # Module-level state pointer — http.server's handler API doesn't make
@@ -72,8 +78,30 @@ class _ApiHandler(BaseHTTPRequestHandler):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.end_headers()
+
+    def do_POST(self):  # noqa: N802
+        if _STATE is None:
+            return self._error(503, "API state not initialized")
+        url = urlsplit(self.path)
+        path = url.path.rstrip("/") or "/"
+        body = self._read_body()
+        try:
+            return self._route_post(path, body)
+        except Exception as exc:
+            log.exception("api error (POST)")
+            return self._error(500, str(exc))
+
+    def _read_body(self) -> dict:
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0:
+            return {}
+        try:
+            raw = self.rfile.read(length).decode("utf-8")
+            return json.loads(raw) if raw else {}
+        except (ValueError, json.JSONDecodeError):
+            return {}
 
     def do_GET(self):  # noqa: N802
         if _STATE is None:
@@ -104,6 +132,21 @@ class _ApiHandler(BaseHTTPRequestHandler):
             except ValueError:
                 return self._error(400, "invalid signal id")
             return self._get_signal(sig_id)
+        if path == "/api/positions":
+            return self._list_positions()
+        if path == "/api/journal":
+            return self._list_journal(query)
+        if path == "/api/journal/stats":
+            return self._journal_stats()
+        if path == "/api/kill-switch":
+            return self._kill_status()
+        return self._error(404, f"unknown route: {path}")
+
+    def _route_post(self, path: str, body: dict) -> None:
+        if path == "/api/kill-switch":
+            return self._kill_set(body)
+        if path == "/api/scans/refresh":
+            return self._request_scan(body)
         return self._error(404, f"unknown route: {path}")
 
     # --- handlers -------------------------------------------------------
@@ -139,6 +182,71 @@ class _ApiHandler(BaseHTTPRequestHandler):
             if int(r.get("id", -1)) == sig_id:
                 return self._json(200, {"signal": r})
         self._error(404, f"signal {sig_id} not found")
+
+    def _list_positions(self) -> None:
+        repo = _STATE.position_repo
+        if repo is None:
+            return self._json(200, {"positions": [], "count": 0,
+                                    "note": "position_repo not configured"})
+        rows = repo.open_positions()
+        self._json(200, {"positions": rows, "count": len(rows)})
+
+    def _list_journal(self, query: dict) -> None:
+        repo = _STATE.closed_trade_repo
+        if repo is None:
+            return self._json(200, {"trades": [], "count": 0,
+                                    "note": "closed_trade_repo not configured"})
+        limit = _clamp_int(query.get("limit"), default=100, lo=1, hi=1000)
+        pair = query.get("pair")
+        rows = repo.recent(limit=limit, pair=pair.upper() if pair else None)
+        self._json(200, {"trades": rows, "count": len(rows)})
+
+    def _journal_stats(self) -> None:
+        repo = _STATE.closed_trade_repo
+        if repo is None:
+            return self._json(200, {"trades": 0})
+        self._json(200, repo.stats())
+
+    def _kill_status(self) -> None:
+        ks = _STATE.kill_switch
+        if ks is None:
+            return self._json(200, {"engaged": False,
+                                    "note": "kill_switch not configured"})
+        self._json(200, {
+            "engaged": ks.is_engaged(),
+            "reason": ks.reason(),
+            "path": str(ks.path),
+        })
+
+    def _kill_set(self, body: dict) -> None:
+        ks = _STATE.kill_switch
+        if ks is None:
+            return self._error(503, "kill_switch not configured")
+        engaged = bool(body.get("engaged"))
+        if engaged:
+            reason = str(body.get("reason") or "engaged via API")
+            ks.engage(reason)
+        else:
+            ks.disengage()
+        self._json(200, {
+            "engaged": ks.is_engaged(),
+            "reason": ks.reason(),
+        })
+
+    def _request_scan(self, body: dict) -> None:
+        path = _STATE.scan_request_path
+        if path is None:
+            return self._error(503, "scan_request_path not configured")
+        # Touch the trigger file; the scanner worker picks it up on its
+        # next idle check and runs an immediate cycle.
+        try:
+            from pathlib import Path as _P
+            p = _P(path)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.touch()
+        except OSError as exc:
+            return self._error(500, f"could not create trigger file: {exc}")
+        self._json(202, {"queued": True, "path": str(path)})
 
     def _public_config(self) -> None:
         cfg = _STATE.config

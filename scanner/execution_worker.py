@@ -33,6 +33,7 @@ from .risk_manager import RiskManager
 from .scheduler import Scanner
 from .signal import Signal
 from .trade_manager import TradeManager
+from .trade_repo import SQLiteClosedTradeRepository, SQLitePositionRepository
 
 
 def _build_broker() -> Broker:
@@ -85,7 +86,10 @@ def main() -> int:
     client = MultiSourceClient(fx=fx, crypto=crypto)
     news = NewsFilter(blackout_minutes=cfg.news_blackout_minutes)
     news_client = ForexFactoryClient()
-    repo = SQLiteRepository(os.environ.get("SIGNAL_DB_PATH", "scanner.db"))
+    db_path = os.environ.get("SIGNAL_DB_PATH", "scanner.db")
+    repo = SQLiteRepository(db_path)
+    position_repo = SQLitePositionRepository(db_path)
+    closed_trade_repo = SQLiteClosedTradeRepository(db_path)
 
     broker = _build_broker()
     log.info("broker=%s", broker.name)
@@ -96,6 +100,8 @@ def main() -> int:
     tm = TradeManager(
         broker=broker, risk=risk, kill_switch=kill,
         price_oracle=_price_oracle_from(client),
+        position_repo=position_repo,
+        closed_trade_repo=closed_trade_repo,
     )
 
     def execution_sink(sig: Signal) -> None:

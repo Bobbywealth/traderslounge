@@ -4,28 +4,34 @@ Responsibilities (spec §6):
 - Receive STRONG signals from the scanner
 - Run them through the risk manager to compute lot size
 - Place market orders via the broker (unless kill switch is engaged)
-- Watch open positions: when current price reaches TP1, close 50% and
-  move SL to break-even; let TP2 and TP3 run.
-
-The price oracle is injected so the same code is paper- and live-tradeable.
-In production the trade manager will poll the data provider for fresh
-prices; tests inject a synthetic oracle.
+- Watch open positions:
+    * TP1 hit → close `partial_close_fraction` (default 50%), move SL to BE
+    * TP2 hit (after TP1) → close the remaining position
+    * SL hit (or BE stop after TP1) → close the position
+- Persist every position state transition + every closed trade.
 """
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
 from .broker import Broker, Position
 from .data_types import Direction
 from .kill_switch import KillSwitch
-from .risk_manager import RiskManager, TradePlan, TradeRejection
+from .risk_manager import (
+    PIP_VALUE_PER_LOT_USD,
+    RiskManager,
+    TradePlan,
+    TradeRejection,
+    pip_size_for,
+)
 from .signal import Signal, Tier
+from .trade_repo import ClosedTradeRepository, PositionRepository
 
 log = logging.getLogger(__name__)
 
-# Caller-supplied: given a pair, return the latest mid price.
 PriceOracle = Callable[[str], Optional[float]]
 
 
@@ -42,17 +48,15 @@ class TradeManager:
     risk: RiskManager
     kill_switch: KillSwitch
     price_oracle: PriceOracle
-    # Only act on signals at or above this tier
+    position_repo: Optional[PositionRepository] = None
+    closed_trade_repo: Optional[ClosedTradeRepository] = None
     min_tier_to_execute: Tier = Tier.STRONG
-    # Once price hits TP1, close this fraction and trail SL to entry
     partial_close_fraction: float = 0.5
-    # Track which positions have already taken their TP1 partial so we
-    # don't double-close.
-    _tp1_taken: set = None  # type: ignore[assignment]
 
-    def __post_init__(self) -> None:
-        if self._tp1_taken is None:
-            self._tp1_taken = set()
+    _tp1_taken: set = field(default_factory=set)
+    # Track original lot size + risk per position so P&L math survives the
+    # TP1 lot-size halving in PaperBroker.
+    _opened_state: Dict[str, dict] = field(default_factory=dict)
 
     # ---- entry --------------------------------------------------------
 
@@ -79,36 +83,141 @@ class TradeManager:
         except Exception as exc:
             log.exception("broker order failed for %s", sig.pair)
             return ExecutionDecision(False, f"Broker error: {exc}")
+
+        self._opened_state[pos.id] = {
+            "original_lots": plan.lot_size,
+            "risk_usd": plan.risk_usd,
+            "sl_pips": plan.sl_pips,
+            "original_sl": pos.stop_loss,
+        }
+        self._persist_position(pos)
         return ExecutionDecision(True, "Order placed", position=pos)
 
     # ---- management ---------------------------------------------------
 
     def manage_open_positions(self) -> List[str]:
-        """Check every open position against the price oracle and act on
-        TP1 hits. Returns a list of human-readable actions taken."""
         actions: List[str] = []
-        for pos in self.broker.list_positions():
+        for pos in list(self.broker.list_positions()):
             price = self.price_oracle(pos.pair)
             if price is None:
                 continue
-            if self._hit_tp1(pos, price) and pos.id not in self._tp1_taken:
-                try:
-                    self.broker.close_position(pos.id, self.partial_close_fraction)
-                    self.broker.modify_stop_loss(pos.id, pos.entry)
-                    self._tp1_taken.add(pos.id)
-                    actions.append(f"{pos.id}: TP1 hit @ {price}, "
-                                   f"closed {self.partial_close_fraction*100:.0f}%, "
-                                   f"SL→BE")
-                except Exception as exc:
-                    log.exception("manage error for %s", pos.id)
-                    actions.append(f"{pos.id}: ERROR {exc}")
+            outcome = self._evaluate_exit(pos, price)
+            if outcome == "tp1":
+                self._take_tp1(pos, price)
+                actions.append(
+                    f"{pos.id}: TP1 hit @ {price}, "
+                    f"closed {self.partial_close_fraction*100:.0f}%, SL→BE"
+                )
+            elif outcome in ("sl", "tp1_then_be", "tp2"):
+                self._close_full(pos, price, outcome)
+                actions.append(f"{pos.id}: {outcome} @ {price}")
         return actions
 
-    @staticmethod
-    def _hit_tp1(pos: Position, price: float) -> bool:
-        if pos.direction == Direction.BUY:
-            return price >= pos.tp1
-        return price <= pos.tp1
+    def _evaluate_exit(self, pos: Position, price: float) -> Optional[str]:
+        already_tp1 = pos.id in self._tp1_taken
+        sl_hit = price <= pos.stop_loss if pos.direction == Direction.BUY else price >= pos.stop_loss
+        tp1_hit = price >= pos.tp1 if pos.direction == Direction.BUY else price <= pos.tp1
+        tp2_hit = price >= pos.tp2 if pos.direction == Direction.BUY else price <= pos.tp2
+        # SL takes precedence (same-bar conservatism)
+        if sl_hit:
+            return "tp1_then_be" if already_tp1 else "sl"
+        if already_tp1 and tp2_hit:
+            return "tp2"
+        if not already_tp1 and tp1_hit:
+            return "tp1"
+        return None
+
+    def _take_tp1(self, pos: Position, price: float) -> None:
+        try:
+            self.broker.close_position(pos.id, self.partial_close_fraction)
+            self.broker.modify_stop_loss(pos.id, pos.entry)
+            # The broker mutates pos in place (PaperBroker); for live we re-read.
+            pos.stop_loss = pos.entry
+            self._tp1_taken.add(pos.id)
+            self._persist_position(pos)
+        except Exception:
+            log.exception("TP1 management failed for %s", pos.id)
+
+    def _close_full(self, pos: Position, exit_price: float, outcome: str) -> None:
+        try:
+            self.broker.close_position(pos.id, 1.0)
+        except Exception:
+            log.exception("close_position failed for %s", pos.id)
+            return
+        # Record closed trade.
+        opened = self._opened_state.pop(pos.id, None)
+        original_lots = opened["original_lots"] if opened else pos.lot_size
+        risk_usd = opened["risk_usd"] if opened else 0.0
+        sl_pips = opened["sl_pips"] if opened else 0.0
+        original_sl = opened["original_sl"] if opened else pos.stop_loss
+        pnl = self._calc_pnl(pos, original_lots, original_sl, exit_price, outcome)
+        r = pnl / risk_usd if risk_usd > 0 else 0.0
+        record = {
+            "position_id": pos.id,
+            "pair": pos.pair,
+            "direction": pos.direction.value,
+            "opened_at": pos.opened_at,
+            "closed_at": time.time(),
+            "entry": pos.entry,
+            "exit_price": exit_price,
+            "stop_loss": original_sl,
+            "tp1": pos.tp1,
+            "tp2": pos.tp2,
+            "lot_size": original_lots,
+            "sl_pips": sl_pips,
+            "pnl_usd": pnl,
+            "r_multiple": r,
+            "outcome": outcome,
+        }
+        if self.closed_trade_repo is not None:
+            try:
+                self.closed_trade_repo.save(record)
+            except Exception:
+                log.exception("closed_trade save failed for %s", pos.id)
+        if self.position_repo is not None:
+            try:
+                self.position_repo.close(pos.id, record["closed_at"])
+            except Exception:
+                log.exception("position close-mark failed for %s", pos.id)
+        self._tp1_taken.discard(pos.id)
+
+    # ---- helpers ------------------------------------------------------
+
+    def _persist_position(self, pos: Position) -> None:
+        if self.position_repo is None:
+            return
+        try:
+            self.position_repo.upsert(pos)
+        except Exception:
+            log.exception("position upsert failed for %s", pos.id)
+
+    def _calc_pnl(
+        self, pos: Position, original_lots: float, original_sl: float,
+        exit_price: float, outcome: str,
+    ) -> float:
+        """Total P&L across the position lifecycle.
+
+        - sl: entire `original_lots` closed at original SL.
+        - tp1_then_be: half closed at TP1, other half at entry (BE).
+        - tp2: half at TP1, other half at TP2.
+        """
+        pip_value = PIP_VALUE_PER_LOT_USD.get(pos.pair, 10.0)
+        pip_size = pip_size_for(pos.pair)
+        sign = 1.0 if pos.direction == Direction.BUY else -1.0
+
+        def leg(exit_p: float, lots: float) -> float:
+            diff = (exit_p - pos.entry) * sign
+            return (diff / pip_size) * pip_value * lots
+
+        if outcome == "sl":
+            return leg(original_sl, original_lots)
+        if outcome == "tp1_then_be":
+            half = original_lots * self.partial_close_fraction
+            return leg(pos.tp1, half) + leg(pos.entry, original_lots - half)
+        if outcome == "tp2":
+            half = original_lots * self.partial_close_fraction
+            return leg(pos.tp1, half) + leg(pos.tp2, original_lots - half)
+        return leg(exit_price, original_lots)
 
 
 _TIER_RANK = {Tier.NO_TRADE: 0, Tier.WATCHLIST: 1, Tier.GOOD: 2, Tier.STRONG: 3}
