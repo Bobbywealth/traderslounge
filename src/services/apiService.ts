@@ -193,22 +193,30 @@ const numOrNull = (v: any): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+const safeNum = (v: any): number | null => {
+  if (v === null || v === undefined || v === '') return null;
+  const n = typeof v === 'number' ? v : parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+};
+
 const mapSignal = (s: any): SignalAnalysis => {
-  const bias = evaluateHtfBias(s.timeframes);
-  const confidence = parseFloat(s.confidence);
+  const timeframes = s.timeframes || {};
+  const bias = evaluateHtfBias(timeframes);
+  const confidence = safeNum(s.confidence) ?? 0;
   const setup = s.trade_setup || {};
 
   return {
     ...s,
-    entry_price: parseFloat(s.entry_price),
-    stop_loss: parseFloat(s.stop_loss),
-    take_profit: parseFloat(s.take_profit),
-    risk_reward_ratio: parseFloat(s.risk_reward_ratio),
+    direction: s.direction ?? 'buy',
+    entry_price: safeNum(s.entry_price) ?? 0,
+    stop_loss: safeNum(s.stop_loss) ?? 0,
+    take_profit: safeNum(s.take_profit) ?? 0,
+    risk_reward_ratio: safeNum(s.risk_reward_ratio) ?? 0,
     confidence,
     adjusted_confidence: applyHtfBiasPenalty(confidence, bias),
     bias_status: bias.status,
     no_trade: bias.hardInvalid,
-    trend_strength: parseFloat(s.trend_strength),
+    trend_strength: safeNum(s.trend_strength) ?? 0,
     tp1: numOrNull(setup.tp1),
     tp2: numOrNull(setup.tp2),
     tp3: numOrNull(setup.tp3),
