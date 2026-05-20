@@ -5,6 +5,7 @@ import PerformanceChart from '../components/PerformanceChart';
 import TradingChart from '../components/TradingChart';
 import RecentTrades from '../components/RecentTrades';
 import QuickActions from '../components/QuickActions';
+import BwtsStatusBar from '../components/BwtsStatusBar';
 import { useBroker } from '../contexts/BrokerContext';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -102,6 +103,9 @@ const Dashboard: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* BWTS Scanner status — live data from the Python API */}
+      <BwtsStatusBar />
 
       {/* Metrics Grid - Enhanced cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
