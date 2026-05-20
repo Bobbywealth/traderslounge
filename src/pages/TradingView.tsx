@@ -1048,6 +1048,7 @@ const TradingView: React.FC = () => {
                   className="w-full bg-gray-700 text-white rounded px-3 py-2 border border-gray-600 focus:border-emerald-500 focus:outline-none"
                 >
                   <option value="demo">Demo Server</option>
+                  <option value="HEROFX">HEROFX Server</option>
                   <option value="live">Live Server</option>
                 </select>
               </div>
