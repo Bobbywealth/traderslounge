@@ -204,10 +204,7 @@ router.post('/refresh', async (req, res) => {
         try {
           const analysis = await runStrategy(symbol);
 
-          if (analysis.no_trade) {
-            return { symbol, success: true, no_trade: true, reason: analysis.reason || 'No qualifying setup' };
-          }
-
+          // Save all signals regardless of confidence level for debugging
           const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000); // 4 hours
           const tradeSetup = {
             ...analysis.trade_setup,
@@ -222,6 +219,16 @@ router.post('/refresh', async (req, res) => {
             adr: analysis.adr,
             news_status: analysis.news_status || null,
           };
+
+          // For no_trade setups, we still save them with a null direction so they're visible in the UI
+          const direction = analysis.no_trade ? null : analysis.direction;
+          const entryPrice = analysis.no_trade ? null : analysis.entry_price;
+          const stopLoss = analysis.no_trade ? null : analysis.stop_loss;
+          const takeProfit = analysis.no_trade ? null : analysis.take_profit;
+          const rr = analysis.no_trade ? null : analysis.risk_reward_ratio;
+          const reasoning = analysis.no_trade
+            ? (analysis.reason || 'No qualifying setup')
+            : analysis.reasoning;
 
           const result = await pool.query(`
             INSERT INTO signal_analyses (
@@ -256,16 +263,16 @@ router.post('/refresh', async (req, res) => {
             RETURNING *
           `, [
             symbol,
-            analysis.direction,
-            analysis.entry_price,
-            analysis.stop_loss,
-            analysis.take_profit,
-            analysis.risk_reward_ratio,
+            direction,
+            entryPrice,
+            stopLoss,
+            takeProfit,
+            rr,
             analysis.confidence,
             analysis.trend,
             analysis.trend_strength,
             analysis.sentiment,
-            analysis.reasoning,
+            reasoning,
             analysis.market_summary,
             JSON.stringify(analysis.support_levels || []),
             JSON.stringify(analysis.resistance_levels || []),
