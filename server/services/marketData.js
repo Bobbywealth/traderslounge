@@ -1,3 +1,72 @@
+// Twelve Data — free tier: 800 requests/day, real OHLCV bars for forex + metals.
+// Primary fallback for all forex pairs when TradeLocker has no data.
+// Twelve Data symbol format: EUR/USD, GBP/JPY, XAU/USD (no '=' suffix).
+const TWELVE_API_KEY = 'd0fa9f1760f9404b8d87a84183cb6997';
+const TWELVE_BASE = 'https://api.twelvedata.com';
+
+// Map internal symbol → Twelve Data ticker format.
+const TWELVE_SYMBOL_MAP = {
+  EURUSD: 'EUR/USD',
+  GBPUSD: 'GBP/USD',
+  USDJPY: 'USD/JPY',
+  GBPJPY: 'GBP/JPY',
+  USDCAD: 'USD/CAD',
+  USDCHF: 'USD/CHF',
+  AUDUSD: 'AUD/USD',
+  NZDUSD: 'NZD/USD',
+  XAUUSD: 'XAU/USD',
+  XAGUSD: 'XAG/USD',
+};
+
+const TF_TO_TWELVE = {
+  D1:  { interval: '1day', outputsize: 30 },
+  H4:  { interval: '1h',   outputsize: 120 },   // ~5 days of H4 = enough for 20 atr bars
+  H1:  { interval: '1h',   outputsize: 168 },   // 7 days of H1
+  M15: { interval: '15min', outputsize: 200 },
+  M5:  { interval: '5min',  outputsize: 200 },
+  M1:  { interval: '1min',  outputsize: 200 },
+};
+
+async function fetchTwelveBars(symbol, timeframe) {
+  const tdSymbol = TWELVE_SYMBOL_MAP[symbol];
+  if (!tdSymbol) return [];
+
+  const cfg = TF_TO_TWELVE[timeframe];
+  if (!cfg) return [];
+
+  const params = new URLSearchParams({
+    symbol: tdSymbol,
+    interval: cfg.interval,
+    outputsize: String(cfg.outputsize),
+    apikey: TWELVE_API_KEY,
+    format: 'JSON',
+  });
+
+  try {
+    const res = await axios.get(`${TWELVE_BASE}/time_series?${params}`, { timeout: 15000 });
+    const data = res.data;
+    if (data.status === 'error') {
+      console.warn(`Twelve Data error for ${symbol}: ${data.message}`);
+      return [];
+    }
+    const values = data.values;
+    if (!Array.isArray(values) || values.length === 0) return [];
+
+    // Twelve Data returns newest first; reverse to chronological order.
+    return values.slice().reverse().map((v) => ({
+      time: new Date(v.datetime).getTime(),
+      open:   parseFloat(v.open),
+      high:   parseFloat(v.high),
+      low:    parseFloat(v.low),
+      close:  parseFloat(v.close),
+      volume: Number.isFinite(parseFloat(v.volume)) ? parseFloat(v.volume) : 0,
+    }));
+  } catch (err) {
+    console.warn(`Twelve Data fetch error for ${symbol} ${timeframe}: ${err.message}`);
+    return [];
+  }
+}
+
 // Frankfurter fallback — free, no API key needed. Returns OHLCV bars for forex pairs.
 // Covers the 7 FX pairs Frankfurter supports (USDJPY, GBPJPY, USDCAD, USDCHF).
 // Also handles EUR/USD and GBP/USD via cross-rate conversion.
@@ -397,7 +466,18 @@ async function fetchBarsForTimeframe(symbol, timeframe) {
     console.warn(`TradeLocker bars error for ${symbol} ${timeframe}: ${err.message}`);
   }
 
-  // Secondary: Binance (only for crypto symbols Binance lists; returns null
+  // Secondary: Twelve Data — free OHLCV for forex + metals (800 req/day).
+  // Runs before Binance (which only covers crypto) so we get real forex bars first.
+  try {
+    const tdBars = await fetchTwelveBars(symbol, timeframe);
+    if (tdBars && tdBars.length >= 5) {
+      return { bars: tdBars, source: 'twelvedata' };
+    }
+  } catch (err) {
+    console.warn(`Twelve Data bars error for ${symbol} ${timeframe}: ${err.message}`);
+  }
+
+  // Tertiary: Binance (only for crypto symbols Binance lists; returns null
   // for everything else, so non-crypto requests fall straight to Yahoo).
   // Tried before Yahoo because Yahoo throttles Render's egress IPs and
   // because Binance is the canonical source for crypto OHLC anyway.
@@ -410,7 +490,7 @@ async function fetchBarsForTimeframe(symbol, timeframe) {
     console.warn(`Binance bars error for ${symbol} ${timeframe}: ${err.message}`);
   }
 
-  // Tertiary: Yahoo Finance.
+  // Quaternary: Yahoo Finance.
   let bars = [];
   let source = null;
   const cfg = TF_TO_YAHOO[timeframe];
@@ -430,7 +510,7 @@ async function fetchBarsForTimeframe(symbol, timeframe) {
     console.warn(`Yahoo bars error for ${symbol} ${timeframe}: ${err.message}`);
   }
 
-  // Quaternary: Frankfurter — free spot rate for USD-based forex pairs.
+  // Quinary: Frankfurter — free spot rate for USD-based forex pairs.
   // Also covers EUR/USD and GBP/USD via EUR->USD conversion.
   // Generates synthetic intraday bars for strategy analysis.
   // Covers: USDJPY, GBPJPY, USDCAD, USDCHF, EURUSD, GBPUSD.
@@ -446,7 +526,7 @@ async function fetchBarsForTimeframe(symbol, timeframe) {
     }
   }
 
-  // Quinary: CoinGecko — free, no API key, for crypto when Binance/Yahoo fail.
+  // Senary: CoinGecko — free, no API key, for crypto when Binance/Yahoo fail.
   // Covers BTC, ETH, XRP, LTC, DOT, XLM, BAT, NEO.
   if ((!bars || bars.length < 5) && COINGECKO_SYMBOLS[symbol]) {
     try {
