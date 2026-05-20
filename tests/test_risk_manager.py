@@ -92,7 +92,8 @@ class TestRiskManagerSizing(unittest.TestCase):
         self.assertIsInstance(result, TradeRejection)
 
     def test_rejects_unknown_pair(self):
-        s = _sig(pair="BTCUSD")
+        s = _sig(pair="MADEUPPAIR", entry=1.1000, sl=1.0950, tp1=1.1050,
+                 tp2=1.1150, tp3=1.1200)
         result = self.rm.plan_trade(s, 10_000)
         self.assertIsInstance(result, TradeRejection)
         self.assertIn("pip value", result.reason)
