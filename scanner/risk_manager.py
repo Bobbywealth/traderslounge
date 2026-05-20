@@ -34,6 +34,12 @@ PIP_VALUE_PER_LOT_USD: Dict[str, float] = {
     "XAGUSD": 50.0,
     "NAS100": 1.0,    # CFD: 1 point = $1 per contract
     "US30":   1.0,
+    # Crypto pip values are USD-per-1.0-of-base-asset price move.
+    # For 1.0 unit of base (1 BTC, 1 ETH, etc.), a $1 price move = $1
+    # P&L; pip size is set so "pips" align to whole-dollar moves on
+    # high-priced coins and finer granularity on cheap ones.
+    "BTCUSD": 1.0, "ETHUSD": 1.0, "XRPUSD": 1.0, "LTCUSD": 1.0,
+    "DOTUSD": 1.0, "XLMUSD": 1.0, "BATUSD": 1.0, "NEOUSD": 1.0,
 }
 
 # Pip size in price units (1 pip = N price units).
@@ -41,6 +47,16 @@ PIP_SIZE: Dict[str, float] = {
     "USDJPY": 0.01, "GBPJPY": 0.01,
     "XAUUSD": 0.10, "XAGUSD": 0.01,
     "NAS100": 1.0,  "US30": 1.0,
+    # Crypto: pip = a sensible price step per coin, chosen so a typical
+    # SL distance lands in the 50-500 pip range like FX.
+    "BTCUSD": 10.0,    # $10 step ≈ FX pip-equivalent on BTC at ~$60k
+    "ETHUSD": 1.0,     # $1 step on ETH at ~$3k
+    "XRPUSD": 0.001,   # $0.001 on a ~$0.50 coin
+    "LTCUSD": 0.1,
+    "DOTUSD": 0.01,
+    "XLMUSD": 0.0001,
+    "BATUSD": 0.001,
+    "NEOUSD": 0.01,
 }
 DEFAULT_PIP_SIZE = 0.0001  # most FX
 
