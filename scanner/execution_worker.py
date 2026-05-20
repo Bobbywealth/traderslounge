@@ -20,10 +20,12 @@ import sys
 import time
 from typing import Optional
 
+from .binance_client import BinanceClient
 from .broker import Broker, NullBroker, PaperBroker
 from .config import load_from_env
 from .data_provider import TwelveDataClient
 from .kill_switch import KillSwitch
+from .multi_source import MultiSourceClient
 from .news_feed import ForexFactoryClient
 from .news_filter import NewsFilter
 from .persistence import SQLiteRepository
@@ -55,7 +57,7 @@ def _build_broker() -> Broker:
     raise SystemExit(f"Unknown EXECUTION_MODE: {mode}")
 
 
-def _price_oracle_from(client: TwelveDataClient):
+def _price_oracle_from(client):
     """Use the M15 close as the manage-cycle price. One API call per pair."""
     def oracle(pair: str) -> Optional[float]:
         try:
@@ -78,7 +80,9 @@ def main() -> int:
         print("ERROR: TWELVE_DATA_API_KEY env var not set", file=sys.stderr)
         return 1
 
-    client = TwelveDataClient(api_key=cfg.twelve_data_api_key)
+    fx = TwelveDataClient(api_key=cfg.twelve_data_api_key)
+    crypto = BinanceClient()
+    client = MultiSourceClient(fx=fx, crypto=crypto)
     news = NewsFilter(blackout_minutes=cfg.news_blackout_minutes)
     news_client = ForexFactoryClient()
     repo = SQLiteRepository(os.environ.get("SIGNAL_DB_PATH", "scanner.db"))

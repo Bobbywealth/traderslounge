@@ -10,7 +10,10 @@ from typing import List
 class Config:
     twelve_data_api_key: str = ""
     pairs: List[str] = field(default_factory=lambda: [
+        # Forex / commodities / indices (Twelve Data)
         "XAUUSD", "GBPUSD", "EURUSD", "USDJPY", "GBPJPY", "NAS100", "US30",
+        # Crypto (Binance) — spec §1.1
+        "BTCUSD", "ETHUSD", "XRPUSD", "LTCUSD", "DOTUSD", "XLMUSD", "BATUSD", "NEOUSD",
     ])
     # Seconds between full scans of all pairs.
     scan_interval_seconds: int = 300  # 5 minutes

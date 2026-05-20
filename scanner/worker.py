@@ -13,8 +13,10 @@ import sys
 
 import os
 
+from .binance_client import BinanceClient
 from .config import load_from_env
 from .data_provider import TwelveDataClient
+from .multi_source import MultiSourceClient
 from .news_feed import ForexFactoryClient
 from .news_filter import NewsFilter
 from .persistence import SQLiteRepository
@@ -30,7 +32,9 @@ def main() -> int:
     if not cfg.twelve_data_api_key:
         print("ERROR: TWELVE_DATA_API_KEY env var not set", file=sys.stderr)
         return 1
-    client = TwelveDataClient(api_key=cfg.twelve_data_api_key)
+    fx = TwelveDataClient(api_key=cfg.twelve_data_api_key)
+    crypto = BinanceClient()
+    client = MultiSourceClient(fx=fx, crypto=crypto)
     news = NewsFilter(blackout_minutes=cfg.news_blackout_minutes)
     news_client = ForexFactoryClient()
     db_path = os.environ.get("SIGNAL_DB_PATH", "scanner.db")
