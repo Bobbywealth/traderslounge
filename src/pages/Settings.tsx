@@ -1,21 +1,62 @@
-// Settings — read-only view of the live scanner config (from /api/config).
-// Editing requires a PUT endpoint that re-loads worker env, which is a
-// follow-up.
+// Settings — read-only config view + operational controls
+// (kill switch, manual scan refresh).
 
 import React, { useEffect, useState } from 'react';
-import { Settings as SettingsIcon, AlertCircle } from 'lucide-react';
-import { bwtsApi, type BwtsConfig } from '../services/bwtsApi';
+import { AlertTriangle, RefreshCw, Settings as SettingsIcon, ShieldOff, ShieldCheck } from 'lucide-react';
+import { bwtsApi, type BwtsConfig, type BwtsKillStatus } from '../services/bwtsApi';
 
 const Settings: React.FC = () => {
   const [config, setConfig] = useState<BwtsConfig | null>(null);
+  const [kill, setKill] = useState<BwtsKillStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const load = async () => {
+    try {
+      const [c, k] = await Promise.all([bwtsApi.config(), bwtsApi.killStatus()]);
+      setConfig(c);
+      setKill(k);
+      setError(null);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load settings');
+    }
+  };
 
   useEffect(() => {
-    bwtsApi
-      .config()
-      .then(setConfig)
-      .catch((e) => setError(e?.message || 'Failed to load config'));
+    load();
   }, []);
+
+  const announce = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  const toggleKill = async () => {
+    if (!kill) return;
+    setBusy(true);
+    try {
+      const next = await bwtsApi.setKill(!kill.engaged, !kill.engaged ? 'Engaged from dashboard' : '');
+      setKill(next);
+      announce(next.engaged ? 'Kill switch ENGAGED — execution halted' : 'Kill switch disengaged');
+    } catch (e: any) {
+      announce(`Failed: ${e?.message || 'unknown'}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const requestScan = async () => {
+    setBusy(true);
+    try {
+      await bwtsApi.requestScan();
+      announce('Scan requested — worker will run on next tick (within seconds)');
+    } catch (e: any) {
+      announce(`Failed: ${e?.message || 'unknown'}`);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -24,7 +65,7 @@ const Settings: React.FC = () => {
           <SettingsIcon className="w-8 h-8 text-emerald-400" />
           Settings
         </h1>
-        <p className="text-gray-400 mt-1">Live scanner configuration (read-only).</p>
+        <p className="text-gray-400 mt-1">Live scanner configuration + operational controls.</p>
       </div>
 
       {error && (
@@ -33,6 +74,79 @@ const Settings: React.FC = () => {
         </div>
       )}
 
+      {toast && (
+        <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-lg px-4 py-3">
+          {toast}
+        </div>
+      )}
+
+      {/* Operational controls */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className={`rounded-xl p-5 border ${
+          kill?.engaged
+            ? 'bg-red-500/10 border-red-500/40'
+            : 'bg-gray-900/60 border-gray-700/50'
+        }`}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-2">
+              {kill?.engaged ? (
+                <ShieldOff className="w-4 h-4 text-red-400" />
+              ) : (
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              )}
+              Kill Switch
+            </h3>
+            <span
+              className={`text-xs px-2 py-0.5 rounded border ${
+                kill?.engaged
+                  ? 'bg-red-500/20 text-red-300 border-red-500/40'
+                  : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+              }`}
+            >
+              {kill?.engaged ? 'ENGAGED' : 'DISENGAGED'}
+            </span>
+          </div>
+          <p className="text-sm text-gray-400 mb-4">
+            {kill?.engaged
+              ? 'Execution is halted. New trades are rejected by the trade manager.'
+              : 'Execution is active. The trade manager will process STRONG signals.'}
+          </p>
+          {kill?.engaged && kill.reason && (
+            <p className="text-xs text-red-300/80 mb-3">Reason: {kill.reason}</p>
+          )}
+          <button
+            onClick={toggleKill}
+            disabled={busy || !kill}
+            className={`w-full px-4 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-50 ${
+              kill?.engaged
+                ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                : 'bg-red-500 hover:bg-red-600 text-white'
+            }`}
+          >
+            {kill?.engaged ? 'Disengage Kill Switch' : 'Engage Kill Switch'}
+          </button>
+        </div>
+
+        <div className="rounded-xl p-5 border bg-gray-900/60 border-gray-700/50">
+          <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-2 mb-3">
+            <RefreshCw className="w-4 h-4 text-emerald-400" />
+            Manual Scan
+          </h3>
+          <p className="text-sm text-gray-400 mb-4">
+            Request the scanner to run an immediate cycle. Useful for testing
+            without waiting for the next scheduled scan.
+          </p>
+          <button
+            onClick={requestScan}
+            disabled={busy}
+            className="w-full px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg font-medium text-sm transition-colors"
+          >
+            Trigger Scan Now
+          </button>
+        </div>
+      </div>
+
+      {/* Read-only config */}
       {config && (
         <div className="grid gap-4 md:grid-cols-2">
           <Card title="Score Thresholds">
@@ -59,15 +173,15 @@ const Settings: React.FC = () => {
         </div>
       )}
 
-      <div className="bg-gray-900/60 border border-amber-500/30 rounded-xl p-6">
-        <div className="flex items-start gap-4">
-          <AlertCircle className="w-6 h-6 text-amber-400 mt-0.5 flex-shrink-0" />
+      <div className="bg-gray-900/60 border border-amber-500/30 rounded-xl p-5">
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-400 mt-0.5 flex-shrink-0" />
           <div>
-            <h3 className="text-lg font-semibold text-white mb-2">Editing not yet wired</h3>
-            <p className="text-gray-400 text-sm leading-relaxed">
-              These values are read-only for now. Changing them updates the
-              worker env vars on Render (or in <code className="text-emerald-300">render.yaml</code>).
-              A live-edit endpoint (PUT /api/config) lands in a follow-up.
+            <h3 className="text-sm font-semibold text-white mb-1">Configuration editing not yet wired</h3>
+            <p className="text-gray-400 text-sm">
+              Thresholds, pairs, and scan interval are set via Render env vars
+              (or <code className="text-emerald-300">render.yaml</code>). A
+              live-edit endpoint will land in a follow-up.
             </p>
           </div>
         </div>
@@ -78,7 +192,7 @@ const Settings: React.FC = () => {
 
 const Card: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <div className="bg-gray-900/60 border border-gray-700/50 rounded-xl p-5">
-    <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-3">{title}</h3>
+    <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">{title}</h3>
     {children}
   </div>
 );
