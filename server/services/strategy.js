@@ -151,6 +151,7 @@ function scoreSignal({ direction, htf, adr, fib, harmonic, structure, liquidity,
   if (total >= 80) alertLevel = 'strong';
   else if (total >= 65) alertLevel = 'good';
   else if (total >= 50) alertLevel = 'watchlist';
+  else if (total >= 30) alertLevel = 'low_confidence';
   return { breakdown, total, alertLevel, reasons };
 }
 
