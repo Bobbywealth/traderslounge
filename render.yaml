@@ -1,5 +1,40 @@
-# Frontend Static Site
+# Bobby Wealth Trading System — Render deployment config.
+#
+# Services:
+#   1. traderslounge          — React dashboard (static-served)
+#   2. traderslounge-api      — legacy Node API (kept until Python cutover)
+#   3. traderslounge-bwts-api — Python read API (Step 4)
+#   4. bwts-scanner           — Python signal scanner worker (Steps 1-3, 7)
+#   5. bwts-execution         — Python execution worker (Step 5)
+#
+# Databases:
+#   - bwts-postgres           — managed Postgres for signals
+#
+# IMPORTANT: every secret below uses `sync: false`, meaning Render stores
+# the value in the dashboard and never writes it to git. Set them once
+# in the Render UI after the services are created. The two hardcoded
+# secrets that lived in the previous version of this file (Postgres DSN
+# password, Perplexity API key) MUST BE ROTATED — they are visible in
+# repo history.
+#
+# Network allow-list (set in the Render environment policy):
+#   - api.twelvedata.com         (forex data)
+#   - api.binance.com            (crypto data)
+#   - api.tradelocker.com        (live broker — only when EXECUTION_MODE=live)
+#   - nfs.faireconomy.media      (ForexFactory news feed)
+#   - pypi.org + files.pythonhosted.org  (only if you want psycopg/Postgres)
+
+databases:
+  - name: bwts-postgres
+    plan: starter
+    region: oregon
+    databaseName: bwts
+    user: bwts
+
 services:
+  # ------------------------------------------------------------------
+  # 1. React dashboard (existing)
+  # ------------------------------------------------------------------
   - type: web
     name: traderslounge
     env: node
@@ -10,16 +45,19 @@ services:
     startCommand: npx serve -s dist -l 10000
     healthCheckPath: /
     envVars:
+      - key: VITE_API_URL
+        value: https://traderslounge-bwts-api.onrender.com
       - key: VITE_DATABASE_URL
-        value: postgresql://traders_lounge_db_user:0yg1FWCjlBcNZSVJewXIS2mIVDNyl7zn@dpg-d85stamgvqtc73e5j8vg-a/traders_lounge_db
+        sync: false
       - key: VITE_PERPLEXITY_API_KEY
-        value: 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
+        sync: false
       - key: VITE_FINNHUB_API_KEY
         sync: false
-      - key: VITE_API_URL
-        value: https://traderslounge-api.onrender.com
 
-# API Server
+  # ------------------------------------------------------------------
+  # 2. Legacy Node API (kept during Python cutover; remove once parity
+  #    is verified on the Python read API)
+  # ------------------------------------------------------------------
   - type: web
     name: traderslounge-api
     env: node
@@ -31,8 +69,117 @@ services:
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
-        value: postgresql://traders_lounge_db_user:0yg1FWCjlBcNZSVJewXIS2mIVDNyl7zn@dpg-d85stamgvqtc73e5j8vg-a/traders_lounge_db
+        fromDatabase:
+          name: bwts-postgres
+          property: connectionString
       - key: PERPLEXITY_API_KEY
-        value: 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
+        sync: false
       - key: FINNHUB_API_KEY
-        sync: false  # NOTE: set actual key value in Render dashboard manually (sync=false keeps it out of git)
+        sync: false
+      - key: TWELVE_DATA_API_KEY
+        sync: false
+
+  # ------------------------------------------------------------------
+  # 3. Python read API — serves /api/signals, /api/health to the dashboard
+  # ------------------------------------------------------------------
+  - type: web
+    name: traderslounge-bwts-api
+    env: python
+    region: oregon
+    plan: starter
+    rootDir: .
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m scanner.api_server
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bwts-postgres
+          property: connectionString
+      - key: SCANNER_PAIRS
+        sync: false  # comma-separated override; default is the spec list
+      - key: STRONG_THRESHOLD
+        value: "65"
+      - key: GOOD_THRESHOLD
+        value: "50"
+      - key: WATCHLIST_THRESHOLD
+        value: "35"
+      - key: LOG_LEVEL
+        value: INFO
+
+  # ------------------------------------------------------------------
+  # 4. Scanner worker — fetches data, scores, persists every cycle
+  # ------------------------------------------------------------------
+  - type: worker
+    name: bwts-scanner
+    env: python
+    region: oregon
+    plan: starter
+    rootDir: .
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m scanner.worker
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bwts-postgres
+          property: connectionString
+      - key: TWELVE_DATA_API_KEY
+        sync: false
+      - key: SCAN_INTERVAL_SECONDS
+        value: "300"  # 5 minutes
+      - key: NEWS_BLACKOUT_MINUTES
+        value: "15"
+      - key: STRONG_THRESHOLD
+        value: "65"
+      - key: GOOD_THRESHOLD
+        value: "50"
+      - key: LOG_LEVEL
+        value: INFO
+
+  # ------------------------------------------------------------------
+  # 5. Execution worker — STRONG signals → broker (paper by default)
+  # ------------------------------------------------------------------
+  - type: worker
+    name: bwts-execution
+    env: python
+    region: oregon
+    plan: starter
+    rootDir: .
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m scanner.execution_worker
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bwts-postgres
+          property: connectionString
+      - key: TWELVE_DATA_API_KEY
+        sync: false
+      - key: EXECUTION_MODE
+        value: paper  # FLIP TO `live` ONLY after a paper run on real data
+      - key: RISK_PER_TRADE_PCT
+        value: "0.5"  # spec §6 minimum
+      - key: PAPER_STARTING_BALANCE_USD
+        value: "10000"
+      - key: SCAN_INTERVAL_SECONDS
+        value: "300"
+      - key: STRONG_THRESHOLD
+        value: "65"
+      - key: KILL_SWITCH_PATH
+        value: /var/run/bwts.kill
+      # Live-broker creds — only used when EXECUTION_MODE=live
+      - key: TRADELOCKER_API_KEY
+        sync: false
+      - key: TRADELOCKER_API_SECRET
+        sync: false
+      - key: TRADELOCKER_BASE_URL
+        value: https://api.tradelocker.com
+      - key: TRADELOCKER_ACCOUNT_ID
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
