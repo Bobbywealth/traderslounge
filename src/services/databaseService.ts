@@ -3,9 +3,6 @@
  * 
  * This service connects to Render PostgreSQL for persistent storage.
  * 
- * Connection URL format:
- * postgresql://traders_lounge_db_user:password@dpg-d85stamgvqtc73e5j8vg-a/traders_lounge_db
- * 
  * The DATABASE_URL should be set as VITE_DATABASE_URL in environment variables.
  * 
  * Note: For frontend-only apps, database calls should go through
