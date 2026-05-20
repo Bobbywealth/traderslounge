@@ -195,6 +195,11 @@ function buildTradeLevels({ symbol, direction, currentPrice, fib, harmonic, liqu
   const risk = Math.abs(entry - stop);
   if (risk <= 0) return null;
 
+  // Enforce minimum 60-pip risk for all forex/gold trades
+  const pipSize = pipMultiplier(symbol);
+  const riskPips = risk / pipSize;
+  if (riskPips < 60) return null;
+
   // Targets: TP1 = structure first reaction, TP2 = 1.618 extension or 2R, TP3 = 2.618 extension or 3R
   let tp1, tp2, tp3;
   if (direction === 'buy') {
