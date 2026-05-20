@@ -56,7 +56,11 @@ CREATE INDEX IF NOT EXISTS idx_signals_tier_created ON signals(tier, created_at 
 class SQLiteRepository:
     def __init__(self, db_path: str | Path = "scanner.db"):
         self.path = str(db_path)
-        self.conn = sqlite3.connect(self.path, isolation_level=None)
+        # check_same_thread=False so the API HTTP server can read from a
+        # different thread than the worker that writes. SQLite serializes
+        # access internally; we don't hold cursors across statements.
+        self.conn = sqlite3.connect(self.path, isolation_level=None,
+                                    check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
 
