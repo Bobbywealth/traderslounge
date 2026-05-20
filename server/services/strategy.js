@@ -90,11 +90,25 @@ function scoreSignal({ direction, htf, adr, fib, harmonic, structure, liquidity,
     breakdown.htf_bias_aligned = 20;
     reasons.push(`HTF aligned ${htf.trend} (D1+H4+H1)`);
   }
-  // ADR respected (+15) — buying near low / selling near high, or not exhausted
+  // ADR respected (+15) — buy near ADR low / sell near ADR high, don't chase extremes
   if (adr) {
-    if (direction === 'buy' && adr.nearAdrLow) { breakdown.adr_level_respected = 15; reasons.push('Buy near ADR low'); }
-    else if (direction === 'sell' && adr.nearAdrHigh) { breakdown.adr_level_respected = 15; reasons.push('Sell near ADR high'); }
-    else if (!adr.exhausted) { breakdown.adr_level_respected = 8; reasons.push(`ADR ${adr.percentUsed.toFixed(0)}% used`); }
+    const nearExtreme = direction === 'buy' ? adr.nearAdrLow : adr.nearAdrHigh;
+    if (nearExtreme && !adr.exhausted) {
+      breakdown.adr_level_respected = 15;
+      reasons.push(direction === 'buy' ? 'Buy near ADR low' : 'Sell near ADR high');
+    } else if (nearExtreme && adr.exhausted) {
+      // Don't penalize but don't reward — extreme is fine for entries
+      breakdown.adr_level_respected = 5;
+      reasons.push(`ADR ${adr.percentUsed.toFixed(0)}% — entry at extreme`);
+    } else if (!adr.exhausted) {
+      // Mid-range — not optimal but valid
+      breakdown.adr_level_respected = 8;
+      reasons.push(`ADR ${adr.percentUsed.toFixed(0)}% used`);
+    } else {
+      // ADR exhausted and not near extreme — bad setup
+      breakdown.adr_level_respected = 0;
+      reasons.push(`ADR ${adr.percentUsed.toFixed(0)}% — range exhausted`);
+    }
   }
   // Fibonacci golden zone (+15)
   if (fib?.inGoldenZone) {
@@ -143,14 +157,18 @@ function scoreSignal({ direction, htf, adr, fib, harmonic, structure, liquidity,
 // Build entry, SL, TP1/2/3 using ATR-like distance (ADR fraction).
 function buildTradeLevels({ symbol, direction, currentPrice, fib, harmonic, liquidity, adr, structure, swings }) {
   const precision = pricePrecision(symbol);
+
+  // Entry: prefer fib golden zone, then harmonic PRZ, then current price
   let entry = currentPrice;
   if (fib?.inGoldenZone) {
     entry = fib.retracements[0.618];
+  } else if (fib?.zone === 'shallow') {
+    entry = fib.retracements[0.786];
   } else if (harmonic) {
     entry = harmonic.prz;
   }
 
-  // Stop loss: beyond the most recent opposing swing or beyond sweep/PRZ.
+  // Stop loss: beyond 0.886 fib, swing low/high, or sweep level
   const recentSwings = swings.slice(-6);
   const oppHighs = recentSwings.filter((s) => s.type === 'high').map((s) => s.price);
   const oppLows = recentSwings.filter((s) => s.type === 'low').map((s) => s.price);
@@ -158,14 +176,16 @@ function buildTradeLevels({ symbol, direction, currentPrice, fib, harmonic, liqu
 
   let stop;
   if (direction === 'buy') {
+    const fib886 = fib?.retracements?.[0.886];
     const swingLow = oppLows.length ? Math.min(...oppLows) : entry - adrFraction;
-    stop = Math.min(swingLow, entry - adrFraction * 0.5);
+    stop = fib886 && fib886 < entry ? fib886 : Math.min(swingLow, entry - adrFraction * 0.5);
     if (liquidity?.sweep?.kind === 'bullish' && liquidity.sweep.side === 'low') {
       stop = Math.min(stop, liquidity.sweep.level - adrFraction * 0.25);
     }
   } else {
+    const fib886 = fib?.retracements?.[0.886];
     const swingHigh = oppHighs.length ? Math.max(...oppHighs) : entry + adrFraction;
-    stop = Math.max(swingHigh, entry + adrFraction * 0.5);
+    stop = fib886 && fib886 > entry ? fib886 : Math.max(swingHigh, entry + adrFraction * 0.5);
     if (liquidity?.sweep?.kind === 'bearish' && liquidity.sweep.side === 'high') {
       stop = Math.max(stop, liquidity.sweep.level + adrFraction * 0.25);
     }
@@ -174,18 +194,24 @@ function buildTradeLevels({ symbol, direction, currentPrice, fib, harmonic, liqu
   const risk = Math.abs(entry - stop);
   if (risk <= 0) return null;
 
-  // Targets: TP1 = 1R, TP2 = 2R, TP3 = 3R (or extension if available).
-  let tp3Anchor = null;
-  if (fib?.extensions?.[1.618]) tp3Anchor = fib.extensions[1.618];
+  // Targets: TP1 = structure first reaction, TP2 = 1.618 extension or 2R, TP3 = 2.618 extension or 3R
   let tp1, tp2, tp3;
   if (direction === 'buy') {
-    tp1 = entry + risk;
-    tp2 = entry + risk * 2;
-    tp3 = tp3Anchor && tp3Anchor > entry ? tp3Anchor : entry + risk * 3;
+    // TP1: first resistance above entry (prev swing high or adr high)
+    const firstResist = oppHighs.length ? Math.min(...oppHighs.filter(h => h > entry)) : null;
+    tp1 = firstResist && firstResist < entry + risk * 1.5 ? firstResist : entry + risk;
+    // TP2: fib 1.618 extension if available, else 2R
+    tp2 = fib?.extensions?.[1.618] && fib.extensions[1.618] > entry ? fib.extensions[1.618] : entry + risk * 2;
+    // TP3: fib 2.618 extension if available, else 3R
+    tp3 = fib?.extensions?.[2.618] && fib.extensions[2.618] > tp2 ? fib.extensions[2.618] : entry + risk * 3;
   } else {
-    tp1 = entry - risk;
-    tp2 = entry - risk * 2;
-    tp3 = tp3Anchor && tp3Anchor < entry ? tp3Anchor : entry - risk * 3;
+    // TP1: first support below entry (prev swing low or adr low)
+    const firstSupport = oppLows.length ? Math.max(...oppLows.filter(l => l < entry)) : null;
+    tp1 = firstSupport && firstSupport > entry - risk * 1.5 ? firstSupport : entry - risk;
+    // TP2: fib 1.618 extension if available, else 2R
+    tp2 = fib?.extensions?.[1.618] && fib.extensions[1.618] < entry ? fib.extensions[1.618] : entry - risk * 2;
+    // TP3: fib 2.618 extension if available, else 3R
+    tp3 = fib?.extensions?.[2.618] && fib.extensions[2.618] < tp2 ? fib.extensions[2.618] : entry - risk * 3;
   }
 
   return {
