@@ -3,7 +3,7 @@
 // Also handles EUR/USD and GBP/USD via cross-rate conversion.
 // Generates synthetic intraday bars from daily rate history.
 // Used as last-resort fallback when TradeLocker/Yahoo/Binance all fail.
-const FRANKFURTER_BASE = 'https://api.frankfurter.app';
+const FRANKFURTER_BASE = 'https://api.frankfurter.dev/v1';
 
 // Maps internal symbol → Frankfurter currency code (quote currency).
 // base is always USD. e.g. USDJPY → quote=JPY, rate = USD/JPY.
