@@ -1,0 +1,43 @@
+"""Scanner runtime config — env-var driven."""
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from typing import List
+
+
+@dataclass
+class Config:
+    twelve_data_api_key: str = ""
+    pairs: List[str] = field(default_factory=lambda: [
+        "XAUUSD", "GBPUSD", "EURUSD", "USDJPY", "GBPJPY", "NAS100", "US30",
+    ])
+    # Seconds between full scans of all pairs.
+    scan_interval_seconds: int = 300  # 5 minutes
+    # Per-tier score thresholds (mirror spec §2.1; tweakable via env)
+    strong_threshold: int = 65
+    good_threshold: int = 50
+    watchlist_threshold: int = 35
+    # News blackout: skip scans for any pair within N minutes of a red event.
+    news_blackout_minutes: int = 15
+    log_level: str = "INFO"
+
+
+def load_from_env() -> Config:
+    c = Config()
+    c.twelve_data_api_key = os.environ.get("TWELVE_DATA_API_KEY", "")
+    if env_pairs := os.environ.get("SCANNER_PAIRS"):
+        c.pairs = [p.strip().upper() for p in env_pairs.split(",") if p.strip()]
+    if v := os.environ.get("SCAN_INTERVAL_SECONDS"):
+        c.scan_interval_seconds = int(v)
+    if v := os.environ.get("STRONG_THRESHOLD"):
+        c.strong_threshold = int(v)
+    if v := os.environ.get("GOOD_THRESHOLD"):
+        c.good_threshold = int(v)
+    if v := os.environ.get("WATCHLIST_THRESHOLD"):
+        c.watchlist_threshold = int(v)
+    if v := os.environ.get("NEWS_BLACKOUT_MINUTES"):
+        c.news_blackout_minutes = int(v)
+    if v := os.environ.get("LOG_LEVEL"):
+        c.log_level = v.upper()
+    return c
