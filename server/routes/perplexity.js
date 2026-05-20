@@ -56,20 +56,22 @@ All values must be numbers (no strings, no units). Use the latest available real
   };
 }
 
-export async function analyzeWithPerplexity(symbol, marketData) {
+export async function analyzeWithPerplexity(symbol, marketData, chartImageUrl = null) {
   const apiKey = process.env.PERPLEXITY_API_KEY;
-  
+
   if (!apiKey) {
     throw new Error('PERPLEXITY_API_KEY not configured');
   }
 
-  const prompt = `You are an expert forex and commodities trading analyst. Analyze ${symbol} and provide a comprehensive trading analysis.
+  const basePrompt = `You are an expert forex and commodities trading analyst. Analyze ${symbol} and provide a comprehensive trading analysis.
 
 Current Market Data (LIVE — use these exact reference values; do NOT substitute prices from your training data):
 - Current Price: ${marketData.currentPrice}
 - 24h High: ${marketData.high24h}
 - 24h Low: ${marketData.low24h}
 - Daily Change: ${marketData.changePercent}%
+
+${chartImageUrl ? 'A chart image is attached. Use it to identify key levels, trends, candlestick patterns, support/resistance zones, and any technical signals visible in the chart. Incorporate your visual analysis into your trading decision.' : ''}
 
 All price fields you return (entry_price, stop_loss, take_profit, support_levels, resistance_levels, key_level_1.price, key_level_2.price) MUST be realistic levels near the Current Price above. Entry should be within ~0.5% of Current Price for FX pairs (or within ~1% for XAUUSD). Match the precision of the Current Price.
 
@@ -106,21 +108,30 @@ Provide your analysis in the following JSON format ONLY (no other text):
 
 IMPORTANT: Return ONLY valid JSON, no markdown code blocks, no explanations.`;
 
+  const messages = [
+    {
+      role: 'system',
+      content: 'You are a professional trading analyst. Always respond with valid JSON.'
+    },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: basePrompt + `\n\n${jsonFormatPrompt}` }
+      ]
+    }
+  ];
+
+  // Append chart image if provided
+  if (chartImageUrl) {
+    messages[1].content.push({ type: 'image_url', image_url: { url: chartImageUrl, detail: 'high' } });
+  }
+
   try {
     const response = await axios.post(
       `${PERPLEXITY_API_URL}/chat/completions`,
       {
         model: 'sonar',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a professional trading analyst. Always respond with valid JSON.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
+        messages,
         max_tokens: 2000,
         temperature: 0.3
       },
@@ -134,7 +145,7 @@ IMPORTANT: Return ONLY valid JSON, no markdown code blocks, no explanations.`;
     );
 
     const content = response.data.choices[0].message.content;
-    
+
     // Clean and parse JSON
     let cleanedContent = content.trim();
     if (cleanedContent.startsWith('```json')) {
