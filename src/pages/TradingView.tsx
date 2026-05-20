@@ -209,7 +209,8 @@ const TradingView: React.FC = () => {
       count: '250',
       ...(sessionId ? { sessionId } : {}),
     });
-    const response = await fetch(`/api/tradelocker/history?${params.toString()}`);
+    const API_BASE = import.meta.env.VITE_API_URL || '';
+    const response = await fetch(`${API_BASE}/api/tradelocker/history?${params.toString()}`);
     if (!response.ok) {
       throw new Error(`Failed to fetch history: ${response.status}`);
     }
@@ -439,7 +440,8 @@ const TradingView: React.FC = () => {
     try {
       const sessionId = localStorage.getItem('tl_session_id');
       const params = new URLSearchParams(sessionId ? { sessionId } : {});
-      const response = await fetch(`/api/tradelocker/instruments?${params.toString()}`);
+      const API_BASE = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${API_BASE}/api/tradelocker/instruments?${params.toString()}`);
       if (!response.ok) {
         throw new Error(`Failed to fetch instruments: ${response.status}`);
       }
