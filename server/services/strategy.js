@@ -195,12 +195,6 @@ function buildTradeLevels({ symbol, direction, currentPrice, fib, harmonic, liqu
   const risk = Math.abs(entry - stop);
   if (risk <= 0) return null;
 
-  // Enforce minimum 60-pip reward (TP2 must be 60+ pips from entry)
-  const pipSize = pipMultiplier(symbol);
-  const tp2Distance = direction === 'buy' ? tp2 - entry : entry - tp2;
-  const rewardPips = tp2Distance / pipSize;
-  if (rewardPips < 60) return null;
-
   // Targets: TP1 = structure first reaction, TP2 = 1.618 extension or 2R, TP3 = 2.618 extension or 3R
   let tp1, tp2, tp3;
   if (direction === 'buy') {
@@ -220,6 +214,12 @@ function buildTradeLevels({ symbol, direction, currentPrice, fib, harmonic, liqu
     // TP3: fib 2.618 extension if available, else 3R
     tp3 = fib?.extensions?.[2.618] && fib.extensions[2.618] < tp2 ? fib.extensions[2.618] : entry - risk * 3;
   }
+
+  // Enforce minimum 60-pip reward (TP2 must be 60+ pips from entry) — AFTER tp2 is declared
+  const pipSize = pipMultiplier(symbol);
+  const tp2Distance = direction === 'buy' ? tp2 - entry : entry - tp2;
+  const rewardPips = tp2Distance / pipSize;
+  if (rewardPips < 60) return null;
 
   return {
     entry: round(entry, precision),
