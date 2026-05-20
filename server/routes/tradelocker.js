@@ -182,8 +182,8 @@ router.post('/auth', async (req, res) => {
       account: null
     };
 
-    // Fetch account
-    const accNum = isDemo ? 1 : 1;
+    // Fetch account — for HEROFX live, accNum=4; for demo, accNum=1
+    const accNum = isDemo ? 1 : (server === 'HEROFX' ? 4 : 1);
     try {
       const accountsResponse = await axios.get(`${baseUrl}/trade/accounts`, {
         headers: { 'Authorization': `Bearer ${tokens.accessToken}`, 'accNum': accNum.toString() },
