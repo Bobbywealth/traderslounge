@@ -6,6 +6,16 @@ const router = express.Router();
 
 
 const REFRESH_COOLDOWN_MS = 60 * 1000;
+const POOL_CONFIG = {
+  connectionString: process.env.DATABASE_URL,
+  max: 5,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
+};
+const DB_UNAVAILABLE_ERROR = {
+  success: false,
+  error: 'database_unavailable',
+};
 
 const refreshState = {
   inProgress: false,
@@ -28,35 +38,79 @@ function buildRefreshMetadata() {
   };
 }
 
-// Database connection pool with retry logic
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: 5,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
-});
+let currentPool = null;
+let dbAvailable = Boolean(process.env.DATABASE_URL);
+let hasLoggedMissingDatabaseUrl = false;
 
-// Handle pool errors gracefully
-pool.on('error', (err) => {
-  console.error('Unexpected database pool error:', err.message);
-});
+function logMissingDatabaseUrlOnce() {
+  if (hasLoggedMissingDatabaseUrl) return;
+  hasLoggedMissingDatabaseUrl = true;
+  console.error('CRITICAL: DATABASE_URL is not set. Database is unavailable.');
+}
+
+function attachPoolErrorHandler(pool) {
+  pool.on('error', (err) => {
+    dbAvailable = false;
+    console.error('Unexpected database pool error:', err.message);
+  });
+}
+
+function createPool() {
+  const pool = new Pool(POOL_CONFIG);
+  attachPoolErrorHandler(pool);
+  return pool;
+}
+
+async function replacePool() {
+  const oldPool = currentPool;
+  currentPool = createPool();
+
+  if (oldPool) {
+    try {
+      await oldPool.end();
+    } catch (endErr) {
+      console.error('Failed to end old database pool:', endErr.message);
+    }
+  }
+}
 
 async function getPool() {
-  try {
-    const client = await pool.connect();
-    client.release();
-    return pool;
-  } catch (err) {
-    console.error('Database connection failed, retrying...', err.message);
-    // Create a new pool if the old one is broken
-    const newPool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      max: 5,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
-    });
-    return newPool;
+  if (!process.env.DATABASE_URL) {
+    dbAvailable = false;
+    logMissingDatabaseUrlOnce();
+    return null;
   }
+
+  if (!currentPool) {
+    currentPool = createPool();
+  }
+
+  try {
+    const client = await currentPool.connect();
+    client.release();
+    dbAvailable = true;
+    return currentPool;
+  } catch (err) {
+    console.error('Database connection failed, rotating pool...', err.message);
+    dbAvailable = false;
+    await replacePool();
+
+    try {
+      const client = await currentPool.connect();
+      client.release();
+      dbAvailable = true;
+      return currentPool;
+    } catch (retryErr) {
+      console.error('Database reconnection failed:', retryErr.message);
+      dbAvailable = false;
+      return null;
+    }
+  }
+}
+
+async function isDbReady() {
+  const db = await getPool();
+  return Boolean(db) && dbAvailable;
 }
 
 // Signal schema SQL
@@ -95,9 +149,12 @@ CREATE INDEX IF NOT EXISTS idx_signals_created ON signal_analyses(created_at);
 // Initialize table on startup
 async function initializeTable() {
   try {
-    await pool.query(CREATE_SIGNALS_TABLE);
+    const db = await getPool();
+    if (!db) return;
+    await db.query(CREATE_SIGNALS_TABLE);
     console.log('Signal analyses table initialized');
   } catch (error) {
+    dbAvailable = false;
     console.error('Failed to initialize signals table:', error.message);
   }
 }
@@ -108,6 +165,11 @@ import { runStrategy } from '../services/strategy.js';
 // Get all signals
 router.get('/', async (req, res) => {
   try {
+    const db = await getPool();
+    if (!db) {
+      return res.status(503).json(DB_UNAVAILABLE_ERROR);
+    }
+
     const { symbol, limit = 50, includeExpired = 'false' } = req.query;
     
     const limitVal = parseInt(limit);
@@ -129,7 +191,7 @@ router.get('/', async (req, res) => {
       params = [limitVal];
     }
     
-    const result = await pool.query(query, params);
+    const result = await db.query(query, params);
     res.json({ success: true, signals: result.rows });
   } catch (error) {
     console.error('Get signals error:', error);
@@ -140,9 +202,14 @@ router.get('/', async (req, res) => {
 // Get single signal
 router.get('/:symbol', async (req, res) => {
   try {
+    const db = await getPool();
+    if (!db) {
+      return res.status(503).json(DB_UNAVAILABLE_ERROR);
+    }
+
     const { symbol } = req.params;
     
-    const result = await pool.query(
+    const result = await db.query(
       'SELECT * FROM signal_analyses WHERE symbol = $1 ORDER BY created_at DESC LIMIT 1',
       [symbol]
     );
@@ -183,6 +250,15 @@ router.post('/refresh', async (req, res) => {
   refreshState.startedAt = new Date();
 
   try {
+    if (!(await isDbReady())) {
+      return res.status(503).json({ ...DB_UNAVAILABLE_ERROR, ...buildRefreshMetadata() });
+    }
+
+    const db = await getPool();
+    if (!db) {
+      return res.status(503).json({ ...DB_UNAVAILABLE_ERROR, ...buildRefreshMetadata() });
+    }
+
     const DEFAULT_SYMBOLS = [
       'XAUUSD', 'GBPUSD', 'EURUSD', 'USDJPY', 'GBPJPY',
       'NAS100', 'US30',
@@ -230,7 +306,7 @@ router.post('/refresh', async (req, res) => {
             ? (analysis.reason || 'No qualifying setup')
             : analysis.reasoning;
 
-          const result = await pool.query(`
+          const result = await db.query(`
             INSERT INTO signal_analyses (
               symbol, analysis_type, direction, entry_price, stop_loss, take_profit,
               risk_reward_ratio, confidence, trend, trend_strength, sentiment,
@@ -336,7 +412,12 @@ router.post('/refresh', async (req, res) => {
 // Delete old signals
 router.delete('/cleanup', async (req, res) => {
   try {
-    const result = await pool.query('DELETE FROM signal_analyses WHERE expires_at < NOW() OR updated_at < NOW() - INTERVAL \'7 days\'');
+    const db = await getPool();
+    if (!db) {
+      return res.status(503).json(DB_UNAVAILABLE_ERROR);
+    }
+
+    const result = await db.query('DELETE FROM signal_analyses WHERE expires_at < NOW() OR updated_at < NOW() - INTERVAL \'7 days\'');
     res.json({ success: true, deleted: result.rowCount });
   } catch (error) {
     console.error('Cleanup error:', error);
