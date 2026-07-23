@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   TrendingUp, 
   Shield, 
@@ -14,13 +14,26 @@ import {
   Target,
   Brain,
   Smartphone,
-  DollarSign
+  DollarSign,
+  Menu,
+  X
 } from 'lucide-react';
 import AuthModal from '../components/AuthModal';
 
 const LandingPage: React.FC = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Close mobile menu on Escape key for accessibility
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileMenuOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mobileMenuOpen]);
 
   const features = [
     {
@@ -179,8 +192,66 @@ const LandingPage: React.FC = () => {
               >
                 Get Started
               </button>
+
+              {/* Mobile hamburger - visible below md (768px) to expose Features/Pricing/Reviews/Sign In */}
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(v => !v)}
+                aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+                aria-expanded={mobileMenuOpen}
+                aria-controls="mobile-nav-drawer"
+                className="md:hidden inline-flex items-center justify-center min-h-[44px] min-w-[44px] p-2 -mr-2 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                {mobileMenuOpen ? (
+                  <X className="w-6 h-6" aria-hidden="true" />
+                ) : (
+                  <Menu className="w-6 h-6" aria-hidden="true" />
+                )}
+              </button>
             </div>
           </div>
+
+          {/* Mobile drawer panel - slides down from nav, contains Features/Pricing/Reviews/Sign In */}
+          {mobileMenuOpen && (
+            <div
+              id="mobile-nav-drawer"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Mobile navigation"
+              className="md:hidden absolute left-0 right-0 top-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-lg"
+            >
+              <div className="px-4 py-3 flex flex-col">
+                <a
+                  href="#features"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="min-h-[44px] flex items-center px-2 -mx-2 py-3 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                >
+                  Features
+                </a>
+                <a
+                  href="#pricing"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="min-h-[44px] flex items-center px-2 -mx-2 py-3 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                >
+                  Pricing
+                </a>
+                <a
+                  href="#testimonials"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="min-h-[44px] flex items-center px-2 -mx-2 py-3 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                >
+                  Reviews
+                </a>
+                <button
+                  type="button"
+                  onClick={() => { setMobileMenuOpen(false); openAuthModal('login'); }}
+                  className="sm:hidden min-h-[44px] flex items-center px-2 -mx-2 py-3 rounded-lg text-left text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                >
+                  Sign In
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </nav>
 
