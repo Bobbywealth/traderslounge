@@ -160,22 +160,22 @@ const LandingPage: React.FC = () => {
               <span className="text-xl font-bold text-gray-900 dark:text-white">TradersLounge</span>
             </div>
             
-            <div className="hidden md:flex items-center space-x-8">
-              <a href="#features" className="text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Features</a>
-              <a href="#pricing" className="text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Pricing</a>
-              <a href="#testimonials" className="text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Reviews</a>
+            <div className="hidden md:flex items-center space-x-2">
+              <a href="#features" className="inline-flex items-center py-3 min-h-[44px] text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Features</a>
+              <a href="#pricing" className="inline-flex items-center py-3 min-h-[44px] text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Pricing</a>
+              <a href="#testimonials" className="inline-flex items-center py-3 min-h-[44px] text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Reviews</a>
             </div>
 
             <div className="flex items-center space-x-2 sm:space-x-4">
               <button
                 onClick={() => openAuthModal('login')}
-                className="hidden sm:inline-flex text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+                className="hidden sm:inline-flex items-center py-3 min-h-[44px] text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
               >
                 Sign In
               </button>
               <button
                 onClick={() => openAuthModal('signup')}
-                className="bg-emerald-500 text-white px-3 sm:px-4 py-2 rounded-lg hover:bg-emerald-600 transition-colors duration-200 text-sm sm:text-base whitespace-nowrap"
+                className="bg-emerald-500 text-white px-3 sm:px-4 py-3 min-h-[44px] rounded-lg hover:bg-emerald-600 transition-colors duration-200 text-sm sm:text-base whitespace-nowrap"
               >
                 Get Started
               </button>
@@ -420,30 +420,30 @@ const LandingPage: React.FC = () => {
             <div>
               <h4 className="font-semibold mb-4">Product</h4>
               <ul className="space-y-2 text-gray-400">
-                <li><a href="#" className="hover:text-white transition-colors">Features</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Pricing</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">API</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Integrations</a></li>
+                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Features</a></li>
+                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Pricing</a></li>
+                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">API</a></li>
+                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Integrations</a></li>
               </ul>
             </div>
             
             <div>
               <h4 className="font-semibold mb-4">Company</h4>
               <ul className="space-y-2 text-gray-400">
-                <li><a href="#" className="hover:text-white transition-colors">About</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Blog</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Careers</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Contact</a></li>
+                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">About</a></li>
+                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Blog</a></li>
+                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Careers</a></li>
+                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Contact</a></li>
               </ul>
             </div>
             
             <div>
               <h4 className="font-semibold mb-4">Support</h4>
               <ul className="space-y-2 text-gray-400">
-                <li><a href="#" className="hover:text-white transition-colors">Help Center</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Community</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Status</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Security</a></li>
+                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Help Center</a></li>
+                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Community</a></li>
+                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Status</a></li>
+                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Security</a></li>
               </ul>
             </div>
           </div>
@@ -451,9 +451,9 @@ const LandingPage: React.FC = () => {
           <div className="border-t border-gray-800 mt-8 pt-8 flex flex-col md:flex-row items-center justify-between">
             <p className="text-gray-400">© 2024 TradersLounge. All rights reserved.</p>
             <div className="flex items-center space-x-6 mt-4 md:mt-0">
-              <a href="#" className="text-gray-400 hover:text-white transition-colors">Privacy</a>
-              <a href="#" className="text-gray-400 hover:text-white transition-colors">Terms</a>
-              <a href="#" className="text-gray-400 hover:text-white transition-colors">Cookies</a>
+              <a href="#" className="inline-block py-2 -my-2 min-h-[44px] text-gray-400 hover:text-white transition-colors">Privacy</a>
+              <a href="#" className="inline-block py-2 -my-2 min-h-[44px] text-gray-400 hover:text-white transition-colors">Terms</a>
+              <a href="#" className="inline-block py-2 -my-2 min-h-[44px] text-gray-400 hover:text-white transition-colors">Cookies</a>
             </div>
           </div>
         </div>
