@@ -166,16 +166,16 @@ const LandingPage: React.FC = () => {
               <a href="#testimonials" className="text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Reviews</a>
             </div>
 
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2 sm:space-x-4">
               <button
                 onClick={() => openAuthModal('login')}
-                className="text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+                className="hidden sm:inline-flex text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
               >
                 Sign In
               </button>
               <button
                 onClick={() => openAuthModal('signup')}
-                className="bg-emerald-500 text-white px-4 py-2 rounded-lg hover:bg-emerald-600 transition-colors duration-200"
+                className="bg-emerald-500 text-white px-3 sm:px-4 py-2 rounded-lg hover:bg-emerald-600 transition-colors duration-200 text-sm sm:text-base whitespace-nowrap"
               >
                 Get Started
               </button>
@@ -193,30 +193,30 @@ const LandingPage: React.FC = () => {
         </div>
         <div className="max-w-7xl mx-auto relative z-10">
           <div className="text-center">
-            <div className="inline-flex items-center px-4 py-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-full text-emerald-700 dark:text-emerald-300 text-sm font-medium mb-8">
+            <div className="inline-flex items-center px-4 py-2 bg-emerald-100/90 dark:bg-emerald-900/30 rounded-full text-emerald-700 dark:text-emerald-300 text-sm font-medium mb-8">
               <Award className="w-4 h-4 mr-2" />
               #1 Trading Platform of 2024
             </div>
-            
-            <h1 className="text-4xl md:text-6xl font-bold text-gray-900 dark:text-white mb-6">
+
+            <h1 className="text-4xl md:text-6xl font-bold text-white mb-6 drop-shadow-lg">
               Trade Like a
-              <span className="text-emerald-500 block">Professional</span>
+              <span className="text-emerald-400 block">Professional</span>
             </h1>
-            
-            <p className="text-xl text-gray-600 dark:text-gray-300 mb-8 max-w-3xl mx-auto">
-              The most advanced trading platform with AI-powered insights, multi-broker integration, 
+
+            <p className="text-xl text-gray-200 mb-8 max-w-3xl mx-auto drop-shadow">
+              The most advanced trading platform with AI-powered insights, multi-broker integration,
               and professional-grade tools. Join 50,000+ traders who trust TradersLounge.
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4 mb-12">
               <button
                 onClick={() => openAuthModal('signup')}
-                className="w-full sm:w-auto bg-emerald-500 text-white px-8 py-4 rounded-xl font-semibold hover:bg-emerald-600 transition-colors duration-200 flex items-center justify-center"
+                className="w-full sm:w-auto bg-emerald-500 text-white px-8 py-4 rounded-xl font-semibold hover:bg-emerald-600 transition-colors duration-200 flex items-center justify-center shadow-lg"
               >
                 Start Trading Free
                 <ArrowRight className="w-5 h-5 ml-2" />
               </button>
-              <button className="w-full sm:w-auto border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 px-8 py-4 rounded-xl font-semibold hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors duration-200 flex items-center justify-center">
+              <button className="w-full sm:w-auto border border-white/40 text-white px-8 py-4 rounded-xl font-semibold hover:bg-white/10 transition-colors duration-200 flex items-center justify-center">
                 <Play className="w-5 h-5 mr-2" />
                 Watch Demo
               </button>
@@ -226,8 +226,8 @@ const LandingPage: React.FC = () => {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto">
               {stats.map((stat, index) => (
                 <div key={index} className="text-center">
-                  <div className="text-3xl font-bold text-gray-900 dark:text-white mb-2">{stat.number}</div>
-                  <div className="text-gray-600 dark:text-gray-400">{stat.label}</div>
+                  <div className="text-3xl font-bold text-white mb-2 drop-shadow">{stat.number}</div>
+                  <div className="text-gray-200">{stat.label}</div>
                 </div>
               ))}
             </div>
