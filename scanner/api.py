@@ -22,6 +22,7 @@ from typing import Any, Optional
 from urllib.parse import parse_qs, urlsplit
 
 from .config import Config
+from .crypto_analysis import analyze_crypto
 from .kill_switch import KillSwitch
 from .minimax_client import analyze as minimax_analyze, configured as minimax_configured
 from .news_filter import NewsFilter
@@ -134,6 +135,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._calendar_status(query)
         if path == "/api/ai/status":
             return self._json(200, {"configured": minimax_configured()})
+        if path == "/api/analysis":
+            return self._analysis(query)
         if path == "/api/candles":
             return self._candles(query)
         if path == "/api/harmonics":
@@ -211,7 +214,10 @@ class _ApiHandler(BaseHTTPRequestHandler):
         raw_signal = body.get("signal") if isinstance(body.get("signal"), dict) else {}
         allowed = ("direction", "tier", "confidence_score", "entry", "stop_loss", "tp1", "tp2", "tp3", "risk_level", "session", "adr_status", "htf_bias", "pattern", "reasons")
         signal = {key: raw_signal.get(key) for key in allowed if key in raw_signal}
+        raw_analysis = body.get("analysis") if isinstance(body.get("analysis"), dict) else None
         context = {"pair": pair, "signal": signal, "economic_calendar": calendar}
+        if raw_analysis:
+            context["crypto_analysis"] = raw_analysis
         if not minimax_configured():
             status = calendar.get("status", "UNAVAILABLE")
             summary = f"{pair} calendar status is {status}. MiniMax is not configured; deterministic scanner rules remain active."
@@ -228,6 +234,28 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._error(502, str(exc))
         result["calendar"] = calendar
         self._json(200, result)
+
+    def _analysis(self, query: dict) -> None:
+        client = _STATE.market_client
+        if client is None:
+            return self._error(503, "market data client not configured")
+        pair = str(query.get("pair") or query.get("symbol") or "").upper()
+        if not pair:
+            return self._error(400, "pair is required")
+        try:
+            snapshot = client.fetch_snapshot(pair)
+            benchmark = None
+            if pair != "BTCUSD":
+                try:
+                    benchmark = client.fetch_snapshot("BTCUSD")
+                except Exception:
+                    benchmark = None
+            analysis = analyze_crypto(snapshot, benchmark)
+            if _STATE.news_filter is not None:
+                analysis["economic_calendar"] = _STATE.news_filter.evaluate(pair)
+        except Exception as exc:
+            return self._error(502, f"analysis unavailable: {exc}")
+        self._json(200, analysis)
 
     def _candles(self, query: dict) -> None:
         client = _STATE.market_client

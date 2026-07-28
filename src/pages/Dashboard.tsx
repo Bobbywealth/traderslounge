@@ -6,7 +6,7 @@ import {
   TrendingUp, Zap
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { bwtsApi, type AiSignalAnalysis, type BwtsConfig, type BwtsHealth, type BwtsSignal, type CalendarGateStatus } from '../services/bwtsApi';
+import { bwtsApi, type AiSignalAnalysis, type BwtsConfig, type BwtsHealth, type BwtsSignal, type CalendarGateStatus, type CryptoAnalysis } from '../services/bwtsApi';
 
 const tierStyles: Record<string, string> = {
   STRONG: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
@@ -28,6 +28,7 @@ const Dashboard: React.FC = () => {
   const [aiAnalysis, setAiAnalysis] = useState<AiSignalAnalysis | null>(null);
   const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [cryptoAnalysis, setCryptoAnalysis] = useState<CryptoAnalysis | null>(null);
 
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
@@ -79,13 +80,14 @@ const Dashboard: React.FC = () => {
     }
     bwtsApi.calendarStatus(bestSignal.pair).then(setCalendarRisk).catch(() => setCalendarRisk(null));
     bwtsApi.aiStatus().then((status) => setAiConfigured(status.configured)).catch(() => setAiConfigured(false));
+    bwtsApi.cryptoAnalysis(bestSignal.pair).then(setCryptoAnalysis).catch(() => setCryptoAnalysis(null));
   }, [bestSignal?.id]);
 
   const analyzeTopSignal = async () => {
     if (!bestSignal) return;
     setAnalyzing(true);
     try {
-      const result = await bwtsApi.analyzeSignal(bestSignal.pair, bestSignal);
+      const result = await bwtsApi.analyzeSignal(bestSignal.pair, bestSignal, cryptoAnalysis || undefined);
       setAiAnalysis(result.analysis);
       setAiConfigured(result.configured);
       setCalendarRisk(result.calendar);
@@ -176,6 +178,12 @@ const Dashboard: React.FC = () => {
           <div className="rounded-[24px] border border-white/[0.08] bg-[#090d18] p-6"><div className="flex items-center justify-between"><div><div className="text-[10px] font-black tracking-[0.2em] text-slate-500">SYSTEM STATE</div><h3 className="mt-1 font-black">Confluence pipeline</h3></div><ShieldCheck className="h-5 w-5 text-emerald-300"/></div><div className="mt-5 space-y-4">{[['01','Scan markets',health?.status === 'ok'],['02','Rank confluence',signals.length > 0],['03','Validate structure',Boolean(bestSignal)],['04','Build the plan',false]].map(([number,label,complete]) => <div key={String(number)} className="flex items-center gap-3"><div className={`flex h-8 w-8 items-center justify-center rounded-lg text-[10px] font-black ${complete ? 'bg-cyan-400/10 text-cyan-300' : 'bg-white/[0.04] text-slate-600'}`}>{number}</div><div className={`flex-1 text-sm ${complete ? 'text-slate-200' : 'text-slate-500'}`}>{String(label)}</div><div className={`h-2 w-2 rounded-full ${complete ? 'bg-cyan-300 shadow-[0_0_10px_#22d3ee]' : 'bg-slate-700'}`}/></div>)}</div></div>
         </div>
       </section>
+
+      {cryptoAnalysis && <section className="rounded-[24px] border border-cyan-400/15 bg-[#080d18] p-5 sm:p-6">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><div className="text-[10px] font-black tracking-[0.2em] text-cyan-300">CRYPTO CONFLUENCE ENGINE · V{cryptoAnalysis.version}</div><h2 className="mt-1 text-2xl font-black">Full-spectrum analysis</h2><p className="mt-1 text-sm text-slate-500">Category-capped scoring prevents correlated indicators from inflating confidence.</p></div><div className="flex items-center gap-4 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-5 py-3"><div><div className="text-[9px] font-black tracking-widest text-slate-600">V2 SCORE</div><div className="text-3xl font-black text-cyan-300">{cryptoAnalysis.total_score}<span className="text-sm text-slate-600">/100</span></div></div><div className={`rounded-lg px-3 py-2 text-xs font-black ${cryptoAnalysis.direction === 'BUY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 text-slate-400'}`}>{cryptoAnalysis.direction}</div></div></div>
+        <div className="mt-6 grid gap-x-6 gap-y-4 md:grid-cols-2 xl:grid-cols-3">{Object.entries(cryptoAnalysis.category_breakdown).map(([category, value]) => { const caps: Record<string, number> = {structure:20,liquidity:15,volume:10,momentum:10,moving_averages:10,fibonacci:10,patterns:10,volatility:10,relative_strength:5}; const cap = caps[category] || 10; return <div key={category}><div className="mb-2 flex items-center justify-between text-xs"><span className="font-bold capitalize text-slate-400">{category.replace(/_/g, ' ')}</span><span className="font-black text-slate-200">{value}/{cap}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-white/[0.06]"><div className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-violet-500 transition-all duration-700" style={{width:`${Math.min(100,(value/cap)*100)}%`}}/></div></div>; })}</div>
+        <div className="mt-6 grid gap-3 border-t border-white/[0.07] pt-5 md:grid-cols-3"><div className="rounded-xl bg-white/[0.025] p-4"><div className="text-[9px] font-black tracking-widest text-slate-600">PRIMARY SCENARIO</div><div className="mt-2 text-sm font-bold capitalize text-slate-200">{cryptoAnalysis.scenarios.primary}</div></div><div className="rounded-xl bg-white/[0.025] p-4"><div className="text-[9px] font-black tracking-widest text-slate-600">INVALIDATION</div><div className="mt-2 text-sm text-slate-300">{cryptoAnalysis.scenarios.invalidation}</div></div><div className="rounded-xl bg-white/[0.025] p-4"><div className="text-[9px] font-black tracking-widest text-slate-600">DATA QUALITY</div><div className="mt-2 text-sm font-bold uppercase text-emerald-300">{cryptoAnalysis.data_quality.status}</div></div></div>
+      </section>}
 
       <section className="grid gap-4 md:grid-cols-3">
         <WorkflowLink to="/scanner" icon={Radar} eyebrow="DISCOVER" title="Scan the market" copy="See every tracked pair and its latest confidence tier." />

@@ -59,6 +59,22 @@ export interface CalendarGateStatus {
   reason_code: string;
 }
 
+export interface CryptoAnalysis {
+  version: string;
+  asset_class: 'crypto';
+  pair: string;
+  direction: 'BUY' | 'SELL' | 'NEUTRAL';
+  total_score: number;
+  category_breakdown: Record<string, number>;
+  data_quality: { status: string; issues: string[]; primary_timeframe: string; bars: number; timeframes_available: string[] };
+  indicators: Record<string, any>;
+  zones: Record<string, any>;
+  scenarios: { primary: string; invalidation: string; confidence: string };
+  risk: { atr_stop: number | null; atr_multiple: number; warning: string };
+  monitoring: string[];
+  economic_calendar?: CalendarGateStatus;
+}
+
 export interface AiSignalAnalysis {
   summary: string;
   setup_quality: string;
@@ -187,7 +203,8 @@ export const bwtsApi = {
   calendarStatus: (pair: string) => get<CalendarGateStatus>('/api/calendar/status', { pair }),
   calendarEvents: (pair?: string) => get<{ source: string; source_health: string; events: any[]; count: number }>('/api/calendar/events', pair ? { pair } : undefined),
   aiStatus: () => get<{ configured: boolean }>('/api/ai/status'),
-  analyzeSignal: (pair: string, signal: BwtsSignal) => post<{ configured: boolean; analysis: AiSignalAnalysis; calendar: CalendarGateStatus }>('/api/ai/analyze', { pair, signal }),
+  cryptoAnalysis: (pair: string) => get<CryptoAnalysis>('/api/analysis', { pair }),
+  analyzeSignal: (pair: string, signal: BwtsSignal, analysis?: CryptoAnalysis) => post<{ configured: boolean; analysis: AiSignalAnalysis; calendar: CalendarGateStatus }>('/api/ai/analyze', { pair, signal, analysis }),
 
   baseUrl: () => BASE,
 };
