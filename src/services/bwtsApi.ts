@@ -121,7 +121,7 @@ export interface CryptoAnalysis {
 }
 
 export interface V2BacktestReport {
-  version: string; pair: string; timeframe: string; bars: number; candidates: number;
+  version: string; pair: string; timeframe: string; bars: number; history?: { start: number | null; end: number | null; years: number }; candidates: number;
   overall: { trades: number; wins: number; losses: number; win_rate: number; expectancy_r: number; profit_factor: number };
   in_sample_70pct: Record<string, number>; out_of_sample_30pct: Record<string, number>;
   validation: { status: 'INSUFFICIENT_DATA' | 'PROMISING' | 'REJECT'; minimum_out_of_sample_trades: number; observed_out_of_sample_trades: number; warning: string };
@@ -276,7 +276,7 @@ export const bwtsApi = {
   calendarEvents: (pair?: string) => get<{ source: string; source_health: string; events: any[]; count: number }>('/api/calendar/events', pair ? { pair } : undefined),
   aiStatus: () => get<{ configured: boolean }>('/api/ai/status'),
   cryptoAnalysis: (pair: string, timeframe?: string) => getCached<CryptoAnalysis>('/api/analysis', timeframe ? { pair, timeframe } : { pair }, 20_000),
-  v2Backtest: (pair: string, timeframe = '15m', limit = 3000) => get<V2BacktestReport>('/api/backtest/v2', { pair, timeframe, limit }),
+  v2Backtest: (pair: string, timeframe = '1h', limit = 10000) => get<V2BacktestReport>('/api/backtest/v2', { pair, timeframe, limit }),
   analyzeSignal: (pair: string, signal: BwtsSignal, analysis?: CryptoAnalysis) => post<{ configured: boolean; analysis: AiSignalAnalysis; calendar: CalendarGateStatus }>('/api/ai/analyze', { pair, signal, analysis }),
 
   baseUrl: () => BASE,

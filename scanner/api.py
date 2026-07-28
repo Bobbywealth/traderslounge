@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import threading
 import time
 from dataclasses import dataclass, field
@@ -349,23 +350,26 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._error(503, "market data client not configured")
         pair = str(query.get("pair") or "BTCUSD").upper()
         tf_raw = str(query.get("timeframe") or "15m").lower()
-        replay_timeframes = {"15m": ("M15", 4, 96), "1h": ("H1", 1, 48), "4h": ("H4", 1, 30)}
+        replay_timeframes = {"15m": ("M15", 4, 96, .25), "1h": ("H1", 1, 48, 1.0), "4h": ("H4", 1, 30, 4.0)}
         if tf_raw not in replay_timeframes:
             return self._error(400, "V2 backtest timeframe must be 15m, 1h, or 4h")
-        selected_tf, stride, holding = replay_timeframes[tf_raw]
-        limit = _clamp_int(query.get("limit"), default=3000, lo=400, hi=5000)
+        selected_tf, stride, holding, hours_per_bar = replay_timeframes[tf_raw]
+        limit = _clamp_int(query.get("limit"), default=10000, lo=400, hi=20000)
         cache_key = f"backtest:{pair}:{tf_raw}:{limit}"
         cached = self._cache_get(cache_key)
         if cached is not None:
             return self._json(200, cached)
         try:
-            report = run_v2_backtest(
-                pair,
-                client.fetch_candles(pair, "D1", limit=min(limit, 1000)),
-                client.fetch_candles(pair, "H4", limit=limit),
-                client.fetch_candles(pair, "H1", limit=limit),
-                client.fetch_candles(pair, selected_tf, limit=limit),
-                stride=stride, maximum_holding_bars=holding, timeframe=tf_raw,
+            selected_history = client.fetch_candles(pair, selected_tf, limit=limit)
+            d1_limit = min(4000, math.ceil(limit*hours_per_bar/24)+300)
+            h4_limit = min(20000, math.ceil(limit*hours_per_bar/4)+300)
+            h1_limit = min(20000, math.ceil(limit*hours_per_bar)+300)
+            d1_history = client.fetch_candles(pair, "D1", limit=d1_limit)
+            h4_history = selected_history if selected_tf == "H4" else client.fetch_candles(pair, "H4", limit=h4_limit)
+            h1_history = selected_history if selected_tf == "H1" else client.fetch_candles(pair, "H1", limit=h1_limit)
+            effective_stride = max(stride, 4 if limit > 10000 else 2 if limit > 5000 else stride)
+            report = run_v2_backtest(pair, d1_history, h4_history, h1_history, selected_history,
+                stride=effective_stride, maximum_holding_bars=holding, timeframe=tf_raw,
             )
         except Exception as exc:
             stale = self._cache_get(cache_key, allow_stale=True)

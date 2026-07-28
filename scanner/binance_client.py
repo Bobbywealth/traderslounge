@@ -88,7 +88,7 @@ class BinanceClient:
         if tf is None:
             raise DataProviderError(f"Unknown timeframe: {timeframe}")
         interval, default_limit = tf
-        requested = max(1, min(int(limit or default_limit), 5000))
+        requested = max(1, min(int(limit or default_limit), 20000))
         remaining, end_time, collected = requested, None, []
         while remaining > 0:
             request_limit = min(remaining, 1000)

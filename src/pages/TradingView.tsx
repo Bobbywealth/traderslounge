@@ -26,7 +26,12 @@ import {
   Trash2,
   Undo2,
   Eye,
-  EyeOff
+  EyeOff,
+  Lock,
+  Unlock,
+  Copy,
+  Magnet,
+  Tag
 } from 'lucide-react';
 import { liveDataService, HarmonicPattern, TrendLine, FibonacciLevel } from '../services/liveDataService';
 import { tradeLockerService, TradeLockerConfig } from '../services/tradeLockerService';
@@ -71,7 +76,7 @@ interface TradeLockerHistoryCandle {
 type ChartType = 'candlestick' | 'line' | 'area';
 type DrawingTool = 'select' | 'trend' | 'horizontal' | 'sr' | 'rectangle' | 'fib' | 'text';
 type DrawingPoint = { time: number; price: number };
-type ManualDrawing = { id: string; type: Exclude<DrawingTool, 'select'>; points: DrawingPoint[]; text?: string; color?: string };
+type ManualDrawing = { id: string; type: Exclude<DrawingTool, 'select'>; points: DrawingPoint[]; text?: string; color?: string; locked?: boolean; lineStyle?: 'solid' | 'dashed'; showPrice?: boolean };
 
 interface SymbolInfo {
   symbol: string;
@@ -155,6 +160,8 @@ const TradingView: React.FC = () => {
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [showManualDrawings, setShowManualDrawings] = useState(true);
   const [drawingRevision, setDrawingRevision] = useState(0);
+  const [drawingColor, setDrawingColor] = useState('#22d3ee');
+  const [magnetDrawing, setMagnetDrawing] = useState(true);
   const drawingUndoRef = useRef<ManualDrawing[][]>([]);
   const drawingStorageKeyRef = useRef('');
 
@@ -194,29 +201,37 @@ const TradingView: React.FC = () => {
     if (drawingUndoRef.current.length > 40) drawingUndoRef.current.shift();
     setDrawings(next);
   }, [drawings]);
-  const drawingPointFromEvent = useCallback((event: React.PointerEvent<SVGSVGElement>): DrawingPoint | null => {
-    const chart = chartRef.current; const series = candlestickSeriesRef.current || mainSeriesRef.current; if (!chart || !series) return null;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const time = chart.timeScale().coordinateToTime(event.clientX - rect.left);
-    const price = series.coordinateToPrice(event.clientY - rect.top);
+  const drawingPointFromClient = useCallback((clientX: number, clientY: number): DrawingPoint | null => {
+    const chart = chartRef.current; const series = candlestickSeriesRef.current || mainSeriesRef.current; const container = chartContainerRef.current;
+    if (!chart || !series || !container) return null;
+    const rect = container.getBoundingClientRect();
+    const time = chart.timeScale().coordinateToTime(clientX-rect.left);
+    const price = series.coordinateToPrice(clientY-rect.top);
     if (time == null || price == null || typeof time !== 'number') return null;
-    return { time: Number(time), price: Number(price) };
-  }, []);
+    let point = { time: Number(time), price: Number(price) };
+    if (magnetDrawing) {
+      const candles = candleCacheRef.current[`${selectedSymbol}:${timeframe}`] || [];
+      const candle = candles.reduce<CandlestickData | null>((nearest, item) => !nearest || Math.abs(Number(item.time)-point.time) < Math.abs(Number(nearest.time)-point.time) ? item : nearest, null);
+      if (candle) { const prices=[candle.open,candle.high,candle.low,candle.close]; point={time:Number(candle.time),price:prices.reduce((nearest,value)=>Math.abs(value-point.price)<Math.abs(nearest-point.price)?value:nearest,prices[0])}; }
+    }
+    return point;
+  }, [magnetDrawing, selectedSymbol, timeframe]);
+  const drawingPointFromEvent = useCallback((event: React.PointerEvent<SVGSVGElement>) => drawingPointFromClient(event.clientX,event.clientY), [drawingPointFromClient]);
   const handleDrawingPointerDown = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
     if (drawingTool === 'select') return;
     const point = drawingPointFromEvent(event); if (!point) return;
     if (drawingTool === 'horizontal' || drawingTool === 'sr') {
-      saveDrawingChange([...drawings, { id: crypto.randomUUID(), type: drawingTool, points: [point], color: drawingTool === 'sr' ? '#22d3ee' : '#f59e0b' }]);
+      saveDrawingChange([...drawings, { id: crypto.randomUUID(), type: drawingTool, points: [point], color: drawingColor, lineStyle: drawingTool === 'sr' ? 'dashed' : 'solid', showPrice: true }]);
       return;
     }
     if (drawingTool === 'text') {
       const text = window.prompt('Annotation text');
-      if (text?.trim()) saveDrawingChange([...drawings, { id: crypto.randomUUID(), type: 'text', points: [point], text: text.trim(), color: '#f8fafc' }]);
+      if (text?.trim()) saveDrawingChange([...drawings, { id: crypto.randomUUID(), type: 'text', points: [point], text: text.trim(), color: drawingColor, showPrice: false }]);
       return;
     }
-    setDraftDrawing({ id: crypto.randomUUID(), type: drawingTool, points: [point, point], color: drawingTool === 'fib' ? '#a78bfa' : drawingTool === 'rectangle' ? '#22d3ee' : '#f8fafc' });
+    setDraftDrawing({ id: crypto.randomUUID(), type: drawingTool, points: [point, point], color: drawingColor, lineStyle: drawingTool === 'fib' ? 'dashed' : 'solid', showPrice: true });
     event.currentTarget.setPointerCapture(event.pointerId);
-  }, [drawingTool, drawingPointFromEvent, drawings, saveDrawingChange]);
+  }, [drawingTool, drawingPointFromEvent, drawings, saveDrawingChange, drawingColor]);
   const handleDrawingPointerMove = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
     if (!draftDrawing) return; const point = drawingPointFromEvent(event); if (!point) return;
     setDraftDrawing({ ...draftDrawing, points: [draftDrawing.points[0], point] });
@@ -228,7 +243,13 @@ const TradingView: React.FC = () => {
     setDraftDrawing(null);
   }, [draftDrawing, drawingPointFromEvent, drawings, saveDrawingChange]);
   const undoDrawing = () => { const previous = drawingUndoRef.current.pop(); if (previous) { setDrawings(previous); setSelectedDrawingId(null); } };
-  const deleteSelectedDrawing = () => { if (selectedDrawingId) { saveDrawingChange(drawings.filter((drawing) => drawing.id !== selectedDrawingId)); setSelectedDrawingId(null); } };
+  const selectedDrawing = drawings.find((drawing) => drawing.id === selectedDrawingId) || null;
+  const updateSelectedDrawing = (changes: Partial<ManualDrawing>) => { if (!selectedDrawingId) return; saveDrawingChange(drawings.map((drawing) => drawing.id === selectedDrawingId ? { ...drawing, ...changes } : drawing)); };
+  const deleteSelectedDrawing = () => { if (selectedDrawingId && !selectedDrawing?.locked) { saveDrawingChange(drawings.filter((drawing) => drawing.id !== selectedDrawingId)); setSelectedDrawingId(null); } };
+  const duplicateSelectedDrawing = () => { if (!selectedDrawing) return; const seconds={ '1m':60,'5m':300,'15m':900,'30m':1800,'1h':3600,'4h':14400,'1d':86400,'1w':604800 }[timeframe] || 3600; const priceShift=Number(cryptoAnalysis?.indicators?.atr || currentPrice*.002); const copy={...selectedDrawing,id:crypto.randomUUID(),locked:false,points:selectedDrawing.points.map((point)=>({time:point.time+seconds*5,price:point.price+priceShift*.2}))}; saveDrawingChange([...drawings,copy]); setSelectedDrawingId(copy.id); };
+  const handleAnchorPointerDown = (event: React.PointerEvent<SVGCircleElement>, drawing: ManualDrawing) => { event.stopPropagation(); if (drawing.locked) return; drawingUndoRef.current.push(drawings); event.currentTarget.setPointerCapture(event.pointerId); };
+  const handleAnchorPointerMove = (event: React.PointerEvent<SVGCircleElement>, drawingId: string, pointIndex: number) => { if (!event.currentTarget.hasPointerCapture(event.pointerId)) return; const point=drawingPointFromClient(event.clientX,event.clientY); if (!point) return; setDrawings((current)=>current.map((drawing)=>drawing.id===drawingId?{...drawing,points:drawing.points.map((existing,index)=>index===pointIndex?point:existing)}:drawing)); };
+  const handleAnchorPointerUp = (event: React.PointerEvent<SVGCircleElement>) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); };
   const clearDrawings = () => { if (drawings.length && window.confirm('Clear drawings for this symbol and timeframe?')) { saveDrawingChange([]); setSelectedDrawingId(null); } };
   const drawingCoordinates = (drawing: ManualDrawing) => { const series = candlestickSeriesRef.current || mainSeriesRef.current; return drawing.points.map((point) => ({ x: chartRef.current?.timeScale().timeToCoordinate(point.time as UTCTimestamp) ?? null, y: series?.priceToCoordinate(point.price) ?? null })); };
 
@@ -1366,7 +1387,13 @@ const TradingView: React.FC = () => {
           ['sr', Target, 'S/R level'], ['rectangle', Square, 'Rectangle / zone'], ['fib', Percent, 'Fibonacci retracement'], ['text', Type, 'Text annotation'],
         ] as const).map(([tool, Icon, label]) => <button key={tool} onClick={() => setDrawingTool(tool)} title={label} className={`rounded-md p-2 transition ${drawingTool === tool ? 'bg-cyan-400/15 text-cyan-300' : 'text-slate-500 hover:bg-white/[0.06] hover:text-slate-200'}`}><Icon className="h-4 w-4"/></button>)}
         <div className="mx-2 h-5 w-px bg-white/10"/>
-        <button onClick={deleteSelectedDrawing} disabled={!selectedDrawingId} title="Delete selected" className="rounded-md p-2 text-slate-500 hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25"><Trash2 className="h-4 w-4"/></button>
+        <input type="color" value={selectedDrawing?.color || drawingColor} onChange={(event) => { setDrawingColor(event.target.value); if (selectedDrawing) updateSelectedDrawing({color:event.target.value}); }} title="Drawing color" className="h-7 w-7 cursor-pointer rounded border-0 bg-transparent p-0"/>
+        <button onClick={() => selectedDrawing && updateSelectedDrawing({locked:!selectedDrawing.locked})} disabled={!selectedDrawing} title={selectedDrawing?.locked ? 'Unlock drawing' : 'Lock drawing'} className={`rounded-md p-2 disabled:opacity-25 ${selectedDrawing?.locked ? 'bg-amber-400/10 text-amber-300' : 'text-slate-500 hover:text-slate-200'}`}>{selectedDrawing?.locked ? <Lock className="h-4 w-4"/> : <Unlock className="h-4 w-4"/>}</button>
+        <button onClick={duplicateSelectedDrawing} disabled={!selectedDrawing} title="Duplicate drawing" className="rounded-md p-2 text-slate-500 hover:text-slate-200 disabled:opacity-25"><Copy className="h-4 w-4"/></button>
+        <button onClick={() => selectedDrawing && updateSelectedDrawing({lineStyle:selectedDrawing.lineStyle === 'dashed' ? 'solid' : 'dashed'})} disabled={!selectedDrawing || selectedDrawing.type === 'text'} title="Toggle solid / dashed" className="rounded-md px-2 py-1.5 text-[10px] font-black text-slate-500 hover:text-slate-200 disabled:opacity-25">{selectedDrawing?.lineStyle === 'dashed' ? 'DASH' : 'SOLID'}</button>
+        <button onClick={() => selectedDrawing && updateSelectedDrawing({showPrice:!selectedDrawing.showPrice})} disabled={!selectedDrawing || selectedDrawing.type === 'text'} title="Toggle price labels" className={`rounded-md p-2 disabled:opacity-25 ${selectedDrawing?.showPrice ? 'text-cyan-300' : 'text-slate-500'}`}><Tag className="h-4 w-4"/></button>
+        <button onClick={() => setMagnetDrawing((value)=>!value)} title="Magnet to candle OHLC" className={`rounded-md p-2 ${magnetDrawing ? 'bg-cyan-400/10 text-cyan-300' : 'text-slate-500'}`}><Magnet className="h-4 w-4"/></button>
+        <button onClick={deleteSelectedDrawing} disabled={!selectedDrawingId || selectedDrawing?.locked} title="Delete selected" className="rounded-md p-2 text-slate-500 hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25"><Trash2 className="h-4 w-4"/></button>
         <button onClick={undoDrawing} disabled={!drawingUndoRef.current.length} title="Undo" className="rounded-md p-2 text-slate-500 hover:bg-white/[0.06] hover:text-slate-200 disabled:opacity-25"><Undo2 className="h-4 w-4"/></button>
         <button onClick={clearDrawings} disabled={!drawings.length} title="Clear drawings" className="rounded-md px-2 py-1.5 text-[10px] font-black text-slate-500 hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25">CLEAR</button>
         <button onClick={() => setShowManualDrawings((visible) => !visible)} title="Show / hide drawings" className="ml-auto rounded-md p-2 text-slate-500 hover:bg-white/[0.06] hover:text-slate-200">{showManualDrawings ? <Eye className="h-4 w-4"/> : <EyeOff className="h-4 w-4"/>}</button>
@@ -1526,14 +1553,15 @@ const TradingView: React.FC = () => {
         {showManualDrawings && <svg data-revision={drawingRevision} className="absolute inset-0 z-20 h-full w-full" style={{ pointerEvents: drawingTool === 'select' ? 'none' : 'auto', cursor: drawingTool === 'select' ? 'default' : 'crosshair' }} onPointerDown={handleDrawingPointerDown} onPointerMove={handleDrawingPointerMove} onPointerUp={handleDrawingPointerUp}>
           {[...drawings, ...(draftDrawing ? [draftDrawing] : [])].map((drawing) => {
             const points = drawingCoordinates(drawing); if (!points.length || points.some((point) => point.x == null || point.y == null)) return null;
-            const selected = drawing.id === selectedDrawingId; const stroke = selected ? '#facc15' : drawing.color || '#e2e8f0';
+            const selected = drawing.id === selectedDrawingId; const stroke = selected ? '#facc15' : drawing.color || '#e2e8f0'; const dash = drawing.lineStyle === 'dashed' ? '7 4' : undefined;
             const select = (event: React.PointerEvent<SVGElement>) => { event.stopPropagation(); if (drawingTool === 'select') setSelectedDrawingId(drawing.id); };
-            if (drawing.type === 'horizontal' || drawing.type === 'sr') return <g key={drawing.id} onPointerDown={select} style={{ pointerEvents: 'stroke' }}><line x1="0" x2="100%" y1={points[0].y!} y2={points[0].y!} stroke={stroke} strokeWidth={selected ? 2 : 1.5} strokeDasharray={drawing.type === 'sr' ? '7 4' : undefined}/><text x="8" y={points[0].y!-5} fill={stroke} fontSize="10">{drawing.type === 'sr' ? 'S/R' : 'H'} {drawing.points[0].price.toFixed(2)}</text></g>;
-            if (drawing.type === 'text') return <text key={drawing.id} x={points[0].x!} y={points[0].y!} fill={stroke} fontSize="12" fontWeight="700" onPointerDown={select} style={{ pointerEvents: 'all' }}>{drawing.text}</text>;
+            const anchors = selected && !drawing.locked ? points.map((point,index)=><circle key={`anchor-${index}`} cx={point.x!} cy={point.y!} r="5" fill="#0b1020" stroke="#facc15" strokeWidth="2" style={{pointerEvents:'all',cursor:'move'}} onPointerDown={(event)=>handleAnchorPointerDown(event,drawing)} onPointerMove={(event)=>handleAnchorPointerMove(event,drawing.id,index)} onPointerUp={handleAnchorPointerUp}/>) : null;
+            if (drawing.type === 'horizontal' || drawing.type === 'sr') return <g key={drawing.id} onPointerDown={select} style={{ pointerEvents: 'stroke' }}><line x1="0" x2="100%" y1={points[0].y!} y2={points[0].y!} stroke={stroke} strokeWidth={selected ? 2 : 1.5} strokeDasharray={dash}/>{drawing.showPrice !== false && <text x="8" y={points[0].y!-5} fill={stroke} fontSize="10">{drawing.locked ? 'LOCK ' : ''}{drawing.type === 'sr' ? 'S/R' : 'H'} {drawing.points[0].price.toFixed(2)}</text>}{anchors}</g>;
+            if (drawing.type === 'text') return <g key={drawing.id}>{<text x={points[0].x!} y={points[0].y!} fill={stroke} fontSize="12" fontWeight="700" onPointerDown={select} onDoubleClick={() => { if (!drawing.locked) { const text=window.prompt('Edit annotation',drawing.text || ''); if (text?.trim()) saveDrawingChange(drawings.map((item)=>item.id===drawing.id?{...item,text:text.trim()}:item)); } }} style={{ pointerEvents: 'all' }}>{drawing.text}</text>}{anchors}</g>;
             if (points.length < 2) return null;
-            if (drawing.type === 'trend') return <line key={drawing.id} x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke={stroke} strokeWidth={selected ? 2.5 : 1.7} onPointerDown={select} style={{ pointerEvents: 'stroke' }}/>;
-            if (drawing.type === 'rectangle') { const x=Math.min(points[0].x!,points[1].x!), y=Math.min(points[0].y!,points[1].y!), width=Math.abs(points[1].x!-points[0].x!), height=Math.abs(points[1].y!-points[0].y!); return <rect key={drawing.id} x={x} y={y} width={width} height={height} fill={`${stroke}18`} stroke={stroke} strokeWidth={selected ? 2 : 1.5} onPointerDown={select} style={{ pointerEvents: 'all' }}/>; }
-            if (drawing.type === 'fib') { const x1=Math.min(points[0].x!,points[1].x!), x2=Math.max(points[0].x!,points[1].x!); return <g key={drawing.id} onPointerDown={select} style={{ pointerEvents: 'stroke' }}>{[0,.236,.382,.5,.618,.65,.786,1,1.272,1.618].map((ratio) => { const y=points[0].y!+(points[1].y!-points[0].y!)*ratio; return <g key={ratio}><line x1={x1} x2={x2} y1={y} y2={y} stroke={['0.618','0.65'].includes(String(ratio)) ? '#c084fc' : stroke} strokeWidth={selected ? 2 : 1} strokeDasharray="4 3"/><text x={x2+4} y={y+3} fill={stroke} fontSize="9">{ratio}</text></g>; })}</g>; }
+            if (drawing.type === 'trend') return <g key={drawing.id}><line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke={stroke} strokeWidth={selected ? 2.5 : 1.7} strokeDasharray={dash} onPointerDown={select} style={{ pointerEvents: 'stroke' }}/>{drawing.showPrice && <text x={points[1].x!+5} y={points[1].y!-5} fill={stroke} fontSize="9">{drawing.points[1].price.toFixed(2)}</text>}{anchors}</g>;
+            if (drawing.type === 'rectangle') { const x=Math.min(points[0].x!,points[1].x!), y=Math.min(points[0].y!,points[1].y!), width=Math.abs(points[1].x!-points[0].x!), height=Math.abs(points[1].y!-points[0].y!); return <g key={drawing.id}><rect x={x} y={y} width={width} height={height} fill={`${stroke}18`} stroke={stroke} strokeDasharray={dash} strokeWidth={selected ? 2 : 1.5} onPointerDown={select} style={{ pointerEvents: 'all' }}/>{drawing.showPrice && <text x={x+4} y={y+12} fill={stroke} fontSize="9">{Math.min(...drawing.points.map((point)=>point.price)).toFixed(2)}–{Math.max(...drawing.points.map((point)=>point.price)).toFixed(2)}</text>}{anchors}</g>; }
+            if (drawing.type === 'fib') { const x1=Math.min(points[0].x!,points[1].x!), x2=Math.max(points[0].x!,points[1].x!); return <g key={drawing.id} onPointerDown={select} style={{ pointerEvents: 'stroke' }}>{[0,.236,.382,.5,.618,.65,.786,1,1.272,1.618].map((ratio) => { const y=points[0].y!+(points[1].y!-points[0].y!)*ratio; const price=drawing.points[0].price+(drawing.points[1].price-drawing.points[0].price)*ratio; return <g key={ratio}><line x1={x1} x2={x2} y1={y} y2={y} stroke={['0.618','0.65'].includes(String(ratio)) ? '#c084fc' : stroke} strokeWidth={selected ? 2 : 1} strokeDasharray={dash || '4 3'}/>{drawing.showPrice !== false && <text x={x2+4} y={y+3} fill={stroke} fontSize="9">{ratio} · {price.toFixed(2)}</text>}</g>; })}{anchors}</g>; }
             return null;
           })}
         </svg>}

@@ -1,6 +1,7 @@
 """Walk-forward replay for the guarded V2 crypto analysis and trade planner."""
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections import defaultdict
 from typing import Any
 
@@ -13,11 +14,13 @@ def _before(candles, timestamp, limit):
     return [c for c in candles if c.time <= timestamp][-limit:]
 
 
-def _higher_without_lookahead(higher, intraday, current_index, bucket_seconds):
+def _higher_without_lookahead(higher, higher_times, intraday, intraday_times, current_index, bucket_seconds):
     current = intraday[current_index]
     bucket_start = current.time-(current.time % bucket_seconds)
-    completed = [c for c in higher if c.time < bucket_start][-299:]
-    partial = [c for c in intraday[:current_index+1] if c.time >= bucket_start]
+    higher_end = bisect_left(higher_times, bucket_start)
+    completed = higher[max(0, higher_end-299):higher_end]
+    partial_start = bisect_left(intraday_times, bucket_start, 0, current_index+1)
+    partial = intraday[partial_start:current_index+1]
     if partial:
         completed.append(Candle(time=bucket_start, open=partial[0].open, high=max(c.high for c in partial), low=min(c.low for c in partial), close=partial[-1].close, volume=sum(c.volume for c in partial)))
     return completed
@@ -45,11 +48,12 @@ def _group(trades, key):
 def run_v2_backtest(pair, d1, h4, h1, m15, stride=4, maximum_holding_bars=96, minimum_history=250, timeframe="15m", round_trip_cost_bps=24.0) -> dict[str, Any]:
     """Replay V2 without look-ahead and enter only READY, eligible 2R plans."""
     trades, candidates, blocked = [], 0, defaultdict(int)
+    d1_times, h4_times, h1_times, selected_times = ([c.time for c in rows] for rows in (d1, h4, h1, m15))
     index = minimum_history
     while index < len(m15)-2:
         current = m15[index]
-        snap = MarketSnapshot(pair=pair, d1=_higher_without_lookahead(d1, m15, index, 86400), h4=_higher_without_lookahead(h4, m15, index, 14400),
-                              h1=_higher_without_lookahead(h1, m15, index, 3600), m15=m15[max(0, index-300):index+1])
+        snap = MarketSnapshot(pair=pair, d1=_higher_without_lookahead(d1, d1_times, m15, selected_times, index, 86400), h4=_higher_without_lookahead(h4, h4_times, m15, selected_times, index, 14400),
+                              h1=_higher_without_lookahead(h1, h1_times, m15, selected_times, index, 3600), m15=m15[max(0, index-300):index+1])
         analysis = analyze_crypto(snap, None, snap.m15, timeframe)
         plan = build_trade_plan(snap, analysis, {"status": "CLEAR"}, primary_candles=snap.m15)
         if not plan["eligible"]:
@@ -107,8 +111,9 @@ def run_v2_backtest(pair, d1, h4, h1, m15, stride=4, maximum_holding_bars=96, mi
                   "minimum_out_of_sample_trades": 30, "observed_out_of_sample_trades": len(out_sample),
                   "positive_time_slices": positive_slices, "required_positive_time_slices": 3,
                   "warning": "Do not optimize or deploy thresholds from a small sample."}
-    return {"version": "2.0.0", "pair": pair, "timeframe": timeframe, "bars": len(m15), "candidates": candidates,
-            "rules": {"minimum_score": 60, "minimum_rr": 2.0, "entry": "next candle open", "target": "absolute structural TP2", "same_bar_policy": "stop first", "maximum_holding_bars": maximum_holding_bars, "round_trip_cost_bps": round_trip_cost_bps},
+    history_seconds = (m15[-1].time-m15[0].time) if len(m15) > 1 else 0
+    return {"version": "2.0.0", "pair": pair, "timeframe": timeframe, "bars": len(m15), "history": {"start": m15[0].time if m15 else None, "end": m15[-1].time if m15 else None, "years": history_seconds/(365.25*86400)}, "candidates": candidates,
+            "rules": {"minimum_score": 60, "minimum_rr": 2.0, "entry": "next candle open", "target": "absolute structural TP2", "same_bar_policy": "stop first", "maximum_holding_bars": maximum_holding_bars, "round_trip_cost_bps": round_trip_cost_bps, "scan_stride_bars": stride},
             "overall": _metrics(trades), "in_sample_70pct": _metrics(in_sample), "out_of_sample_30pct": out_sample_metrics, "time_slices": time_slices, "validation": validation,
             "by_setup": _group(trades, "setup"), "by_confirmation": _group(trades, "confirmation"),
             "by_score_band": _group(trades, "score_band"), "by_session": _group(trades, "session"),
