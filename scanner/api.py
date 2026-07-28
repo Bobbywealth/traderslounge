@@ -28,6 +28,7 @@ from .minimax_client import analyze as minimax_analyze, configured as minimax_co
 from .news_filter import NewsFilter
 from .persistence import SignalRepository
 from .trade_planner import build_trade_plan
+from .v2_backtester import run_v2_backtest
 from .trade_repo import ClosedTradeRepository, PositionRepository
 
 log = logging.getLogger(__name__)
@@ -138,6 +139,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._json(200, {"configured": minimax_configured()})
         if path == "/api/analysis":
             return self._analysis(query)
+        if path == "/api/backtest/v2":
+            return self._backtest_v2(query)
         if path == "/api/candles":
             return self._candles(query)
         if path == "/api/harmonics":
@@ -286,6 +289,30 @@ class _ApiHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             return self._error(502, f"analysis unavailable: {exc}")
         self._json(200, analysis)
+
+    def _backtest_v2(self, query: dict) -> None:
+        client = _STATE.market_client
+        if client is None:
+            return self._error(503, "market data client not configured")
+        pair = str(query.get("pair") or "BTCUSD").upper()
+        tf_raw = str(query.get("timeframe") or "15m").lower()
+        replay_timeframes = {"15m": ("M15", 4, 96), "1h": ("H1", 1, 48), "4h": ("H4", 1, 30)}
+        if tf_raw not in replay_timeframes:
+            return self._error(400, "V2 backtest timeframe must be 15m, 1h, or 4h")
+        selected_tf, stride, holding = replay_timeframes[tf_raw]
+        limit = _clamp_int(query.get("limit"), default=3000, lo=400, hi=5000)
+        try:
+            report = run_v2_backtest(
+                pair,
+                client.fetch_candles(pair, "D1", limit=min(limit, 1000)),
+                client.fetch_candles(pair, "H4", limit=min(limit, 1000)),
+                client.fetch_candles(pair, "H1", limit=min(limit, 1000)),
+                client.fetch_candles(pair, selected_tf, limit=limit),
+                stride=stride, maximum_holding_bars=holding, timeframe=tf_raw,
+            )
+        except Exception as exc:
+            return self._error(502, f"V2 backtest unavailable: {exc}")
+        self._json(200, report)
 
     def _candles(self, query: dict) -> None:
         client = _STATE.market_client

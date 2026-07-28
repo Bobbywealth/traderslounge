@@ -87,22 +87,34 @@ class BinanceClient:
         if tf is None:
             raise DataProviderError(f"Unknown timeframe: {timeframe}")
         interval, default_limit = tf
-        request_limit = max(1, min(int(limit or default_limit), 1000))
-        params = urllib.parse.urlencode({
-            "symbol": sym, "interval": interval, "limit": str(request_limit),
-        })
-        url = f"{self.base_url}/api/v3/klines?{params}"
-        try:
-            body = self.http(url, self.timeout_seconds)
-        except urllib.error.URLError as exc:
-            raise DataProviderError(f"binance HTTP error: {exc}") from exc
-        try:
-            rows = json.loads(body)
-        except json.JSONDecodeError as exc:
-            raise DataProviderError(f"binance invalid JSON: {exc}") from exc
-        if isinstance(rows, dict) and "code" in rows:
-            raise DataProviderError(f"binance error: {rows.get('msg', rows)}")
-        return _parse_klines(rows)
+        requested = max(1, min(int(limit or default_limit), 5000))
+        remaining, end_time, collected = requested, None, []
+        while remaining > 0:
+            request_limit = min(remaining, 1000)
+            values = {"symbol": sym, "interval": interval, "limit": str(request_limit)}
+            if end_time is not None:
+                values["endTime"] = str(end_time)
+            url = f"{self.base_url}/api/v3/klines?{urllib.parse.urlencode(values)}"
+            try:
+                body = self.http(url, self.timeout_seconds)
+            except urllib.error.URLError as exc:
+                raise DataProviderError(f"binance HTTP error: {exc}") from exc
+            try:
+                rows = json.loads(body)
+            except json.JSONDecodeError as exc:
+                raise DataProviderError(f"binance invalid JSON: {exc}") from exc
+            if isinstance(rows, dict) and "code" in rows:
+                raise DataProviderError(f"binance error: {rows.get('msg', rows)}")
+            if not rows:
+                break
+            collected = rows + collected
+            remaining -= len(rows)
+            if len(rows) < request_limit:
+                break
+            end_time = int(rows[0][0])-1
+        candles = _parse_klines(collected)
+        unique = {c.time: c for c in candles}
+        return [unique[key] for key in sorted(unique)][-requested:]
 
 
 def _parse_klines(rows: list) -> List[Candle]:

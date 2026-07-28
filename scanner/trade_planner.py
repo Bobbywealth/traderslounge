@@ -141,6 +141,8 @@ def build_trade_plan(
         status = "BLOCKED" if calendar_status in ("BLOCKED", "POST_NEWS", "UNAVAILABLE") else "WAIT"
 
     risk_percent = 0.0 if not eligible else 1.0 if status == "STRONG" else 0.5 if status == "VALID" else 0.25
+    if (timing.get("regime") or {}).get("monthly_weekly_conflict") or not (timing.get("session") or {}).get("preferred", False):
+        risk_percent = min(risk_percent, 0.25)
     return {
         "version": "1.0.0",
         "status": status,

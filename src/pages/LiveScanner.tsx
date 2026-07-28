@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, ArrowRight, CalendarClock, RefreshCw, ShieldAlert, TrendingDown, TrendingUp } from 'lucide-react';
+import { Activity, ArrowRight, CalendarClock, FlaskConical, RefreshCw, ShieldAlert, TrendingDown, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { bwtsApi, type CryptoAnalysis } from '../services/bwtsApi';
+import { bwtsApi, type CryptoAnalysis, type V2BacktestReport } from '../services/bwtsApi';
 
 type PairRow = { pair: string; analysis?: CryptoAnalysis; loading: boolean; error?: string };
 const planStyle: Record<string, string> = {
@@ -13,6 +13,7 @@ const planStyle: Record<string, string> = {
 const LiveScanner: React.FC = () => {
   const [rows, setRows] = useState<PairRow[]>([]); const [refreshing, setRefreshing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null); const [globalError, setGlobalError] = useState<string | null>(null);
+  const [validation, setValidation] = useState<V2BacktestReport | null>(null); const [validating, setValidating] = useState(false);
   const refresh = async () => {
     setRefreshing(true); setGlobalError(null);
     try {
@@ -25,15 +26,17 @@ const LiveScanner: React.FC = () => {
     } catch (error: any) { setGlobalError(error?.message || 'Failed to load tracked markets'); } finally { setRefreshing(false); }
   };
   useEffect(() => { refresh(); const id = setInterval(refresh, 60_000); return () => clearInterval(id); }, []);
+  const runValidation = async () => { setValidating(true); try { setValidation(await bwtsApi.v2Backtest('BTCUSD', '15m', 3000)); } catch (error: any) { setGlobalError(error?.message || 'Validation replay failed'); } finally { setValidating(false); } };
   const loaded = useMemo(() => rows.filter((row) => row.analysis), [rows]);
   const eligible = loaded.filter((row) => row.analysis?.trade_plan?.eligible).length;
   const average = loaded.length ? Math.round(loaded.reduce((sum, row) => sum + (row.analysis?.total_score || 0), 0) / loaded.length) : 0;
   return <div className="space-y-6">
     <section className="relative overflow-hidden rounded-[24px] border border-violet-400/15 bg-[#090d18] bg-gradient-to-br from-violet-500/10 to-cyan-500/[0.04] p-6">
-      <div className="flex flex-wrap items-center justify-between gap-4"><div><div className="text-[10px] font-black tracking-[0.22em] text-cyan-300">V2 MARKET INTELLIGENCE</div><h1 className="mt-2 flex items-center gap-3 text-3xl font-black text-white"><Activity className="h-7 w-7 text-cyan-300"/>Live Scanner</h1><p className="mt-2 text-sm text-slate-400">One engine for score, direction, movement and trade eligibility.{lastUpdate && <span className="ml-2 text-xs text-slate-600">Updated {lastUpdate.toLocaleTimeString()}</span>}</p></div><button onClick={refresh} disabled={refreshing} className="flex items-center gap-2 rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-2.5 text-xs font-black text-cyan-200 transition hover:bg-cyan-400/15 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`}/>Refresh V2</button></div>
+      <div className="flex flex-wrap items-center justify-between gap-4"><div><div className="text-[10px] font-black tracking-[0.22em] text-cyan-300">V2 MARKET INTELLIGENCE</div><h1 className="mt-2 flex items-center gap-3 text-3xl font-black text-white"><Activity className="h-7 w-7 text-cyan-300"/>Live Scanner</h1><p className="mt-2 text-sm text-slate-400">One engine for score, direction, movement and trade eligibility.{lastUpdate && <span className="ml-2 text-xs text-slate-600">Updated {lastUpdate.toLocaleTimeString()}</span>}</p></div><div className="flex items-center gap-2"><button onClick={runValidation} disabled={validating} className="flex items-center gap-2 rounded-xl border border-violet-400/20 bg-violet-400/10 px-4 py-2.5 text-xs font-black text-violet-200 transition hover:bg-violet-400/15 disabled:opacity-50"><FlaskConical className={`h-4 w-4 ${validating ? 'animate-pulse' : ''}`}/>{validating ? 'Replaying 3,000 bars' : 'Run validation'}</button><button onClick={refresh} disabled={refreshing} className="flex items-center gap-2 rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-2.5 text-xs font-black text-cyan-200 transition hover:bg-cyan-400/15 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`}/>Refresh V2</button></div></div>
       <div className="mt-6 grid grid-cols-3 gap-3"><Metric label="MARKETS" value={String(rows.length)}/><Metric label="ELIGIBLE PLANS" value={String(eligible)}/><Metric label="AVERAGE SCORE" value={`${average}/100`}/></div>
     </section>
     {globalError && <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-rose-300">{globalError}</div>}
+    {validation && <section className="rounded-[20px] border border-violet-400/15 bg-[#090d18] p-5"><div className="flex items-center justify-between"><div><div className="text-[9px] font-black tracking-[0.2em] text-violet-300">WALK-FORWARD VALIDATION · {validation.pair} {validation.timeframe}</div><h2 className="mt-1 text-lg font-black">Out-of-sample evidence</h2></div><span className={`rounded-md px-2 py-1 text-[9px] font-black ${validation.validation.status === 'PROMISING' ? 'bg-emerald-400/10 text-emerald-300' : validation.validation.status === 'REJECT' ? 'bg-rose-400/10 text-rose-300' : 'bg-amber-400/10 text-amber-300'}`}>{validation.validation.status.replace(/_/g, ' ')}</span></div><div className="mt-4 grid grid-cols-4 gap-3"><Metric label="TRADES" value={String(validation.overall.trades)}/><Metric label="WIN RATE" value={`${(validation.overall.win_rate*100).toFixed(1)}%`}/><Metric label="EXPECTANCY" value={`${validation.overall.expectancy_r.toFixed(2)}R`}/><Metric label="OOS TRADES" value={String(validation.validation.observed_out_of_sample_trades)}/></div><p className="mt-3 text-[10px] text-slate-500">{validation.validation.warning}</p></section>}
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{rows.map((row) => <PairCard key={row.pair} row={row}/>)}{rows.length === 0 && !globalError && <div className="col-span-full py-12 text-center text-slate-500">{refreshing ? 'Loading V2 analysis…' : 'No markets configured.'}</div>}</div>
   </div>;
 };

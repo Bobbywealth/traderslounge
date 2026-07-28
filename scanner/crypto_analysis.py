@@ -482,8 +482,9 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
     break_retest = bool(completed and sr_for_direction and ((completed.low <= sr_for_direction["high"] and completed.close > sr_for_direction["high"]) if sign > 0 else (completed.high >= sr_for_direction["low"] and completed.close < sr_for_direction["low"])))
     confirmation_signals = [name for name, passed in {"closed_candle_pattern": pattern_confirmation, "level_rejection": rejection_confirmation, "vwap_reclaim": reclaim_confirmation, "break_retest": break_retest, "liquidity_sweep": scores.get("liquidity", 0) >= 10}.items() if passed]
 
-    macro_frames = ("mn1", "w1")
-    macro_aligned = any(bias[name]["trend"] == expected_trend for name in macro_frames) and all(bias[name]["trend"] in ("neutral", expected_trend) for name in macro_frames)
+    monthly_trend, weekly_trend = bias["mn1"]["trend"], bias["w1"]["trend"]
+    macro_aligned = weekly_trend == expected_trend or (weekly_trend == "neutral" and monthly_trend == expected_trend)
+    macro_conflict = monthly_trend not in ("neutral", expected_trend) and weekly_trend == expected_trend
     selected_aligned = bias["selected"]["trend"] == expected_trend
     relative_volume = indicators.get("relative_volume")
     low_volume = relative_volume is not None and relative_volume < .7
@@ -501,7 +502,7 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
     preferred_session = bool(moment and moment.weekday() < 5 and 7 <= moment.hour < 17)
 
     technical_checks = {
-        "score_60": total >= 60, "monthly_weekly_alignment": macro_aligned, "selected_timeframe_confirmation": selected_aligned,
+        "score_60": total >= 60, "weekly_or_monthly_alignment": macro_aligned, "selected_timeframe_confirmation": selected_aligned,
         "quality_location": bool(location_signals), "completed_candle_confirmation": bool(confirmation_signals),
         "sufficient_volume": not low_volume, "stable_volatility": not unstable_volatility,
         "adr_available": not adr_exhausted, "not_chasing": not chasing, "data_quality": quality["status"] == "good",
@@ -513,7 +514,7 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         "location_ready": bool(location_signals), "location_signals": location_signals, "confirmation_signals": confirmation_signals,
         "nearest_sr": sr_for_direction, "nearest_fibonacci": fib_data.get("nearest"),
         "session": {"name": "London/New York liquidity" if preferred_session else "off-peak or weekend", "preferred": preferred_session, "utc_hour": moment.hour if moment else None},
-        "regime": {"low_volume": low_volume, "unstable_volatility": unstable_volatility, "adr_exhausted": adr_exhausted, "ema20_distance_atr": ema20_distance, "chasing": chasing},
+        "regime": {"low_volume": low_volume, "unstable_volatility": unstable_volatility, "adr_exhausted": adr_exhausted, "ema20_distance_atr": ema20_distance, "chasing": chasing, "monthly_weekly_conflict": macro_conflict},
         "wait_for": [label for label, passed in technical_checks.items() if not passed],
     }
     scenario = "bullish continuation" if direction == "BUY" else "bearish continuation" if direction == "SELL" else "wait for directional confirmation"
