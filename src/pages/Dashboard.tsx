@@ -132,7 +132,7 @@ const Dashboard: React.FC = () => {
         </div>
 
         <div className="space-y-6">
-          <div className="relative overflow-hidden rounded-[24px] border border-violet-400/15 bg-gradient-to-br from-violet-500/10 to-cyan-500/[0.04] p-6">
+          <div className="relative overflow-hidden rounded-[24px] border border-violet-400/15 bg-[#090d18] bg-gradient-to-br from-violet-500/10 to-cyan-500/[0.04] p-6">
             <Sparkles className="absolute -right-2 -top-2 h-24 w-24 text-violet-400/[0.06]"/>
             <div className="text-[10px] font-black tracking-[0.2em] text-violet-300">TOP CONFLUENCE</div>
             {bestSignal ? <><div className="mt-5 flex items-start justify-between"><div><div className="text-3xl font-black">{bestSignal.pair}</div><div className="mt-1 text-sm text-slate-400">{bestSignal.pattern || 'Multi-factor setup'}</div></div><div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-3 text-center"><div className="text-2xl font-black text-cyan-300">{bestSignal.confidence_score}</div><div className="text-[8px] font-bold tracking-widest text-cyan-500">SCORE</div></div></div><div className="mt-6 grid grid-cols-3 gap-2 text-center text-xs"><DataPoint label="ENTRY" value={bestSignal.entry}/><DataPoint label="STOP" value={bestSignal.stop_loss}/><DataPoint label="TARGET" value={bestSignal.tp1}/></div><Link to="/tradingview" className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] py-3 text-sm font-black transition hover:bg-white/[0.09]">Validate on chart <Crosshair className="h-4 w-4"/></Link></> : <div className="py-12 text-center text-sm text-slate-500">Waiting for the next confirmed setup.</div>}
