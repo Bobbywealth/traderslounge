@@ -23,6 +23,8 @@ from urllib.parse import parse_qs, urlsplit
 
 from .config import Config
 from .kill_switch import KillSwitch
+from .minimax_client import analyze as minimax_analyze, configured as minimax_configured
+from .news_filter import NewsFilter
 from .persistence import SignalRepository
 from .trade_repo import ClosedTradeRepository, PositionRepository
 
@@ -39,6 +41,7 @@ class ApiState:
     kill_switch: Optional[KillSwitch] = None
     scan_request_path: Optional[str] = None  # path to scan trigger file
     market_client: Optional[Any] = None  # fetch_candles(pair, timeframe)
+    news_filter: Optional[NewsFilter] = None
 
 
 # Module-level state pointer — http.server's handler API doesn't make
@@ -125,6 +128,12 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._json(200, {"pairs": list(_STATE.config.pairs)})
         if path == "/api/config":
             return self._public_config()
+        if path == "/api/calendar/events":
+            return self._calendar_events(query)
+        if path == "/api/calendar/status":
+            return self._calendar_status(query)
+        if path == "/api/ai/status":
+            return self._json(200, {"configured": minimax_configured()})
         if path == "/api/candles":
             return self._candles(query)
         if path == "/api/harmonics":
@@ -154,6 +163,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._kill_set(body)
         if path == "/api/scans/refresh":
             return self._request_scan(body)
+        if path == "/api/ai/analyze":
+            return self._ai_analyze(body)
         return self._error(404, f"unknown route: {path}")
 
     # --- handlers -------------------------------------------------------
@@ -168,6 +179,55 @@ class _ApiHandler(BaseHTTPRequestHandler):
             "db_signals": n,
             "pairs": list(_STATE.config.pairs),
         })
+
+    def _calendar_events(self, query: dict) -> None:
+        news = _STATE.news_filter
+        if news is None:
+            return self._error(503, "economic calendar is not configured")
+        pair = str(query.get("pair") or "").upper()
+        events = news.relevant_events(pair) if pair else sorted(news.events, key=lambda event: event.when)
+        self._json(200, {
+            "source": "forexfactory", "source_health": news.source_health,
+            "source_fetched_at": news.source_fetched_at,
+            "events": [dict(event.public(), pair=event.pair) for event in events],
+            "count": len(events),
+        })
+
+    def _calendar_status(self, query: dict) -> None:
+        news = _STATE.news_filter
+        if news is None:
+            return self._error(503, "economic calendar is not configured")
+        pair = str(query.get("pair") or query.get("symbol") or "").upper()
+        if not pair:
+            return self._error(400, "pair is required")
+        self._json(200, news.evaluate(pair))
+
+    def _ai_analyze(self, body: dict) -> None:
+        pair = str(body.get("pair") or body.get("symbol") or "").upper()[:20]
+        if not pair:
+            return self._error(400, "pair is required")
+        news = _STATE.news_filter
+        calendar = news.evaluate(pair) if news else {"status": "UNAVAILABLE", "reason_code": "SOURCE_UNAVAILABLE"}
+        raw_signal = body.get("signal") if isinstance(body.get("signal"), dict) else {}
+        allowed = ("direction", "tier", "confidence_score", "entry", "stop_loss", "tp1", "tp2", "tp3", "risk_level", "session", "adr_status", "htf_bias", "pattern", "reasons")
+        signal = {key: raw_signal.get(key) for key in allowed if key in raw_signal}
+        context = {"pair": pair, "signal": signal, "economic_calendar": calendar}
+        if not minimax_configured():
+            status = calendar.get("status", "UNAVAILABLE")
+            summary = f"{pair} calendar status is {status}. MiniMax is not configured; deterministic scanner rules remain active."
+            return self._json(200, {"configured": False, "analysis": {
+                "summary": summary, "setup_quality": signal.get("tier", "UNRATED"),
+                "confirmations": signal.get("reasons", []), "conflicts": [],
+                "calendar_risk": status, "invalidation": signal.get("stop_loss"),
+                "wait_for": "Economic-calendar clearance" if status in ("BLOCKED", "POST_NEWS") else "Scanner confirmation",
+                "educational_note": "AI is advisory. Calendar gates and risk rules are deterministic."
+            }, "calendar": calendar})
+        try:
+            result = minimax_analyze(context)
+        except RuntimeError as exc:
+            return self._error(502, str(exc))
+        result["calendar"] = calendar
+        self._json(200, result)
 
     def _candles(self, query: dict) -> None:
         client = _STATE.market_client

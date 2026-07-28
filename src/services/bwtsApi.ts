@@ -45,6 +45,31 @@ export interface BwtsConfig {
   news_blackout_minutes: number;
 }
 
+export type CalendarRiskStatus = 'CLEAR' | 'CAUTION' | 'BLOCKED' | 'POST_NEWS' | 'UNAVAILABLE';
+export interface CalendarGateStatus {
+  version: number;
+  status: CalendarRiskStatus;
+  evaluated_at: string;
+  symbol: string;
+  source: string;
+  source_health: 'LIVE' | 'STALE' | 'UNAVAILABLE';
+  event: { id: string; title: string; currency: string; impact: string; scheduled_at: string; source: string } | null;
+  next_event: { id: string; title: string; currency: string; impact: string; scheduled_at: string; source: string } | null;
+  minutes_to_event: number | null;
+  reason_code: string;
+}
+
+export interface AiSignalAnalysis {
+  summary: string;
+  setup_quality: string;
+  confirmations: string[];
+  conflicts: string[];
+  calendar_risk: CalendarRiskStatus;
+  invalidation: string | number | null;
+  wait_for: string;
+  educational_note: string;
+}
+
 async function get<T>(path: string, query?: Record<string, string | number>): Promise<T> {
   const url = new URL(`${BASE}${path}`);
   if (query) {
@@ -159,6 +184,10 @@ export const bwtsApi = {
     post<BwtsKillStatus>('/api/kill-switch', { engaged, reason }),
 
   requestScan: () => post<{ queued: boolean }>('/api/scans/refresh', {}),
+  calendarStatus: (pair: string) => get<CalendarGateStatus>('/api/calendar/status', { pair }),
+  calendarEvents: (pair?: string) => get<{ source: string; source_health: string; events: any[]; count: number }>('/api/calendar/events', pair ? { pair } : undefined),
+  aiStatus: () => get<{ configured: boolean }>('/api/ai/status'),
+  analyzeSignal: (pair: string, signal: BwtsSignal) => post<{ configured: boolean; analysis: AiSignalAnalysis; calendar: CalendarGateStatus }>('/api/ai/analyze', { pair, signal }),
 
   baseUrl: () => BASE,
 };

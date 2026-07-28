@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Activity, ArrowRight, BarChart3, Clock3, Crosshair, Gauge,
+  Activity, ArrowRight, BarChart3, BrainCircuit, CalendarClock, Clock3, Crosshair, Gauge,
   Layers3, RefreshCw, Radar, ShieldCheck, Sparkles, TrendingDown,
   TrendingUp, Zap
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { bwtsApi, type BwtsConfig, type BwtsHealth, type BwtsSignal } from '../services/bwtsApi';
+import { bwtsApi, type AiSignalAnalysis, type BwtsConfig, type BwtsHealth, type BwtsSignal, type CalendarGateStatus } from '../services/bwtsApi';
 
 const tierStyles: Record<string, string> = {
   STRONG: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
@@ -24,6 +24,10 @@ const Dashboard: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [calendarRisk, setCalendarRisk] = useState<CalendarGateStatus | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState<AiSignalAnalysis | null>(null);
+  const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
 
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
@@ -67,6 +71,30 @@ const Dashboard: React.FC = () => {
     ? Math.round(latestByPair.reduce((total, signal) => total + signal.confidence_score, 0) / latestByPair.length)
     : 0;
   const bestSignal = [...latestByPair].sort((a, b) => b.confidence_score - a.confidence_score)[0];
+
+  useEffect(() => {
+    if (!bestSignal) {
+      setCalendarRisk(null);
+      return;
+    }
+    bwtsApi.calendarStatus(bestSignal.pair).then(setCalendarRisk).catch(() => setCalendarRisk(null));
+    bwtsApi.aiStatus().then((status) => setAiConfigured(status.configured)).catch(() => setAiConfigured(false));
+  }, [bestSignal?.id]);
+
+  const analyzeTopSignal = async () => {
+    if (!bestSignal) return;
+    setAnalyzing(true);
+    try {
+      const result = await bwtsApi.analyzeSignal(bestSignal.pair, bestSignal);
+      setAiAnalysis(result.analysis);
+      setAiConfigured(result.configured);
+      setCalendarRisk(result.calendar);
+    } catch {
+      setAiAnalysis(null);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
   const formatTime = (value: number | string) => {
     const date = typeof value === 'number'
@@ -135,7 +163,14 @@ const Dashboard: React.FC = () => {
           <div className="relative overflow-hidden rounded-[24px] border border-violet-400/15 bg-[#090d18] bg-gradient-to-br from-violet-500/10 to-cyan-500/[0.04] p-6">
             <Sparkles className="absolute -right-2 -top-2 h-24 w-24 text-violet-400/[0.06]"/>
             <div className="text-[10px] font-black tracking-[0.2em] text-violet-300">TOP CONFLUENCE</div>
-            {bestSignal ? <><div className="mt-5 flex items-start justify-between"><div><div className="text-3xl font-black">{bestSignal.pair}</div><div className="mt-1 text-sm text-slate-400">{bestSignal.pattern || 'Multi-factor setup'}</div></div><div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-3 text-center"><div className="text-2xl font-black text-cyan-300">{bestSignal.confidence_score}</div><div className="text-[8px] font-bold tracking-widest text-cyan-500">SCORE</div></div></div><div className="mt-6 grid grid-cols-3 gap-2 text-center text-xs"><DataPoint label="ENTRY" value={bestSignal.entry}/><DataPoint label="STOP" value={bestSignal.stop_loss}/><DataPoint label="TARGET" value={bestSignal.tp1}/></div><Link to="/tradingview" className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] py-3 text-sm font-black transition hover:bg-white/[0.09]">Validate on chart <Crosshair className="h-4 w-4"/></Link></> : <div className="py-12 text-center text-sm text-slate-500">Waiting for the next confirmed setup.</div>}
+            {bestSignal ? <>
+              <div className="mt-5 flex items-start justify-between"><div><div className="text-3xl font-black">{bestSignal.pair}</div><div className="mt-1 text-sm text-slate-400">{bestSignal.pattern || 'Multi-factor setup'}</div></div><div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-3 text-center"><div className="text-2xl font-black text-cyan-300">{bestSignal.confidence_score}</div><div className="text-[8px] font-bold tracking-widest text-cyan-500">SCORE</div></div></div>
+              <div className="mt-4 flex items-center justify-between rounded-xl border border-white/[0.07] bg-black/20 px-3 py-2.5"><div className="flex items-center gap-2 text-xs text-slate-400"><CalendarClock className="h-4 w-4 text-amber-300"/>Economic calendar</div><span className={`rounded-md px-2 py-1 text-[9px] font-black ${calendarRisk?.status === 'CLEAR' ? 'bg-emerald-400/10 text-emerald-300' : calendarRisk?.status === 'CAUTION' ? 'bg-amber-400/10 text-amber-300' : calendarRisk?.status === 'BLOCKED' || calendarRisk?.status === 'POST_NEWS' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 text-slate-400'}`}>{calendarRisk?.status || 'LOADING'}</span></div>
+              {calendarRisk?.next_event && <div className="mt-2 text-[10px] text-slate-500">{calendarRisk.next_event.title} ({calendarRisk.next_event.currency}) {calendarRisk.minutes_to_event !== null ? `in ${calendarRisk.minutes_to_event}m` : ''}</div>}
+              <div className="mt-5 grid grid-cols-3 gap-2 text-center text-xs"><DataPoint label="ENTRY" value={bestSignal.entry}/><DataPoint label="STOP" value={bestSignal.stop_loss}/><DataPoint label="TARGET" value={bestSignal.tp1}/></div>
+              {aiAnalysis && <div className="mt-4 rounded-xl border border-violet-400/15 bg-violet-400/[0.06] p-3"><div className="mb-1 flex items-center gap-2 text-[9px] font-black tracking-widest text-violet-300"><BrainCircuit className="h-3.5 w-3.5"/>{aiConfigured ? 'MINIMAX ANALYSIS' : 'DETERMINISTIC ANALYSIS'}</div><p className="text-xs leading-relaxed text-slate-300">{aiAnalysis.summary}</p><div className="mt-2 text-[10px] text-slate-500">Wait for: {aiAnalysis.wait_for}</div></div>}
+              <div className="mt-5 grid grid-cols-2 gap-2"><Link to="/tradingview" className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] py-3 text-xs font-black transition hover:bg-white/[0.09]">Validate chart <Crosshair className="h-4 w-4"/></Link><button onClick={analyzeTopSignal} disabled={analyzing} className="flex items-center justify-center gap-2 rounded-xl border border-violet-400/20 bg-violet-400/10 py-3 text-xs font-black text-violet-200 transition hover:bg-violet-400/15 disabled:opacity-50"><BrainCircuit className={`h-4 w-4 ${analyzing ? 'animate-pulse' : ''}`}/>{analyzing ? 'Analyzing' : 'Analyze setup'}</button></div>
+            </> : <div className="py-12 text-center text-sm text-slate-500">Waiting for the next confirmed setup.</div>}
           </div>
 
           <div className="rounded-[24px] border border-white/[0.08] bg-[#090d18] p-6"><div className="flex items-center justify-between"><div><div className="text-[10px] font-black tracking-[0.2em] text-slate-500">SYSTEM STATE</div><h3 className="mt-1 font-black">Confluence pipeline</h3></div><ShieldCheck className="h-5 w-5 text-emerald-300"/></div><div className="mt-5 space-y-4">{[['01','Scan markets',health?.status === 'ok'],['02','Rank confluence',signals.length > 0],['03','Validate structure',Boolean(bestSignal)],['04','Build the plan',false]].map(([number,label,complete]) => <div key={String(number)} className="flex items-center gap-3"><div className={`flex h-8 w-8 items-center justify-center rounded-lg text-[10px] font-black ${complete ? 'bg-cyan-400/10 text-cyan-300' : 'bg-white/[0.04] text-slate-600'}`}>{number}</div><div className={`flex-1 text-sm ${complete ? 'text-slate-200' : 'text-slate-500'}`}>{String(label)}</div><div className={`h-2 w-2 rounded-full ${complete ? 'bg-cyan-300 shadow-[0_0_10px_#22d3ee]' : 'bg-slate-700'}`}/></div>)}</div></div>

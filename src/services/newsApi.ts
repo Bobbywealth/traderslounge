@@ -1,5 +1,6 @@
 // Real Financial News and Economic Calendar API Service
 import { format } from 'date-fns';
+import { bwtsApi } from './bwtsApi';
 
 export interface EconomicEvent {
   id: string;
@@ -279,29 +280,28 @@ export const fetchPolygonMarketData = async (symbols: string[]): Promise<MarketD
 // Main API functions that combine multiple sources
 export const fetchEconomicEvents = async (): Promise<EconomicEvent[]> => {
   try {
-    console.log('📊 LOADING ECONOMIC CALENDAR FROM MULTIPLE SOURCES...');
-    
-    const [tradingEconomics] = await Promise.allSettled([
-      fetchTradingEconomicsCalendar(),
-    ]);
-
-    const allEvents: EconomicEvent[] = [];
-
-    if (tradingEconomics.status === 'fulfilled') allEvents.push(...tradingEconomics.value);
-    
-    // Remove duplicates and sort by date
-    const uniqueEvents = allEvents
-      .filter((item, index, self) => 
-        index === self.findIndex(t => t.title === item.title && t.date.toDateString() === item.date.toDateString())
-      )
-      .sort((a, b) => a.date.getTime() - b.date.getTime())
-      .slice(0, 100);
-    
-    console.log(`✅ Loaded ${uniqueEvents.length} economic events from ${allEvents.length > 0 ? 'real APIs' : 'mock data'}`);
-    return uniqueEvents.length > 0 ? uniqueEvents : getMockEconomicEvents();
+    const response = await bwtsApi.calendarEvents();
+    const unique = new Map<string, EconomicEvent>();
+    response.events.forEach((event) => {
+      const date = new Date(event.scheduled_at);
+      if (Number.isNaN(date.getTime()) || unique.has(event.id)) return;
+      unique.set(event.id, {
+        id: event.id,
+        title: event.title,
+        country: event.currency,
+        currency: event.currency,
+        date,
+        time: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        impact: event.impact,
+        description: `High-impact ${event.currency} event used by the ConfluenceX deterministic calendar gate.`,
+        category: 'Economic',
+        source: response.source_health === 'LIVE' ? 'ForexFactory Live' : `ForexFactory ${response.source_health}`,
+      });
+    });
+    return Array.from(unique.values()).sort((a, b) => a.date.getTime() - b.date.getTime());
   } catch (error) {
-    console.error('Failed to fetch economic events:', error);
-    return getMockEconomicEvents();
+    console.error('Economic calendar backend unavailable:', error);
+    return [];
   }
 };
 

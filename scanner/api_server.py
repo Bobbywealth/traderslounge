@@ -17,6 +17,8 @@ import sys
 from .api import ApiState, make_server
 from .config import load_from_env
 from .kill_switch import KillSwitch
+from .news_feed import ForexFactoryClient, refresh_filter
+from .news_filter import NewsFilter
 from .persistence import SQLiteRepository
 from .postgres_repo import PostgresRepository, is_available as pg_available
 from .trade_repo import SQLiteClosedTradeRepository, SQLitePositionRepository
@@ -49,6 +51,8 @@ def main() -> int:
     closed_trade_repo = SQLiteClosedTradeRepository(db_path_for_aux)
     kill_switch = KillSwitch()
     scan_request_path = os.environ.get("SCAN_REQUEST_PATH", "/tmp/bwts.scan_request")
+    news = NewsFilter(blackout_minutes=cfg.news_blackout_minutes)
+    refresh_filter(ForexFactoryClient(), news)
 
     host = os.environ.get("API_HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))
@@ -58,6 +62,7 @@ def main() -> int:
         closed_trade_repo=closed_trade_repo,
         kill_switch=kill_switch,
         scan_request_path=scan_request_path,
+        news_filter=news,
     )
     server = make_server(state, host=host, port=port)
     print(f"API listening on http://{host}:{port}", file=sys.stderr)

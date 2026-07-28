@@ -26,7 +26,7 @@ FOREXFACTORY_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
 # Currency → list of pairs that touch it. Used to fan a "USD high-impact"
 # event out to every pair containing USD.
 CURRENCY_TO_PAIRS: Dict[str, List[str]] = {
-    "USD": ["XAUUSD", "GBPUSD", "EURUSD", "USDJPY", "NAS100", "US30"],
+    "USD": ["BTCUSD", "ETHUSD", "SOLUSD", "XAUUSD", "GBPUSD", "EURUSD", "USDJPY", "NAS100", "US30"],
     "EUR": ["EURUSD"],
     "GBP": ["GBPUSD", "GBPJPY"],
     "JPY": ["USDJPY", "GBPJPY"],
@@ -87,7 +87,7 @@ def parse_events(raw: List[dict]) -> List[NewsEvent]:
             continue
         title = row.get("title") or ""
         for pair in pairs:
-            out.append(NewsEvent(pair=pair, when=when, impact="high", title=title))
+            out.append(NewsEvent(pair=pair, when=when, impact="high", title=title, currency=currency))
     return out
 
 
@@ -109,7 +109,14 @@ def _parse_event_time(value) -> _dt.datetime | None:
 
 
 def refresh_filter(client: ForexFactoryClient, news_filter: NewsFilter) -> int:
-    """Replace the filter's events with a fresh fetch. Returns count loaded."""
+    """Refresh live events while preserving the last valid cache on failure."""
     events = client.fetch_events()
-    news_filter.events = events
+    if events:
+        news_filter.events = events
+        news_filter.source_health = "LIVE"
+        news_filter.source_fetched_at = _dt.datetime.now(_dt.timezone.utc)
+    elif not news_filter.events:
+        news_filter.source_health = "UNAVAILABLE"
+    else:
+        news_filter.source_health = "STALE"
     return len(events)
