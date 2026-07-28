@@ -129,6 +129,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._candles(query)
         if path == "/api/harmonics":
             return self._harmonics(query)
+        if path == "/api/adr":
+            return self._adr(query)
         if path == "/api/signals":
             return self._list_signals(query)
         if path.startswith("/api/signals/"):
@@ -230,6 +232,25 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 "points": points, "ratios": match["ratios"],
             },
         })
+
+    def _adr(self, query: dict) -> None:
+        client = _STATE.market_client
+        if client is None:
+            return self._error(503, "market data client not configured")
+        pair = str(query.get("pair") or query.get("symbol") or "").upper()
+        if not pair:
+            return self._error(400, "pair is required")
+        try:
+            candles = client.fetch_candles(pair, "D1")
+            from .modules.adr_calculator import snapshot
+            adr = snapshot(candles)
+        except Exception as exc:
+            return self._error(502, f"ADR data unavailable: {exc}")
+        if adr is None:
+            return self._error(422, "insufficient daily candles for ADR")
+        body = adr.__dict__.copy()
+        body.update({"pair": pair, "period": 14, "day_time": candles[-1].time})
+        self._json(200, body)
 
     def _list_signals(self, query: dict) -> None:
         limit = _clamp_int(query.get("limit"), default=50, lo=1, hi=500)

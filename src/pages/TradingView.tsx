@@ -68,6 +68,23 @@ interface SymbolInfo {
   price?: number;
 }
 
+interface ChartAdr {
+  pair: string;
+  period: number;
+  day_time: number;
+  adr: number;
+  day_open: number;
+  day_high: number;
+  day_low: number;
+  current_range: number;
+  percent_used: number;
+  adr_high: number;
+  adr_low: number;
+  near_adr_high: boolean;
+  near_adr_low: boolean;
+  exhausted: boolean;
+}
+
 const BWTS_SYMBOLS: SymbolInfo[] = [
   { symbol: 'BTCUSD', name: 'Bitcoin / US Dollar', exchange: 'Binance.US', type: 'crypto' },
   { symbol: 'ETHUSD', name: 'Ethereum / US Dollar', exchange: 'Binance.US', type: 'crypto' },
@@ -83,6 +100,10 @@ const TradingView: React.FC = () => {
   const chartInitialized = useRef<boolean>(false);
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const harmonicSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
+  const adrSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
+  const candleCacheRef = useRef<Record<string, CandlestickData[]>>({});
+  const loadedChartKeyRef = useRef('');
+  const candleRequestRef = useRef(0);
   const [chartType, setChartType] = useState<ChartType>('candlestick');
   const [showVolume, setShowVolume] = useState(true);
   const [chartRevision, setChartRevision] = useState(0);
@@ -101,6 +122,7 @@ const TradingView: React.FC = () => {
   
   // Technical analysis data
   const [harmonicPatterns, setHarmonicPatterns] = useState<HarmonicPattern[]>([]);
+  const [adrData, setAdrData] = useState<ChartAdr | null>(null);
   const [trendLines, setTrendLines] = useState<TrendLine[]>([]);
   const [fibonacciLevels, setFibonacciLevels] = useState<FibonacciLevel[]>([]);
   const [showHarmonics, setShowHarmonics] = useState(true);
@@ -254,6 +276,14 @@ const TradingView: React.FC = () => {
       confidence: 100,
       status: 'completed',
     }];
+  }, []);
+
+  const fetchBwtsAdr = useCallback(async (symbol: string): Promise<ChartAdr> => {
+    const params = new URLSearchParams({ pair: symbol });
+    const API_BASE = import.meta.env.VITE_BWTS_API_URL || import.meta.env.VITE_API_URL || '';
+    const response = await fetch(`${API_BASE}/api/adr?${params.toString()}`);
+    if (!response.ok) throw new Error(`Failed to fetch ADR: ${response.status}`);
+    return response.json();
   }, []);
   // TradeLocker connection function
   const connectToTradeLocker = async () => {
@@ -449,19 +479,37 @@ const TradingView: React.FC = () => {
   };
 
   const loadCandlesForSymbol = useCallback(async (symbol: string, tf: string) => {
-    if (!candlestickSeriesRef.current) return;
+    const series = candlestickSeriesRef.current;
+    if (!series) return;
+    const key = `${symbol}:${tf}`;
+    const requestId = ++candleRequestRef.current;
     try {
       const candles = await fetchBwtsCandles(symbol, tf);
-      candlestickSeriesRef.current.setData(candles);
-      setChartRevision((revision) => revision + 1);
-      if (candles.length > 0) {
-        setCurrentPrice(candles[candles.length - 1].close);
-        setIsConnected(true);
+      if (requestId !== candleRequestRef.current || candles.length === 0) return;
+      const previous = candleCacheRef.current[key] || [];
+      const last = candles[candles.length - 1];
+      if (loadedChartKeyRef.current !== key || previous.length === 0) {
+        // Full history is loaded only for a new symbol/timeframe.
+        series.setData(candles);
+        loadedChartKeyRef.current = key;
+        setChartRevision((revision) => revision + 1);
+      } else {
+        // Polls only update the newest candle, preserving zoom and overlays.
+        const oldLast = previous[previous.length - 1];
+        if (!oldLast || oldLast.time !== last.time || oldLast.close !== last.close ||
+            oldLast.high !== last.high || oldLast.low !== last.low) {
+          series.update(last);
+        }
       }
+      candleCacheRef.current[key] = candles;
+      setCurrentPrice(last.close);
+      setIsConnected(true);
     } catch (error) {
+      if (requestId !== candleRequestRef.current) return;
       console.error('Failed to load BWTS candles:', error);
       setIsConnected(false);
-      candlestickSeriesRef.current.setData([]);
+      // Keep already-rendered candles visible during a transient API failure.
+      if (loadedChartKeyRef.current !== key) series.setData([]);
     }
   }, [fetchBwtsCandles]);
 
@@ -579,9 +627,9 @@ const TradingView: React.FC = () => {
       candlestickSeriesRef.current = candlestickSeries;
       chartInitialized.current = true;
 
-      // Load technical analysis for initial symbol
+      // Load non-candle technical analysis once; the dedicated candle effect
+      // below performs the single initial market-data request.
       loadSymbolData(selectedSymbol);
-      loadCandlesForSymbol(selectedSymbol, timeframe);
 
       // Handle resize
       const handleResize = () => {
@@ -608,6 +656,21 @@ const TradingView: React.FC = () => {
       console.error('Chart initialization failed:', error);
     }
   }, []);
+
+  // ADR changes slowly, so refresh once per minute rather than on every
+  // candle poll.
+  useEffect(() => {
+    let active = true;
+    const refreshAdr = () => fetchBwtsAdr(selectedSymbol)
+      .then((data) => { if (active) setAdrData(data); })
+      .catch((error) => {
+        console.error('Failed to load ADR:', error);
+        if (active) setAdrData(null);
+      });
+    refreshAdr();
+    const interval = window.setInterval(refreshAdr, 60000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, [fetchBwtsAdr, selectedSymbol]);
 
   // Refresh harmonics from the same live candles displayed on the chart.
   useEffect(() => {
@@ -805,6 +868,36 @@ const TradingView: React.FC = () => {
     };
   }, [chartRevision, harmonicPatterns, showHarmonics]);
 
+  // ADR(14) high, low, and day-open reference lines.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    for (const series of adrSeriesRefs.current) {
+      try { chart.removeSeries(series); } catch { /* already removed */ }
+    }
+    adrSeriesRefs.current = [];
+    if (!adrData) return;
+    const start = adrData.day_time as UTCTimestamp;
+    const end = Math.max(Math.floor(Date.now() / 1000), adrData.day_time + 60) as UTCTimestamp;
+    const levels = [
+      { title: 'ADR High', value: adrData.adr_high, color: '#f97316', style: LineStyle.Dashed },
+      { title: 'Day Open', value: adrData.day_open, color: '#94a3b8', style: LineStyle.Dotted },
+      { title: 'ADR Low', value: adrData.adr_low, color: '#06b6d4', style: LineStyle.Dashed },
+    ] as const;
+    for (const level of levels) {
+      const series = chart.addSeries(LineSeries, {
+        color: level.color,
+        lineWidth: 2,
+        lineStyle: level.style,
+        title: `${level.title} ${level.value.toFixed(2)}`,
+        priceLineVisible: false,
+        lastValueVisible: true,
+      });
+      series.setData([{ time: start, value: level.value }, { time: end, value: level.value }]);
+      adrSeriesRefs.current.push(series);
+    }
+  }, [adrData, chartRevision]);
+
   // Draw trendlines on chart
   useEffect(() => {
     if (!chartRef.current || !showTrendLines) return;
@@ -860,13 +953,14 @@ const TradingView: React.FC = () => {
     });
   }, [fibonacciLevels, showFibonacci]);
 
-  // Poll BWTS candles for near-real-time updates
+  // Poll BWTS candles without resetting the full chart. Fifteen seconds is
+  // fast enough for the displayed timeframes and avoids redundant redraws.
   useEffect(() => {
     if (!isLive) return;
 
     const interval = setInterval(() => {
       loadCandlesForSymbol(selectedSymbol, timeframe);
-    }, 5000);
+    }, 15000);
 
     return () => clearInterval(interval);
   }, [isLive, loadCandlesForSymbol, selectedSymbol, timeframe]);
@@ -887,7 +981,7 @@ const TradingView: React.FC = () => {
 
   useEffect(() => {
     loadCandlesForSymbol(selectedSymbol, timeframe);
-  }, [loadCandlesForSymbol, searchTerm, selectedSymbol, timeframe, updateSymbolSuggestions]);
+  }, [loadCandlesForSymbol, selectedSymbol, timeframe]);
 
   const getSymbolInfo = (symbol: string): SymbolInfo | undefined => {
     return symbolDatabase.find(s => s.symbol === symbol);
@@ -1152,6 +1246,22 @@ const TradingView: React.FC = () => {
           ) : (
             <span>No completed harmonic pattern on {selectedSymbol} {timeframe}. Scanning live candles.</span>
           )}
+        </div>
+      )}
+
+      {adrData && (
+        <div className={`px-4 py-2 border-b text-sm flex items-center gap-5 ${
+          adrData.exhausted
+            ? 'bg-red-950 border-red-800 text-red-200'
+            : 'bg-sky-950 border-sky-800 text-sky-200'
+        }`}>
+          <span className="font-semibold">ADR(14): {adrData.adr.toFixed(2)}</span>
+          <span>{adrData.percent_used.toFixed(0)}% used</span>
+          <span>Range: {adrData.current_range.toFixed(2)}</span>
+          <span>ADR Low: {adrData.adr_low.toFixed(2)}</span>
+          <span>Open: {adrData.day_open.toFixed(2)}</span>
+          <span>ADR High: {adrData.adr_high.toFixed(2)}</span>
+          {adrData.exhausted && <span className="font-bold">Range exhausted</span>}
         </div>
       )}
 
