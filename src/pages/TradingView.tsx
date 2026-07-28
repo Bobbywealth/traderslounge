@@ -86,8 +86,8 @@ interface ChartAdr {
 }
 
 const BWTS_SYMBOLS: SymbolInfo[] = [
-  { symbol: 'BTCUSD', name: 'Bitcoin / US Dollar', exchange: 'Binance.US', type: 'crypto' },
-  { symbol: 'ETHUSD', name: 'Ethereum / US Dollar', exchange: 'Binance.US', type: 'crypto' },
+  { symbol: 'BTCUSD', name: 'Bitcoin / US Dollar', exchange: 'Binance Market Data', type: 'crypto' },
+  { symbol: 'ETHUSD', name: 'Ethereum / US Dollar', exchange: 'Binance Market Data', type: 'crypto' },
 ];
 
 const TradingView: React.FC = () => {
@@ -105,6 +105,7 @@ const TradingView: React.FC = () => {
   const loadedChartKeyRef = useRef('');
   const candleRequestRef = useRef(0);
   const marketWsRef = useRef<WebSocket | null>(null);
+  const lastUiPriceUpdateRef = useRef(0);
   const [chartType, setChartType] = useState<ChartType>('candlestick');
   const [showVolume, setShowVolume] = useState(true);
   const [chartRevision, setChartRevision] = useState(0);
@@ -964,19 +965,19 @@ const TradingView: React.FC = () => {
     });
   }, [fibonacciLevels, showFibonacci]);
 
-  // Native-feeling live candles: REST loads history once, then Binance.US
-  // WebSocket kline events update the active candle as ticks arrive.
+  // Native-feeling live candles: REST loads history once, then the global
+  // public Binance market-data stream updates the active candle trade-by-trade.
   useEffect(() => {
     const symbolMap: Record<string, string> = {
       BTCUSD: 'btcusdt', ETHUSD: 'ethusdt',
     };
-    const intervalMap: Record<string, string> = {
-      '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
-      '1h': '1h', '4h': '4h', '1d': '1d', '1w': '1w',
+    const timeframeSeconds: Record<string, number> = {
+      '1m': 60, '5m': 300, '15m': 900, '30m': 1800,
+      '1h': 3600, '4h': 14400, '1d': 86400, '1w': 604800,
     };
     const streamSymbol = symbolMap[selectedSymbol];
-    const streamInterval = intervalMap[timeframe];
-    if (!isLive || !streamSymbol || !streamInterval) {
+    const bucketSeconds = timeframeSeconds[timeframe];
+    if (!isLive || !streamSymbol || !bucketSeconds) {
       setIsStreaming(false);
       return;
     }
@@ -987,7 +988,7 @@ const TradingView: React.FC = () => {
     const connect = () => {
       if (disposed) return;
       const ws = new WebSocket(
-        `wss://stream.binance.us:9443/ws/${streamSymbol}@kline_${streamInterval}`
+        `wss://data-stream.binance.vision/ws/${streamSymbol}@trade`
       );
       marketWsRef.current = ws;
       ws.onopen = () => {
@@ -997,25 +998,39 @@ const TradingView: React.FC = () => {
         if (disposed || loadedChartKeyRef.current !== key) return;
         try {
           const message = JSON.parse(event.data);
-          const kline = message?.k;
-          if (!kline || !candlestickSeriesRef.current) return;
-          const candle: CandlestickData = {
-            time: Math.floor(Number(kline.t) / 1000) as UTCTimestamp,
-            open: Number(kline.o), high: Number(kline.h),
-            low: Number(kline.l), close: Number(kline.c),
-          };
-          candlestickSeriesRef.current.update(candle);
+          const price = Number(message?.p);
+          const tradeTime = Math.floor(Number(message?.T) / 1000);
+          if (!Number.isFinite(price) || !Number.isFinite(tradeTime) ||
+              !candlestickSeriesRef.current) return;
+          const bucketTime = Math.floor(tradeTime / bucketSeconds) * bucketSeconds;
           const cached = candleCacheRef.current[key] || [];
-          if (cached.length > 0 && cached[cached.length - 1].time === candle.time) {
+          const previous = cached[cached.length - 1];
+          const candle: CandlestickData = previous && Number(previous.time) === bucketTime
+            ? {
+                ...previous,
+                high: Math.max(previous.high, price),
+                low: Math.min(previous.low, price),
+                close: price,
+              }
+            : {
+                time: bucketTime as UTCTimestamp,
+                open: price, high: price, low: price, close: price,
+              };
+          candlestickSeriesRef.current.update(candle);
+          if (previous && Number(previous.time) === bucketTime) {
             cached[cached.length - 1] = candle;
           } else {
             cached.push(candle);
             if (cached.length > 250) cached.shift();
           }
           candleCacheRef.current[key] = cached;
-          setCurrentPrice(candle.close);
+          const now = performance.now();
+          if (now - lastUiPriceUpdateRef.current >= 100) {
+            lastUiPriceUpdateRef.current = now;
+            setCurrentPrice(price);
+          }
         } catch (error) {
-          console.warn('Invalid Binance.US stream event:', error);
+          console.warn('Invalid Binance market-data event:', error);
         }
       };
       ws.onerror = () => ws.close();

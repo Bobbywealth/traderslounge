@@ -25,10 +25,12 @@ from .data_types import Candle
 
 log = logging.getLogger(__name__)
 
-# Default to the US-legal endpoint: api.binance.com is geo-blocked (HTTP 451)
-# from the US, which includes Render's Oregon region. Override with
-# BINANCE_BASE_URL if you ever need a different endpoint.
-BINANCE_BASE = os.environ.get("BINANCE_BASE_URL", "https://api.binance.us")
+# Public market-data-only endpoint. Unlike api.binance.com it is reachable
+# from the US, and unlike Binance.US it has the global market's liquidity.
+# It exposes no account/trading endpoints and requires no API key.
+BINANCE_BASE = os.environ.get(
+    "BINANCE_BASE_URL", "https://data-api.binance.vision"
+)
 
 # Internal pair → Binance symbol. USDT is the de-facto USD stable.
 BINANCE_SYMBOL_MAP: Dict[str, str] = {
