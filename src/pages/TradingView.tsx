@@ -643,20 +643,19 @@ const TradingView: React.FC = () => {
       // below performs the single initial market-data request.
       loadSymbolData(selectedSymbol);
 
-      // Handle resize
-      const handleResize = () => {
-        if (chartContainerRef.current && chartRef.current) {
-          chartRef.current.applyOptions({
-            width: chartContainerRef.current.clientWidth,
-            height: chartContainerRef.current.clientHeight,
-          });
-        }
-      };
-
-      window.addEventListener('resize', handleResize);
+      // Observe the actual container, not just window resize. This catches
+      // sidebar collapse and async harmonic/ADR status bars without leaving
+      // a stale canvas that creates page overflow.
+      const resizeObserver = new ResizeObserver(([entry]) => {
+        if (!entry || !chartRef.current) return;
+        const width = Math.max(1, Math.floor(entry.contentRect.width));
+        const height = Math.max(1, Math.floor(entry.contentRect.height));
+        chartRef.current.applyOptions({ width, height });
+      });
+      resizeObserver.observe(chartContainerRef.current);
 
       return () => {
-        window.removeEventListener('resize', handleResize);
+        resizeObserver.disconnect();
         if (chartRef.current) {
           chartRef.current.remove();
           chartRef.current = null;
@@ -1081,7 +1080,7 @@ const TradingView: React.FC = () => {
   const currentSymbolInfo = getSymbolInfo(selectedSymbol);
 
   return (
-    <div className="h-screen bg-gray-900 text-white flex flex-col">
+    <div className="h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 text-white flex flex-col">
       {/* Enhanced Top Controls */}
       <div className="bg-gray-800 border-b border-gray-700 px-4 py-3">
         <div className="flex items-center justify-between">
@@ -1355,10 +1354,10 @@ const TradingView: React.FC = () => {
       )}
 
       {/* Chart Area */}
-      <div className="flex-1 relative bg-gray-900">
-        <div 
+      <div className="flex-1 min-w-0 min-h-0 overflow-hidden relative bg-gray-900">
+        <div
           ref={chartContainerRef}
-          className="w-full h-full"
+          className="w-full h-full min-w-0 min-h-0 overflow-hidden"
         />
         
         {/* Pattern Info Overlay */}
