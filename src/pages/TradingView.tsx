@@ -729,20 +729,8 @@ const TradingView: React.FC = () => {
 
       const xTime = lineData[0].time as number;
       const dTime = lineData[4].time as number;
-      const endTime = Math.max(Math.floor(Date.now() / 1000), dTime + 60) as UTCTimestamp;
-      for (const [title, value] of [['PRZ Low', pattern.prz.min], ['PRZ High', pattern.prz.max]] as const) {
-        const przSeries = chart.addSeries(LineSeries, {
-          color,
-          lineWidth: 2,
-          lineStyle: LineStyle.Dotted,
-          title,
-        });
-        przSeries.setData([
-          { time: lineData[4].time, value },
-          { time: endTime, value },
-        ]);
-        harmonicSeriesRefs.current.push(przSeries);
-      }
+      // PRZ is rendered as a compact SVG box around D below. Do not add
+      // horizontal series that bleed through the rest of the chart.
       const patternSpan = Math.max(3600, dTime - xTime);
       chart.timeScale().setVisibleRange({
         from: Math.floor(xTime - patternSpan * 0.3) as UTCTimestamp,
@@ -844,10 +832,12 @@ const TradingView: React.FC = () => {
         if (yLow != null && yHigh != null && d.x != null) {
           const top = Math.min(yLow, yHigh);
           const height = Math.max(8, Math.abs(yLow - yHigh));
+          const boxX = Math.max(0, Number(d.x) - 8);
+          const boxWidth = Math.max(60, Math.min(140, container.clientWidth - boxX));
           const prz = document.createElementNS(SVG_NS, 'rect');
-          prz.setAttribute('x', String(d.x));
+          prz.setAttribute('x', String(boxX));
           prz.setAttribute('y', String(top));
-          prz.setAttribute('width', String(Math.max(80, container.clientWidth - Number(d.x))));
+          prz.setAttribute('width', String(boxWidth));
           prz.setAttribute('height', String(height));
           prz.setAttribute('fill', color);
           prz.setAttribute('fill-opacity', '0.18');
@@ -857,7 +847,7 @@ const TradingView: React.FC = () => {
           svg.appendChild(prz);
 
           const przLabel = document.createElementNS(SVG_NS, 'text');
-          przLabel.setAttribute('x', String(Number(d.x) + 10));
+          przLabel.setAttribute('x', String(boxX + 8));
           przLabel.setAttribute('y', String(top - 7));
           przLabel.setAttribute('fill', color);
           przLabel.setAttribute('font-size', '13');
