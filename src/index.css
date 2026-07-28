@@ -272,3 +272,55 @@ body {
 .input-enhanced:hover {
   @apply border-gray-300 dark:border-slate-500;
 }
+
+/* ConfluenceX landing motion system */
+.chart-grid {
+  background-image: linear-gradient(rgba(74, 92, 138, 0.13) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(74, 92, 138, 0.13) 1px, transparent 1px);
+  background-size: 52px 44px;
+}
+
+.chart-path {
+  stroke-dasharray: 1800;
+  stroke-dashoffset: 1800;
+  animation: chart-draw 3.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.signal-card {
+  animation: signal-float 4.5s ease-in-out infinite;
+}
+
+.ticker-track {
+  animation: ticker-slide 28s linear infinite;
+}
+
+.feature-card {
+  animation: feature-rise 0.7s ease both;
+  animation-timeline: view();
+  animation-range: entry 8% cover 28%;
+}
+
+@keyframes chart-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes signal-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@keyframes ticker-slide {
+  from { transform: translateX(0); }
+  to { transform: translateX(-33.333%); }
+}
+
+@keyframes feature-rise {
+  from { opacity: 0; transform: translateY(28px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-path, .signal-card, .ticker-track, .feature-card {
+    animation: none !important;
+  }
+}

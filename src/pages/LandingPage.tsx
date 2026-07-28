@@ -1,530 +1,143 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Shield, 
-  Zap, 
-  Users, 
-  BarChart3, 
-  Globe, 
-  Star, 
-  CheckCircle, 
-  ArrowRight,
-  Play,
-  Award,
-  Target,
-  Brain,
-  Smartphone,
-  DollarSign,
-  Menu,
-  X
+  Activity, ArrowRight, BookOpen, Check, ChevronRight,
+  Crosshair, Gauge, Layers3, Menu, Play, Radar, ShieldCheck,
+  Sparkles, Users, X
 } from 'lucide-react';
 import AuthModal from '../components/AuthModal';
 import ConfluenceXLogo from '../components/ConfluenceXLogo';
+
+const signals = [
+  { pair: 'BTCUSD', tf: '15m', side: 'LONG', score: 92, price: '63,348.16' },
+  { pair: 'ETHUSD', tf: '1h', side: 'LONG', score: 87, price: '3,182.40' },
+  { pair: 'SOLUSD', tf: '4h', side: 'SHORT', score: 81, price: '184.72' },
+];
+
+const features = [
+  { icon: Radar, eyebrow: 'LIVE SCANNER', title: 'Find the setup before the crowd.', description: 'Continuously scan liquid markets for high-confluence opportunities across structure, momentum, volatility, and trend.', accent: 'cyan' },
+  { icon: Crosshair, eyebrow: 'HARMONICS', title: 'See XABCD patterns drawn live.', description: 'Automatic harmonic detection maps the active geometry, completion point, and compact potential reversal zone directly on your chart.', accent: 'violet' },
+  { icon: Gauge, eyebrow: 'ADR ENGINE', title: 'Know how much range is left.', description: 'Live ADR context shows today’s range usage, projected high and low, and where price sits inside the expected daily move.', accent: 'fuchsia' },
+  { icon: Layers3, eyebrow: 'CONFLUENCE SCORE', title: 'One score. Every critical factor.', description: 'Turn scattered technical evidence into a clear, repeatable framework that helps you prioritize the strongest setups.', accent: 'cyan' },
+  { icon: BookOpen, eyebrow: 'JOURNAL', title: 'Turn execution into an edge.', description: 'Review decisions, patterns, and outcomes in one workflow designed to expose what actually improves your trading.', accent: 'violet' },
+  { icon: ShieldCheck, eyebrow: 'RISK FIRST', title: 'Trade the plan, not the feeling.', description: 'Structure every idea around invalidation, risk, and confirmation before execution enters the conversation.', accent: 'fuchsia' },
+];
+
+const ticker = ['BTCUSD  63,348.16  +0.12%', 'ETHUSD  3,182.40  +1.08%', 'SOLUSD  184.72  -0.34%', 'ADR USED  45%', 'LIVE SCANNER  ONLINE'];
 
 const LandingPage: React.FC = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Close mobile menu on Escape key for accessibility
   useEffect(() => {
     if (!mobileMenuOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMobileMenuOpen(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    const close = (event: KeyboardEvent) => event.key === 'Escape' && setMobileMenuOpen(false);
+    window.addEventListener('keydown', close);
+    return () => window.removeEventListener('keydown', close);
   }, [mobileMenuOpen]);
 
-  const features = [
-    {
-      icon: BarChart3,
-      title: 'Professional Charts',
-      description: 'Advanced TradingView-style charts with 50+ technical indicators and drawing tools.',
-      color: 'emerald'
-    },
-    {
-      icon: Globe,
-      title: 'Multi-Broker Support',
-      description: 'Connect to 10+ brokers including MT4/5, OANDA, Interactive Brokers, and more.',
-      color: 'blue'
-    },
-    {
-      icon: Brain,
-      title: 'AI Trading Assistant',
-      description: 'Get intelligent market insights and trade suggestions powered by advanced AI.',
-      color: 'purple'
-    },
-    {
-      icon: Shield,
-      title: 'Bank-Level Security',
-      description: 'Your data is encrypted and protected with enterprise-grade security measures.',
-      color: 'red'
-    },
-    {
-      icon: Zap,
-      title: 'Real-Time Data',
-      description: 'Live market data, economic calendar, and breaking news from trusted sources.',
-      color: 'orange'
-    },
-    {
-      icon: Smartphone,
-      title: 'Mobile Trading',
-      description: 'Trade on the go with our responsive PWA that works on any device.',
-      color: 'indigo'
-    }
-  ];
-
-  const testimonials = [
-    {
-      name: 'Sarah Chen',
-      role: 'Professional Trader',
-      avatar: 'SC',
-      rating: 5,
-      text: 'ConfluenceX has revolutionized my trading workflow. The multi-broker integration saves me hours every day.'
-    },
-    {
-      name: 'Marcus Rodriguez',
-      role: 'Hedge Fund Manager',
-      avatar: 'MR',
-      rating: 5,
-      text: 'The AI insights are incredibly accurate. My win rate has improved by 23% since using this platform.'
-    },
-    {
-      name: 'Emily Johnson',
-      role: 'Day Trader',
-      avatar: 'EJ',
-      rating: 5,
-      text: 'Finally, a platform that combines everything I need. Charts, news, calendar - all in one beautiful interface.'
-    }
-  ];
-
-  const pricingPlans = [
-    {
-      name: 'Free',
-      price: '$0',
-      period: 'forever',
-      description: 'Perfect for beginners',
-      features: [
-        'Basic charts and indicators',
-        'Economic calendar',
-        'Community access',
-        'Mobile app',
-        'Email support'
-      ],
-      popular: false,
-      color: 'gray'
-    },
-    {
-      name: 'Pro',
-      price: '$29',
-      period: 'per month',
-      description: 'For serious traders',
-      features: [
-        'Advanced charts & 50+ indicators',
-        'Multi-broker integration',
-        'AI trading assistant',
-        'Real-time alerts',
-        'Priority support',
-        'Advanced analytics'
-      ],
-      popular: true,
-      color: 'emerald'
-    },
-    {
-      name: 'Premium',
-      price: '$99',
-      period: 'per month',
-      description: 'For professional traders',
-      features: [
-        'Everything in Pro',
-        'Custom indicators',
-        'API access',
-        'White-label options',
-        'Dedicated account manager',
-        'Custom integrations'
-      ],
-      popular: false,
-      color: 'purple'
-    }
-  ];
-
-  const stats = [
-    { number: '50K+', label: 'Active Traders' },
-    { number: '$2.5B+', label: 'Trading Volume' },
-    { number: '99.9%', label: 'Uptime' },
-    { number: '150+', label: 'Countries' }
-  ];
-
-  const openAuthModal = (mode: 'login' | 'signup') => {
+  const openAuth = (mode: 'login' | 'signup') => {
     setAuthMode(mode);
     setShowAuthModal(true);
+    setMobileMenuOpen(false);
   };
 
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-900">
-      {/* Navigation */}
-      <nav className="fixed top-0 w-full bg-white/80 dark:bg-gray-900/80 backdrop-blur-lg border-b border-gray-200 dark:border-gray-700 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <ConfluenceXLogo size="sm" />
-            
-            <div className="hidden md:flex items-center space-x-2">
-              <a href="#features" className="inline-flex items-center py-3 min-h-[44px] text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Features</a>
-              <a href="#pricing" className="inline-flex items-center py-3 min-h-[44px] text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Pricing</a>
-              <a href="#testimonials" className="inline-flex items-center py-3 min-h-[44px] text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Reviews</a>
-            </div>
+    <div className="min-h-screen overflow-hidden bg-[#05070d] text-white selection:bg-violet-500/40">
+      <div className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_15%_5%,rgba(34,211,238,0.10),transparent_24%),radial-gradient(circle_at_85%_10%,rgba(139,92,246,0.13),transparent_28%)]" />
 
-            <div className="flex items-center space-x-2 sm:space-x-4">
-              <button
-                onClick={() => openAuthModal('login')}
-                className="hidden sm:inline-flex items-center py-3 min-h-[44px] text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
-              >
-                Sign In
-              </button>
-              <button
-                onClick={() => openAuthModal('signup')}
-                className="bg-emerald-500 text-white px-3 sm:px-4 py-3 min-h-[44px] rounded-lg hover:bg-emerald-600 transition-colors duration-200 text-sm sm:text-base whitespace-nowrap"
-              >
-                Get Started
-              </button>
-
-              {/* Mobile hamburger - visible below md (768px) to expose Features/Pricing/Reviews/Sign In */}
-              <button
-                type="button"
-                onClick={() => setMobileMenuOpen(v => !v)}
-                aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
-                aria-expanded={mobileMenuOpen}
-                aria-controls="mobile-nav-drawer"
-                className="md:hidden inline-flex items-center justify-center min-h-[44px] min-w-[44px] p-2 -mr-2 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              >
-                {mobileMenuOpen ? (
-                  <X className="w-6 h-6" aria-hidden="true" />
-                ) : (
-                  <Menu className="w-6 h-6" aria-hidden="true" />
-                )}
-              </button>
+      <nav className="fixed inset-x-0 top-0 z-50 border-b border-white/[0.07] bg-[#05070d]/75 backdrop-blur-2xl">
+        <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-5 lg:px-8">
+          <a href="#top" aria-label="ConfluenceX home"><ConfluenceXLogo size="md" /></a>
+          <div className="hidden items-center gap-8 text-sm font-medium text-slate-400 md:flex">
+            <a href="#platform" className="transition hover:text-cyan-300">Platform</a>
+            <a href="#workflow" className="transition hover:text-cyan-300">Workflow</a>
+            <a href="#pricing" className="transition hover:text-cyan-300">Pricing</a>
+            <a href="#community" className="transition hover:text-cyan-300">Community</a>
+          </div>
+          <div className="hidden items-center gap-3 md:flex">
+            <button onClick={() => openAuth('login')} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white">Sign in</button>
+            <button onClick={() => openAuth('signup')} className="group rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 p-px shadow-[0_0_28px_rgba(34,211,238,0.16)]">
+              <span className="flex items-center gap-2 rounded-[11px] bg-[#0a0e1a] px-5 py-2.5 text-sm font-bold transition group-hover:bg-transparent">Get started <ArrowRight className="h-4 w-4" /></span>
+            </button>
+          </div>
+          <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="rounded-xl border border-white/10 p-2.5 md:hidden" aria-label="Toggle menu">
+            {mobileMenuOpen ? <X /> : <Menu />}
+          </button>
+        </div>
+        {mobileMenuOpen && (
+          <div className="border-t border-white/10 bg-[#080b14] px-5 py-5 md:hidden">
+            <div className="flex flex-col gap-2 text-slate-300">
+              {['platform', 'workflow', 'pricing', 'community'].map((item) => <a key={item} href={`#${item}`} onClick={() => setMobileMenuOpen(false)} className="rounded-lg px-3 py-3 capitalize hover:bg-white/5">{item}</a>)}
+              <div className="mt-3 grid grid-cols-2 gap-3"><button onClick={() => openAuth('login')} className="rounded-xl border border-white/10 py-3">Sign in</button><button onClick={() => openAuth('signup')} className="rounded-xl bg-gradient-to-r from-cyan-500 to-violet-500 py-3 font-bold">Get started</button></div>
             </div>
           </div>
-
-          {/* Mobile drawer panel - slides down from nav, contains Features/Pricing/Reviews/Sign In */}
-          {mobileMenuOpen && (
-            <div
-              id="mobile-nav-drawer"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Mobile navigation"
-              className="md:hidden absolute left-0 right-0 top-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-lg"
-            >
-              <div className="px-4 py-3 flex flex-col">
-                <a
-                  href="#features"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="min-h-[44px] flex items-center px-2 -mx-2 py-3 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                >
-                  Features
-                </a>
-                <a
-                  href="#pricing"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="min-h-[44px] flex items-center px-2 -mx-2 py-3 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                >
-                  Pricing
-                </a>
-                <a
-                  href="#testimonials"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="min-h-[44px] flex items-center px-2 -mx-2 py-3 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                >
-                  Reviews
-                </a>
-                <button
-                  type="button"
-                  onClick={() => { setMobileMenuOpen(false); openAuthModal('login'); }}
-                  className="sm:hidden min-h-[44px] flex items-center px-2 -mx-2 py-3 rounded-lg text-left text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                >
-                  Sign In
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+        )}
       </nav>
 
-      {/* Hero Section */}
-      <section className="pt-24 pb-16 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-        {/* Background Image */}
-        <div className="absolute inset-0 z-0">
-          <img src="/hero-bg.jpg" alt="" className="w-full h-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-br from-gray-900/90 via-gray-900/80 to-gray-900/95" />
-        </div>
-        <div className="max-w-7xl mx-auto relative z-10">
-          <div className="text-center">
-            <div className="inline-flex items-center px-4 py-2 bg-emerald-100/90 dark:bg-emerald-900/30 rounded-full text-emerald-700 dark:text-emerald-300 text-sm font-medium mb-8">
-              <Award className="w-4 h-4 mr-2" />
-              #1 Trading Platform of 2024
+      <main className="relative z-10">
+        <section id="top" className="relative px-5 pb-20 pt-36 lg:pb-28 lg:pt-44">
+          <div className="absolute left-[10%] top-32 h-72 w-72 animate-pulse rounded-full bg-cyan-500/[0.07] blur-[100px]" />
+          <div className="absolute right-[8%] top-48 h-96 w-96 animate-pulse rounded-full bg-violet-600/[0.09] blur-[120px] [animation-delay:1s]" />
+          <div className="mx-auto max-w-7xl">
+            <div className="mx-auto max-w-4xl text-center">
+              <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/[0.07] px-4 py-2 text-xs font-bold tracking-[0.16em] text-cyan-300">
+                <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-cyan-300" /></span>
+                LIVE MARKET INTELLIGENCE
+              </div>
+              <h1 className="text-balance text-5xl font-black leading-[0.96] tracking-[-0.055em] sm:text-7xl lg:text-[92px]">
+                Stop chasing.<br /><span className="bg-gradient-to-r from-cyan-300 via-violet-400 to-fuchsia-400 bg-clip-text text-transparent">Start confirming.</span>
+              </h1>
+              <p className="mx-auto mt-7 max-w-2xl text-lg leading-relaxed text-slate-400 sm:text-xl">ConfluenceX turns live price action, harmonic structure, ADR, and multi-factor signals into one decisive trading workspace.</p>
+              <div className="mt-9 flex flex-col items-center justify-center gap-4 sm:flex-row">
+                <button onClick={() => openAuth('signup')} className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-400 via-cyan-500 to-violet-500 px-7 py-4 font-black text-[#05070d] shadow-[0_0_40px_rgba(34,211,238,0.22)] transition hover:-translate-y-1 hover:shadow-[0_0_60px_rgba(139,92,246,0.3)] sm:w-auto">Open the workspace <ArrowRight className="h-5 w-5 transition group-hover:translate-x-1" /></button>
+                <a href="#platform" className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/[0.04] px-7 py-4 font-bold text-slate-200 backdrop-blur transition hover:-translate-y-1 hover:border-white/30 hover:bg-white/[0.08] sm:w-auto"><Play className="h-4 w-4 fill-white" /> Explore the platform</a>
+              </div>
             </div>
 
-            <h1 className="text-4xl md:text-6xl font-bold text-white mb-6 drop-shadow-lg">
-              Trade Like a
-              <span className="text-emerald-400 block">Professional</span>
-            </h1>
-
-            <p className="text-xl text-gray-200 mb-8 max-w-3xl mx-auto drop-shadow">
-              The most advanced trading platform with AI-powered insights, multi-broker integration,
-              and professional-grade tools. Join 50,000+ traders who trust ConfluenceX.
-            </p>
-
-            <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4 mb-12">
-              <button
-                onClick={() => openAuthModal('signup')}
-                className="w-full sm:w-auto bg-emerald-500 text-white px-8 py-4 rounded-xl font-semibold hover:bg-emerald-600 transition-colors duration-200 flex items-center justify-center shadow-lg"
-              >
-                Start Trading Free
-                <ArrowRight className="w-5 h-5 ml-2" />
-              </button>
-              <button className="w-full sm:w-auto border border-white/40 text-white px-8 py-4 rounded-xl font-semibold hover:bg-white/10 transition-colors duration-200 flex items-center justify-center">
-                <Play className="w-5 h-5 mr-2" />
-                Watch Demo
-              </button>
-            </div>
-
-            {/* Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto">
-              {stats.map((stat, index) => (
-                <div key={index} className="text-center">
-                  <div className="text-3xl font-bold text-white mb-2 drop-shadow">{stat.number}</div>
-                  <div className="text-gray-200">{stat.label}</div>
+            <div className="relative mx-auto mt-16 max-w-6xl [perspective:1600px]">
+              <div className="absolute -inset-8 rounded-[40px] bg-gradient-to-r from-cyan-500/15 via-violet-500/10 to-fuchsia-500/15 blur-3xl" />
+              <div className="relative overflow-hidden rounded-[24px] border border-white/15 bg-[#090d18]/95 shadow-2xl shadow-black/60 lg:[transform:rotateX(2deg)]">
+                <div className="flex h-12 items-center justify-between border-b border-white/[0.08] px-4">
+                  <div className="flex gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-rose-400/70" /><span className="h-2.5 w-2.5 rounded-full bg-amber-300/70" /><span className="h-2.5 w-2.5 rounded-full bg-emerald-400/70" /></div>
+                  <div className="rounded-md border border-white/[0.08] bg-white/[0.03] px-4 py-1 text-[10px] font-semibold tracking-widest text-slate-500">CONFLUENCEX / LIVE WORKSPACE</div>
+                  <div className="flex items-center gap-2 text-[10px] text-cyan-300"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-300" /> STREAMING</div>
                 </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section id="features" className="py-20 bg-gray-50 dark:bg-gray-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white mb-4">
-              Everything You Need to Trade
-            </h2>
-            <p className="text-xl text-gray-600 dark:text-gray-300 max-w-3xl mx-auto">
-              Professional trading tools, real-time data, and AI-powered insights all in one platform.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {features.map((feature, index) => {
-              const Icon = feature.icon;
-              const colorClasses = {
-                emerald: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400',
-                blue: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
-                purple: 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400',
-                red: 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
-                orange: 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400',
-                indigo: 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400',
-              };
-
-              return (
-                <div key={index} className="bg-white dark:bg-gray-900 p-8 rounded-2xl border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow duration-200">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-6 ${colorClasses[feature.color as keyof typeof colorClasses]}`}>
-                    <Icon className="w-6 h-6" />
+                <div className="grid min-h-[430px] lg:grid-cols-[1fr_280px]">
+                  <div className="relative overflow-hidden border-b border-white/[0.08] p-5 lg:border-b-0 lg:border-r">
+                    <div className="mb-5 flex items-center justify-between"><div><div className="text-sm font-black">BTCUSD <span className="ml-2 text-xs font-medium text-slate-500">15m</span></div><div className="mt-1 text-2xl font-black text-cyan-300">63,348.16 <span className="text-xs text-emerald-400">+0.12%</span></div></div><div className="rounded-lg border border-cyan-400/20 bg-cyan-400/5 px-3 py-2 text-xs text-cyan-300">ADR 45% used</div></div>
+                    <div className="relative h-72 overflow-hidden rounded-xl border border-white/[0.06] bg-[#060912] chart-grid">
+                      <svg viewBox="0 0 800 280" className="h-full w-full" preserveAspectRatio="none" aria-label="Animated market chart">
+                        <defs><linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#22d3ee" stopOpacity=".22"/><stop offset="1" stopColor="#22d3ee" stopOpacity="0"/></linearGradient><linearGradient id="chartLine" x1="0" y1="0" x2="1" y2="0"><stop stopColor="#22d3ee"/><stop offset=".55" stopColor="#8b5cf6"/><stop offset="1" stopColor="#d946ef"/></linearGradient></defs>
+                        <path d="M0 230 C45 225 55 198 92 204 S145 180 180 187 S229 142 266 151 S316 110 354 124 S400 64 446 86 S492 148 532 119 S570 165 610 112 S664 54 704 76 S754 34 800 47 L800 280 L0 280 Z" fill="url(#chartFill)" />
+                        <path className="chart-path" d="M0 230 C45 225 55 198 92 204 S145 180 180 187 S229 142 266 151 S316 110 354 124 S400 64 446 86 S492 148 532 119 S570 165 610 112 S664 54 704 76 S754 34 800 47" fill="none" stroke="url(#chartLine)" strokeWidth="3" />
+                        <path d="M266 151 L354 124 L446 86 L532 119 L610 112" fill="rgba(139,92,246,.10)" stroke="#a78bfa" strokeWidth="1.5" strokeDasharray="5 5" />
+                        {[[266,151,'X'],[354,124,'A'],[446,86,'B'],[532,119,'C'],[610,112,'D']].map(([x,y,label]) => <g key={String(label)}><circle cx={Number(x)} cy={Number(y)} r="5" fill="#070a12" stroke="#e9d5ff" strokeWidth="2"/><text x={Number(x)} y={Number(y)-12} fill="#e9d5ff" fontSize="12" textAnchor="middle">{label}</text></g>)}
+                      </svg>
+                      <div className="absolute bottom-3 left-3 rounded-lg border border-violet-400/20 bg-violet-500/10 px-3 py-2 text-[10px] font-bold text-violet-200">BULLISH BAT · PRZ CONFIRMED</div>
+                    </div>
                   </div>
-                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                    {feature.title}
-                  </h3>
-                  <p className="text-gray-600 dark:text-gray-300">
-                    {feature.description}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      {/* Testimonials */}
-      <section id="testimonials" className="py-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white mb-4">
-              Trusted by Traders Worldwide
-            </h2>
-            <p className="text-xl text-gray-600 dark:text-gray-300">
-              See what our community of professional traders has to say.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {testimonials.map((testimonial, index) => (
-              <div key={index} className="bg-white dark:bg-gray-800 p-8 rounded-2xl border border-gray-200 dark:border-gray-700">
-                <div className="flex items-center mb-4">
-                  {[...Array(testimonial.rating)].map((_, i) => (
-                    <Star key={i} className="w-5 h-5 text-yellow-400 fill-current" />
-                  ))}
-                </div>
-                <p className="text-gray-600 dark:text-gray-300 mb-6">
-                  "{testimonial.text}"
-                </p>
-                <div className="flex items-center">
-                  <div className="w-12 h-12 bg-emerald-500 rounded-full flex items-center justify-center text-white font-semibold mr-4">
-                    {testimonial.avatar}
-                  </div>
-                  <div>
-                    <div className="font-semibold text-gray-900 dark:text-white">{testimonial.name}</div>
-                    <div className="text-gray-600 dark:text-gray-400">{testimonial.role}</div>
-                  </div>
+                  <div className="p-4"><div className="mb-3 flex items-center justify-between"><span className="text-xs font-black tracking-widest text-slate-500">LIVE SIGNALS</span><Activity className="h-4 w-4 text-cyan-300" /></div><div className="space-y-3">{signals.map((signal, index) => <div key={signal.pair} className="signal-card rounded-xl border border-white/[0.07] bg-white/[0.025] p-3" style={{animationDelay: `${index * 220}ms`}}><div className="flex items-center justify-between"><div className="font-black">{signal.pair} <span className="text-[10px] font-medium text-slate-500">{signal.tf}</span></div><span className={`rounded px-2 py-1 text-[9px] font-black ${signal.side === 'LONG' ? 'bg-emerald-400/10 text-emerald-300' : 'bg-rose-400/10 text-rose-300'}`}>{signal.side}</span></div><div className="mt-3 flex items-end justify-between"><span className="text-xs text-slate-500">{signal.price}</span><div className="text-right"><div className="text-lg font-black text-cyan-300">{signal.score}</div><div className="text-[8px] tracking-wider text-slate-600">SCORE</div></div></div></div>)}</div></div>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Pricing */}
-      <section id="pricing" className="py-20 bg-gray-50 dark:bg-gray-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white mb-4">
-              Choose Your Trading Plan
-            </h2>
-            <p className="text-xl text-gray-600 dark:text-gray-300">
-              Start free and upgrade as you grow. No hidden fees, cancel anytime.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {pricingPlans.map((plan, index) => (
-              <div key={index} className={`bg-white dark:bg-gray-900 p-8 rounded-2xl border-2 relative ${
-                plan.popular 
-                  ? 'border-emerald-500 shadow-lg' 
-                  : 'border-gray-200 dark:border-gray-700'
-              }`}>
-                {plan.popular && (
-                  <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
-                    <span className="bg-emerald-500 text-white px-4 py-2 rounded-full text-sm font-semibold">
-                      Most Popular
-                    </span>
-                  </div>
-                )}
-                
-                <div className="text-center mb-8">
-                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">{plan.name}</h3>
-                  <p className="text-gray-600 dark:text-gray-400 mb-4">{plan.description}</p>
-                  <div className="flex items-baseline justify-center">
-                    <span className="text-4xl font-bold text-gray-900 dark:text-white">{plan.price}</span>
-                    <span className="text-gray-600 dark:text-gray-400 ml-2">/{plan.period}</span>
-                  </div>
-                </div>
-
-                <ul className="space-y-4 mb-8">
-                  {plan.features.map((feature, featureIndex) => (
-                    <li key={featureIndex} className="flex items-center">
-                      <CheckCircle className="w-5 h-5 text-emerald-500 mr-3" />
-                      <span className="text-gray-600 dark:text-gray-300">{feature}</span>
-                    </li>
-                  ))}
-                </ul>
-
-                <button
-                  onClick={() => openAuthModal('signup')}
-                  className={`w-full py-3 px-4 rounded-lg font-semibold transition-colors duration-200 ${
-                    plan.popular
-                      ? 'bg-emerald-500 text-white hover:bg-emerald-600'
-                      : 'border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  }`}
-                >
-                  {plan.name === 'Free' ? 'Start Free' : 'Start Trial'}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="py-20">
-        <div className="max-w-4xl mx-auto text-center px-4 sm:px-6 lg:px-8">
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white mb-6">
-            Ready to Transform Your Trading?
-          </h2>
-          <p className="text-xl text-gray-600 dark:text-gray-300 mb-8">
-            Join thousands of traders who have already upgraded their trading experience with ConfluenceX.
-          </p>
-          <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4">
-            <button
-              onClick={() => openAuthModal('signup')}
-              className="w-full sm:w-auto bg-emerald-500 text-white px-8 py-4 rounded-xl font-semibold hover:bg-emerald-600 transition-colors duration-200 flex items-center justify-center"
-            >
-              <DollarSign className="w-5 h-5 mr-2" />
-              Start Trading Free
-            </button>
-            <button className="w-full sm:w-auto border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 px-8 py-4 rounded-xl font-semibold hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors duration-200 flex items-center justify-center">
-              <Users className="w-5 h-5 mr-2" />
-              Join Community
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="bg-gray-900 text-white py-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-            <div>
-              <ConfluenceXLogo size="sm" showTagline className="mb-4" />
-              <p className="text-gray-400">
-                The most advanced trading platform for professional traders worldwide.
-              </p>
-            </div>
-            
-            <div>
-              <h4 className="font-semibold mb-4">Product</h4>
-              <ul className="space-y-2 text-gray-400">
-                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Features</a></li>
-                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Pricing</a></li>
-                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">API</a></li>
-                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Integrations</a></li>
-              </ul>
-            </div>
-            
-            <div>
-              <h4 className="font-semibold mb-4">Company</h4>
-              <ul className="space-y-2 text-gray-400">
-                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">About</a></li>
-                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Blog</a></li>
-                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Careers</a></li>
-                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Contact</a></li>
-              </ul>
-            </div>
-            
-            <div>
-              <h4 className="font-semibold mb-4">Support</h4>
-              <ul className="space-y-2 text-gray-400">
-                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Help Center</a></li>
-                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Community</a></li>
-                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Status</a></li>
-                <li><a href="#" className="inline-block py-2 -my-2 min-h-[44px] hover:text-white transition-colors">Security</a></li>
-              </ul>
             </div>
           </div>
-          
-          <div className="border-t border-gray-800 mt-8 pt-8 flex flex-col md:flex-row items-center justify-between">
-            <p className="text-gray-400">© 2024 ConfluenceX. All rights reserved.</p>
-            <div className="flex items-center space-x-6 mt-4 md:mt-0">
-              <a href="#" className="inline-block py-2 -my-2 min-h-[44px] text-gray-400 hover:text-white transition-colors">Privacy</a>
-              <a href="#" className="inline-block py-2 -my-2 min-h-[44px] text-gray-400 hover:text-white transition-colors">Terms</a>
-              <a href="#" className="inline-block py-2 -my-2 min-h-[44px] text-gray-400 hover:text-white transition-colors">Cookies</a>
-            </div>
-          </div>
-        </div>
-      </footer>
+        </section>
 
-      <AuthModal 
-        isOpen={showAuthModal} 
-        onClose={() => setShowAuthModal(false)} 
-        initialMode={authMode}
-      />
+        <div className="border-y border-white/[0.06] bg-white/[0.02] py-3"><div className="ticker-track flex w-max gap-12 whitespace-nowrap text-[11px] font-bold tracking-[0.15em] text-slate-500">{[...ticker,...ticker,...ticker].map((item,index) => <span key={`${item}-${index}`} className={item.includes('+') ? 'text-emerald-400/80' : item.includes('-') ? 'text-rose-400/80' : ''}>{item}</span>)}</div></div>
+
+        <section id="platform" className="px-5 py-28"><div className="mx-auto max-w-7xl"><div className="max-w-3xl"><div className="mb-4 text-xs font-black tracking-[0.22em] text-cyan-300">BUILT FOR DECISIVE TRADERS</div><h2 className="text-4xl font-black tracking-[-0.04em] sm:text-6xl">Every signal means more<br/><span className="text-slate-600">when the evidence converges.</span></h2><p className="mt-5 max-w-2xl text-lg leading-relaxed text-slate-400">ConfluenceX replaces tab chaos with one focused system for discovery, confirmation, execution planning, and review.</p></div><div className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-3">{features.map(({icon:Icon,...feature},index) => <article key={feature.title} className="feature-card group relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.025] p-6 transition duration-500 hover:-translate-y-2 hover:border-cyan-400/25 hover:bg-white/[0.045]" style={{animationDelay:`${index*100}ms`}}><div className="absolute right-0 top-0 h-28 w-28 rounded-full bg-violet-500/0 blur-3xl transition group-hover:bg-violet-500/15"/><div className="mb-8 flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-gradient-to-br from-cyan-400/15 to-violet-500/15 text-cyan-300"><Icon className="h-5 w-5"/></div><div className="text-[10px] font-black tracking-[0.2em] text-slate-500">{feature.eyebrow}</div><h3 className="mt-3 text-xl font-black tracking-tight">{feature.title}</h3><p className="mt-3 leading-relaxed text-slate-400">{feature.description}</p><ChevronRight className="mt-6 h-5 w-5 text-slate-700 transition group-hover:translate-x-2 group-hover:text-cyan-300"/></article>)}</div></div></section>
+
+        <section id="workflow" className="border-y border-white/[0.06] bg-[#080b14] px-5 py-28"><div className="mx-auto grid max-w-7xl gap-16 lg:grid-cols-[.8fr_1.2fr] lg:items-center"><div><div className="text-xs font-black tracking-[0.22em] text-violet-300">THE CONFLUENCEX LOOP</div><h2 className="mt-4 text-4xl font-black tracking-[-0.04em] sm:text-6xl">A workflow that keeps emotion out.</h2><p className="mt-6 text-lg leading-relaxed text-slate-400">Move from market discovery to structured review without losing the reason behind the trade.</p><button onClick={() => openAuth('signup')} className="mt-8 flex items-center gap-2 font-black text-cyan-300 transition hover:gap-4">Build your process <ArrowRight className="h-4 w-4"/></button></div><div className="relative"><div className="absolute left-6 top-8 h-[calc(100%-4rem)] w-px bg-gradient-to-b from-cyan-400 via-violet-500 to-fuchsia-500"/>{[['01','SCAN','Surface live opportunities across markets.'],['02','CONFIRM','Validate structure, harmonics, ADR, and score.'],['03','PLAN','Define invalidation and risk before execution.'],['04','REVIEW','Journal the outcome and sharpen the edge.']].map(([number,title,copy])=><div key={number} className="group relative mb-4 flex gap-5 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-5 transition hover:translate-x-2 hover:border-violet-400/25"><div className="relative z-10 flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-[#0d1324] text-xs font-black text-cyan-300">{number}</div><div><div className="text-xs font-black tracking-[0.2em] text-slate-500">{title}</div><p className="mt-2 text-lg font-bold text-slate-200">{copy}</p></div></div>)}</div></div></section>
+
+        <section id="pricing" className="px-5 py-28"><div className="mx-auto max-w-6xl text-center"><div className="text-xs font-black tracking-[0.22em] text-cyan-300">SIMPLE ACCESS</div><h2 className="mt-4 text-4xl font-black tracking-[-0.04em] sm:text-6xl">Start seeing the whole setup.</h2><p className="mx-auto mt-5 max-w-2xl text-lg text-slate-400">Explore the ConfluenceX workspace while the platform is in active development.</p><div className="mx-auto mt-12 max-w-xl rounded-[28px] bg-gradient-to-br from-cyan-400/70 via-violet-500/60 to-fuchsia-500/70 p-px"><div className="rounded-[27px] bg-[#090d18] p-8 text-left sm:p-10"><div className="flex items-center justify-between"><div><div className="text-sm font-black tracking-widest text-cyan-300">EARLY ACCESS</div><div className="mt-2 text-4xl font-black">ConfluenceX</div></div><Sparkles className="h-8 w-8 text-violet-300"/></div><div className="mt-8 space-y-4">{['Live crypto market scanner','TradingView-style streaming charts','Harmonic XABCD overlays and PRZ','ADR projections and range context','Signals, journal, and backtesting workspace'].map(item=><div key={item} className="flex items-center gap-3 text-slate-300"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-400/10 text-cyan-300"><Check className="h-3.5 w-3.5"/></span>{item}</div>)}</div><button onClick={() => openAuth('signup')} className="mt-9 flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-400 to-violet-500 py-4 font-black text-[#05070d] transition hover:brightness-110">Enter ConfluenceX <ArrowRight className="h-5 w-5"/></button></div></div></div></section>
+
+        <section id="community" className="px-5 pb-28"><div className="relative mx-auto max-w-7xl overflow-hidden rounded-[32px] border border-white/[0.1] bg-gradient-to-br from-[#0e1830] via-[#111027] to-[#1a0e26] px-6 py-16 text-center sm:px-12 sm:py-24"><div className="absolute left-0 top-0 h-64 w-64 rounded-full bg-cyan-500/10 blur-[90px]"/><div className="absolute bottom-0 right-0 h-64 w-64 rounded-full bg-fuchsia-500/10 blur-[90px]"/><Users className="relative mx-auto h-10 w-10 text-cyan-300"/><h2 className="relative mx-auto mt-6 max-w-3xl text-4xl font-black tracking-[-0.04em] sm:text-6xl">Trade with a system.<br/>Grow with a community.</h2><p className="relative mx-auto mt-5 max-w-xl text-lg text-slate-400">Share setups, compare process, and improve alongside traders who care about confirmation over prediction.</p><button onClick={() => openAuth('signup')} className="relative mt-8 rounded-2xl bg-white px-7 py-4 font-black text-[#070a12] transition hover:-translate-y-1">Join the platform</button></div></section>
+      </main>
+
+      <footer className="relative z-10 border-t border-white/[0.07] px-5 py-12"><div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-8 sm:flex-row sm:items-center"><ConfluenceXLogo size="md" showTagline/><div className="flex flex-wrap gap-6 text-sm text-slate-500"><a href="#platform" className="hover:text-white">Platform</a><a href="#pricing" className="hover:text-white">Access</a><a href="#community" className="hover:text-white">Community</a></div><div className="text-xs text-slate-600">© 2026 ConfluenceX. Market intelligence, converged.</div></div></footer>
+
+      <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} initialMode={authMode} />
     </div>
   );
 };
