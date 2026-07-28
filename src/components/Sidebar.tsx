@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import ConfluenceXLogo from './ConfluenceXLogo';
 import {
   LayoutDashboard,
-  TrendingUp,
   Calendar,
   Zap,
   GraduationCap,
@@ -13,9 +12,7 @@ import {
   ChevronRight,
   Sparkles,
   Activity,
-  Briefcase,
   BookOpen,
-  Play,
   Settings as SettingsIcon,
 } from 'lucide-react';
 
@@ -37,16 +34,13 @@ const navigation: NavSection[] = [
     items: [
       { name: 'Live Scanner', href: '/scanner', icon: Activity },
       { name: 'Signals', href: '/signals', icon: Zap },
-      { name: 'Positions', href: '/positions', icon: Briefcase },
       { name: 'Journal', href: '/journal', icon: BookOpen },
-      { name: 'Backtester', href: '/backtester', icon: Play },
       { name: 'Settings', href: '/settings', icon: SettingsIcon },
     ],
   },
   {
     heading: 'Tools',
     items: [
-      { name: 'Trades', href: '/trades', icon: TrendingUp },
       { name: 'TradingView', href: '/tradingview', icon: BarChart3 },
       { name: 'Calendar', href: '/calendar', icon: Calendar },
       { name: 'Education', href: '/education', icon: GraduationCap },
