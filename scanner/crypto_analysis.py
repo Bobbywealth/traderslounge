@@ -7,6 +7,7 @@ requires candle-like objects with open/high/low/close/volume attributes.
 from __future__ import annotations
 
 import math
+from datetime import datetime, timezone
 from statistics import mean, pstdev
 
 from .indicators import atr, detect_swings, ema, label_swings, rsi
@@ -404,8 +405,9 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         aligned_gap = any(gap["type"] == ("bullish" if sign > 0 else "bearish") for gap in gaps) if sign else False
         if aligned_gap:
             scores["liquidity"] = _clamp(scores["liquidity"] + 3, 0, CAPS["liquidity"])
-        candle_patterns = _candle_patterns(bars)
-        harmonic = detect_harmonic(bars)
+        confirmed_bars = bars[:-1] if len(bars) > 2 else bars
+        candle_patterns = _candle_patterns(confirmed_bars)
+        harmonic = detect_harmonic(confirmed_bars)
         pattern_ok = any(("bullish" in p or p == "hammer") if sign > 0 else ("bearish" in p or p == "shooting_star") for p in candle_patterns)
         harmonic_ok = harmonic and harmonic["direction"] == ("bullish" if sign > 0 else "bearish")
         scores["patterns"] = _clamp((5 if pattern_ok else 0)+(5 if harmonic_ok else 0), 0, 10) if sign else 0
@@ -458,20 +460,62 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
     aligned_frames = [name for name in ("mn1", "w1", "d1", "h4") if bias[name]["trend"] == expected_trend]
     market_context = {"macro_bias": macro_bias, "timeframes": bias, "aligned_frames": aligned_frames, "opposing_frames": opposing_frames, "alignment_score": round(len(aligned_frames)/4*100)}
 
-    sr_for_direction = next((zone for zone in zones.get("support_resistance", []) if zone["type"] == ("support" if sign > 0 else "resistance") and zone["distance_atr"] <= .6), None) if sign else None
+    atr_now = indicators.get("atr") or (price*.01 if price else 1)
+    sr_for_direction = next((zone for zone in zones.get("support_resistance", []) if zone["type"] == ("support" if sign > 0 else "resistance") and zone["distance_atr"] <= .6 and zone["strength_score"] >= 4), None) if sign else None
     fib_data = zones.get("fibonacci") or {}
     fib_near = bool((fib_data.get("nearest") or {}).get("distance_atr", 99) <= .35 or (fib_data.get("golden_pocket") or {}).get("contains_price"))
-    confirmation = bool((indicators.get("relative_volume") or 0) >= 1.1 or indicators.get("patterns") or scores.get("liquidity", 0) >= 10)
+    fib_confluence = bool(fib_data.get("sr_confluence"))
+    zone_tolerance = atr_now*.35
+    block_near = any(block.get("low", 0)-zone_tolerance <= price <= block.get("high", 0)+zone_tolerance for block in zones.get("order_blocks", [])) if price else False
+    gap_near = any(gap.get("low", 0)-zone_tolerance <= price <= gap.get("high", 0)+zone_tolerance for gap in zones.get("fair_value_gaps", [])) if price else False
+    location_signals = [name for name, passed in {"strong_sr": bool(sr_for_direction), "fibonacci": fib_near, "fib_sr_confluence": fib_confluence, "order_block": block_near, "fair_value_gap": gap_near}.items() if passed]
+
+    completed = bars[-2] if len(bars) >= 2 else bars[-1] if bars else None
+    prior = bars[-3] if len(bars) >= 3 else None
+    completed_patterns = indicators.get("patterns") or []
+    pattern_confirmation = any((name in ("bullish_engulfing", "morning_star", "hammer", "bullish_marubozu")) if sign > 0 else (name in ("bearish_engulfing", "evening_star", "shooting_star", "bearish_marubozu")) for name in completed_patterns)
+    rejection_confirmation = False
+    if completed and sr_for_direction:
+        body_top, body_bottom = max(completed.open, completed.close), min(completed.open, completed.close)
+        rejection_confirmation = (completed.low <= sr_for_direction["high"] and completed.close > body_bottom and completed.close > sr_for_direction["level"]) if sign > 0 else (completed.high >= sr_for_direction["low"] and completed.close < body_top and completed.close < sr_for_direction["level"])
+    reclaim_confirmation = bool(prior and completed and indicators.get("vwap") and ((prior.close <= indicators["vwap"] < completed.close) if sign > 0 else (prior.close >= indicators["vwap"] > completed.close)))
+    break_retest = bool(completed and sr_for_direction and ((completed.low <= sr_for_direction["high"] and completed.close > sr_for_direction["high"]) if sign > 0 else (completed.high >= sr_for_direction["low"] and completed.close < sr_for_direction["low"])))
+    confirmation_signals = [name for name, passed in {"closed_candle_pattern": pattern_confirmation, "level_rejection": rejection_confirmation, "vwap_reclaim": reclaim_confirmation, "break_retest": break_retest, "liquidity_sweep": scores.get("liquidity", 0) >= 10}.items() if passed]
+
+    macro_frames = ("mn1", "w1")
+    macro_aligned = any(bias[name]["trend"] == expected_trend for name in macro_frames) and all(bias[name]["trend"] in ("neutral", expected_trend) for name in macro_frames)
+    selected_aligned = bias["selected"]["trend"] == expected_trend
+    relative_volume = indicators.get("relative_volume")
+    low_volume = relative_volume is not None and relative_volume < .7
+    last_range = (completed.high-completed.low) if completed else 0
+    unstable_volatility = bool(atr_now and last_range > atr_now*2.5)
+    ema20_distance = abs(price-(indicators.get("ema_20") or price))/(atr_now or 1) if price else 99
+    chasing = ema20_distance > 1.25
+    daily = frames.get("d1") or []
+    adr_exhausted = False
+    if len(daily) >= 15:
+        average_daily_range = mean(c.high-c.low for c in daily[-15:-1])
+        adr_exhausted = bool(average_daily_range and (daily[-1].high-daily[-1].low)/average_daily_range >= .9)
+    timestamp = int(getattr(completed, "time", 0) or 0) if completed else 0
+    moment = datetime.fromtimestamp(timestamp, timezone.utc) if timestamp else None
+    preferred_session = bool(moment and moment.weekday() < 5 and 7 <= moment.hour < 17)
+
     technical_checks = {
-        "score_threshold": total >= 55, "macro_alignment": not opposing_frames,
-        "sr_location": bool(sr_for_direction), "fibonacci_location": fib_near,
-        "confirmation": confirmation, "data_quality": quality["status"] == "good",
+        "score_60": total >= 60, "monthly_weekly_alignment": macro_aligned, "selected_timeframe_confirmation": selected_aligned,
+        "quality_location": bool(location_signals), "completed_candle_confirmation": bool(confirmation_signals),
+        "sufficient_volume": not low_volume, "stable_volatility": not unstable_volatility,
+        "adr_available": not adr_exhausted, "not_chasing": not chasing, "data_quality": quality["status"] == "good",
     }
-    location_ready = technical_checks["sr_location"] or technical_checks["fibonacci_location"]
-    technical_ready = all((technical_checks["score_threshold"], technical_checks["macro_alignment"], location_ready, technical_checks["confirmation"], technical_checks["data_quality"]))
-    trade_timing = {"status": "READY" if technical_ready else "WAIT", "checks": technical_checks, "location_ready": location_ready,
-                    "nearest_sr": sr_for_direction, "nearest_fibonacci": fib_data.get("nearest"),
-                    "wait_for": [label for label, passed in technical_checks.items() if not passed and label not in ("sr_location", "fibonacci_location")] + ([] if location_ready else ["S/R or Fibonacci location"])}
+    technical_ready = all(technical_checks.values())
+    avoid = unstable_volatility or adr_exhausted or (sign and not macro_aligned)
+    trade_timing = {
+        "status": "AVOID" if avoid else "READY" if technical_ready else "WAIT", "checks": technical_checks,
+        "location_ready": bool(location_signals), "location_signals": location_signals, "confirmation_signals": confirmation_signals,
+        "nearest_sr": sr_for_direction, "nearest_fibonacci": fib_data.get("nearest"),
+        "session": {"name": "London/New York liquidity" if preferred_session else "off-peak or weekend", "preferred": preferred_session, "utc_hour": moment.hour if moment else None},
+        "regime": {"low_volume": low_volume, "unstable_volatility": unstable_volatility, "adr_exhausted": adr_exhausted, "ema20_distance_atr": ema20_distance, "chasing": chasing},
+        "wait_for": [label for label, passed in technical_checks.items() if not passed],
+    }
     scenario = "bullish continuation" if direction == "BUY" else "bearish continuation" if direction == "SELL" else "wait for directional confirmation"
     stop = None
     if bars and price:

@@ -50,8 +50,8 @@ def build_trade_plan(
     snapshot: MarketSnapshot,
     analysis: dict[str, Any],
     calendar: Optional[dict[str, Any]] = None,
-    minimum_score: int = 55,
-    minimum_rr: float = 1.5,
+    minimum_score: int = 60,
+    minimum_rr: float = 2.0,
 ) -> dict[str, Any]:
     direction = str(analysis.get("direction") or "NEUTRAL")
     score = int(analysis.get("total_score") or 0)
@@ -178,7 +178,7 @@ def _empty_plan(direction, score, calendar_status, reasons):
         "atr_buffer": None, "risk_distance": None,
         "risk_percent_of_price": None, "expected_movement": None,
         "expected_move_percent": None, "available_rr": 0,
-        "minimum_rr": 1.5, "targets": [], "daily_range": {},
+        "minimum_rr": 2.0, "targets": [], "daily_range": {},
         "structural_targets": [], "account_risk_percent": 0,
         "calendar_status": calendar_status, "timing_status": "WAIT", "timing": {}, "reasons": reasons,
         "position_size_formula": "account_equity * account_risk_percent / 100 / risk_distance",
