@@ -15,8 +15,11 @@ import os
 import sys
 
 from .api import ApiState, make_server
+from .binance_client import BinanceClient
 from .config import load_from_env
+from .data_provider import TwelveDataClient
 from .kill_switch import KillSwitch
+from .multi_source import MultiSourceClient
 from .news_feed import ForexFactoryClient, refresh_filter
 from .news_filter import NewsFilter
 from .persistence import SQLiteRepository
@@ -54,6 +57,17 @@ def main() -> int:
     news = NewsFilter(blackout_minutes=cfg.news_blackout_minutes)
     refresh_filter(ForexFactoryClient(), news)
 
+    # Market-data client used by the on-demand /api/analysis, /api/candles,
+    # /api/adr, /api/harmonics and /api/backtest/v2 endpoints. Crypto runs on
+    # keyless Binance; FX/gold/indices route to Twelve Data (needs
+    # TWELVE_DATA_API_KEY). Without the key, crypto still works and FX degrades
+    # gracefully per request rather than 503-ing every call.
+    fx = TwelveDataClient(
+        api_key=cfg.twelve_data_api_key,
+        requests_per_minute=cfg.twelve_data_rpm,
+    )
+    market_client = MultiSourceClient(fx=fx, crypto=BinanceClient())
+
     host = os.environ.get("API_HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))
     state = ApiState(
@@ -63,6 +77,7 @@ def main() -> int:
         kill_switch=kill_switch,
         scan_request_path=scan_request_path,
         news_filter=news,
+        market_client=market_client,
     )
     server = make_server(state, host=host, port=port)
     print(f"API listening on http://{host}:{port}", file=sys.stderr)

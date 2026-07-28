@@ -98,6 +98,10 @@ services:
           property: connectionString
       - key: SCANNER_PAIRS
         sync: false  # comma-separated override; default is the spec list
+      - key: TWELVE_DATA_API_KEY
+        sync: false  # FX/gold/index candles + on-demand V2 analysis
+      - key: TWELVE_DATA_RPM
+        value: "8"  # free-tier cap; raise after upgrading the plan
       - key: STRONG_THRESHOLD
         value: "65"
       - key: GOOD_THRESHOLD

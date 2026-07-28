@@ -9,9 +9,14 @@ from typing import List
 @dataclass
 class Config:
     twelve_data_api_key: str = ""
+    # Twelve Data free tier caps at 8 requests/minute. Override upward after
+    # upgrading the plan so the client rate limiter stops throttling.
+    twelve_data_rpm: int = 8
     pairs: List[str] = field(default_factory=lambda: [
-        # Forex / commodities / indices (Twelve Data)
-        "XAUUSD", "GBPUSD", "EURUSD", "USDJPY", "GBPJPY", "NAS100", "US30",
+        # Forex majors + gold (Twelve Data) — lean free-tier default.
+        # Indices (NAS100, US30) and crosses (GBPJPY) are supported in
+        # SYMBOL_MAP; add them via SCANNER_PAIRS once the data budget allows.
+        "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD", "NZDUSD", "XAUUSD",
         # Crypto (Binance) — spec §1.1
         "BTCUSD", "ETHUSD", "XRPUSD", "LTCUSD", "DOTUSD", "XLMUSD", "BATUSD", "NEOUSD",
     ])
@@ -39,6 +44,8 @@ def load_from_env() -> Config:
         c.good_threshold = int(v)
     if v := os.environ.get("WATCHLIST_THRESHOLD"):
         c.watchlist_threshold = int(v)
+    if v := os.environ.get("TWELVE_DATA_RPM"):
+        c.twelve_data_rpm = int(v)
     if v := os.environ.get("NEWS_BLACKOUT_MINUTES"):
         c.news_blackout_minutes = int(v)
     if v := os.environ.get("LOG_LEVEL"):

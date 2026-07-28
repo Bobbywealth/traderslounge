@@ -44,7 +44,10 @@ def main() -> int:
         else:
             print("INFO: running crypto-only (Binance, no API key required)",
                   file=sys.stderr)
-    fx = TwelveDataClient(api_key=cfg.twelve_data_api_key)
+    fx = TwelveDataClient(
+        api_key=cfg.twelve_data_api_key,
+        requests_per_minute=cfg.twelve_data_rpm,
+    )
     crypto = BinanceClient()
     client = MultiSourceClient(fx=fx, crypto=crypto)
     news = NewsFilter(blackout_minutes=cfg.news_blackout_minutes)

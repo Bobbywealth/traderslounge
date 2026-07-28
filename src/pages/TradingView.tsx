@@ -179,7 +179,10 @@ const TradingView: React.FC = () => {
 
   useEffect(() => {
     const assetType = availableSymbols.find((symbol) => symbol.symbol === selectedSymbol)?.type;
-    if (assetType !== 'crypto') {
+    // V2 analysis runs server-side for any asset class via the same
+    // /api/analysis endpoint (MultiSourceClient routes FX/gold to Twelve
+    // Data). Show it for crypto, forex and commodities — not just crypto.
+    if (!assetType || !['crypto', 'forex', 'commodity', 'stock'].includes(assetType)) {
       setCryptoAnalysis(null);
       return;
     }

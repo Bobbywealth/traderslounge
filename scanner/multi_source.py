@@ -26,7 +26,12 @@ class MultiSourceClient:
         pair: str,
         timeframes: Optional[List[str]] = None,
     ) -> MarketSnapshot:
-        timeframes = timeframes or ["D1", "H4", "H1", "M15"]
+        if timeframes is None:
+            # FX/gold/indices cost against the Twelve Data free-tier quota, so
+            # background scans use only the three higher timeframes; M15/M1 are
+            # fetched on demand by the API/chart and served from the candle
+            # cache. Crypto runs on keyless Binance, so it keeps all four.
+            timeframes = ["D1", "H4", "H1", "M15"] if is_crypto(pair) else ["D1", "H4", "H1"]
         snap = MarketSnapshot(pair=pair)
         bucket = {"D1": "d1", "H4": "h4", "H1": "h1",
                   "M15": "m15", "M5": "m5", "M1": "m1"}

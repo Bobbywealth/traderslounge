@@ -99,6 +99,19 @@ class TestClient(unittest.TestCase):
         self.assertEqual(len(snap.h4), 0)
         self.assertEqual(len(snap.h1), 2)
 
+    def test_fetch_candles_serves_from_cache_within_ttl(self):
+        # Bar-aligned cache: a repeat call within the TTL must not hit the
+        # network again. This is what keeps FX scanning under the free quota.
+        http = MagicMock(return_value=json.dumps(SAMPLE_RESPONSE))
+        c = TwelveDataClient(api_key="k", http=http)
+        first = c.fetch_candles("XAUUSD", "H1")
+        second = c.fetch_candles("XAUUSD", "H1")
+        self.assertEqual(first, second)
+        self.assertEqual(http.call_count, 1, "cached call should not hit network")
+        # A different (pair, timeframe) is a cache miss → new network call.
+        c.fetch_candles("XAUUSD", "D1")
+        self.assertEqual(http.call_count, 2)
+
 
 class TestMaps(unittest.TestCase):
     def test_all_spec_pairs_mapped(self):
