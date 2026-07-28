@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import { TrendingUp } from 'lucide-react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Sidebar from './components/Sidebar';
@@ -25,7 +25,10 @@ import ErrorBoundary from './components/ErrorBoundary';
 
 const AppContent: React.FC = () => {
   const { isAuthenticated, isLoading, user } = useAuth();
+  const location = useLocation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const isTradingWorkspace = location.pathname === '/tradingview';
+  const effectiveSidebarCollapsed = isTradingWorkspace || sidebarCollapsed;
 
   if (isLoading) {
     return (
@@ -55,18 +58,20 @@ const AppContent: React.FC = () => {
   return (
     <BrokerProvider>
       <div className="flex h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
-        <Sidebar 
-          collapsed={sidebarCollapsed} 
-          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} 
+        <Sidebar
+          collapsed={effectiveSidebarCollapsed}
+          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
         />
         
         <div className={`flex-1 flex flex-col transition-all duration-300 ${
-          sidebarCollapsed ? 'ml-16' : 'ml-72'
+          effectiveSidebarCollapsed ? 'ml-16' : 'ml-72'
         }`}>
-          <Header />
+          {!isTradingWorkspace && <Header />}
           
-          <main className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-900">
-            <div className="p-6">
+          <main className={`flex-1 bg-gray-50 dark:bg-gray-900 ${
+            isTradingWorkspace ? 'overflow-hidden' : 'overflow-auto'
+          }`}>
+            <div className={isTradingWorkspace ? 'h-full p-0' : 'p-6'}>
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/scanner" element={<LiveScanner />} />
@@ -85,7 +90,7 @@ const AppContent: React.FC = () => {
           </main>
         </div>
         
-        <AIAssistant />
+        {!isTradingWorkspace && <AIAssistant />}
       </div>
     </BrokerProvider>
   );
