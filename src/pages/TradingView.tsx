@@ -105,8 +105,19 @@ interface ChartAdr {
 }
 
 const BWTS_SYMBOLS: SymbolInfo[] = [
+  // Crypto (Binance market-data feed)
   { symbol: 'BTCUSD', name: 'Bitcoin / US Dollar', exchange: 'Binance Market Data', type: 'crypto' },
   { symbol: 'ETHUSD', name: 'Ethereum / US Dollar', exchange: 'Binance Market Data', type: 'crypto' },
+  // Forex majors (Twelve Data feed)
+  { symbol: 'EURUSD', name: 'Euro / US Dollar', exchange: 'Twelve Data', type: 'forex' },
+  { symbol: 'GBPUSD', name: 'British Pound / US Dollar', exchange: 'Twelve Data', type: 'forex' },
+  { symbol: 'USDJPY', name: 'US Dollar / Japanese Yen', exchange: 'Twelve Data', type: 'forex' },
+  { symbol: 'USDCHF', name: 'US Dollar / Swiss Franc', exchange: 'Twelve Data', type: 'forex' },
+  { symbol: 'AUDUSD', name: 'Australian Dollar / US Dollar', exchange: 'Twelve Data', type: 'forex' },
+  { symbol: 'USDCAD', name: 'US Dollar / Canadian Dollar', exchange: 'Twelve Data', type: 'forex' },
+  { symbol: 'NZDUSD', name: 'New Zealand Dollar / US Dollar', exchange: 'Twelve Data', type: 'forex' },
+  // Metals (Twelve Data feed)
+  { symbol: 'XAUUSD', name: 'Gold / US Dollar', exchange: 'Twelve Data', type: 'commodity' },
 ];
 
 const TradingView: React.FC = () => {
