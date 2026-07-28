@@ -44,10 +44,14 @@ def analyze(context: dict[str, Any]) -> dict[str, Any]:
             body = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"MiniMax request failed ({exc.code})") from exc
-    content = body.get("choices", [{}])[0].get("message", {}).get("content", "")
-    content = content.strip().removeprefix("```json").removesuffix("```").strip()
+    content = body.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+    # MiniMax reasoning models may prefix a <think>...</think> block even
+    # when JSON-only output is requested. Parse only the outer JSON object.
+    start, end = content.find("{"), content.rfind("}")
+    if start < 0 or end <= start:
+        raise RuntimeError("MiniMax returned invalid structured output")
     try:
-        result = json.loads(content)
+        result = json.loads(content[start:end + 1])
     except json.JSONDecodeError as exc:
         raise RuntimeError("MiniMax returned invalid structured output") from exc
     return {"configured": True, "model": MODEL, "analysis": result}
