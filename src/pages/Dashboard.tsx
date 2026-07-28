@@ -15,6 +15,8 @@ const tierStyles: Record<string, string> = {
   NO_TRADE: 'border-slate-500/30 bg-slate-500/10 text-slate-400',
 };
 
+const v2Tier = (score: number) => score >= 70 ? 'STRONG' : score >= 55 ? 'GOOD' : score >= 40 ? 'WATCHLIST' : 'NO_TRADE';
+
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const [health, setHealth] = useState<BwtsHealth | null>(null);
@@ -28,7 +30,7 @@ const Dashboard: React.FC = () => {
   const [aiAnalysis, setAiAnalysis] = useState<AiSignalAnalysis | null>(null);
   const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const [cryptoAnalysis, setCryptoAnalysis] = useState<CryptoAnalysis | null>(null);
+  const [analysisByPair, setAnalysisByPair] = useState<Record<string, CryptoAnalysis>>({});
 
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
@@ -39,6 +41,13 @@ const Dashboard: React.FC = () => {
       setHealth(healthData);
       setConfig(configData);
       setSignals(signalData.signals);
+      const pairs = Array.from(new Set(signalData.signals.map((signal) => signal.pair)));
+      const analyses = await Promise.allSettled(pairs.map((pair) => bwtsApi.cryptoAnalysis(pair)));
+      const nextAnalysis: Record<string, CryptoAnalysis> = {};
+      analyses.forEach((result, index) => {
+        if (result.status === 'fulfilled') nextAnalysis[pairs[index]] = result.value;
+      });
+      setAnalysisByPair(nextAnalysis);
       setUpdatedAt(new Date());
       setError(null);
     } catch (loadError: any) {
@@ -64,14 +73,18 @@ const Dashboard: React.FC = () => {
     });
   }, [signals]);
 
-  const actionable = latestByPair.filter((signal) => signal.tier === 'STRONG' || signal.tier === 'GOOD');
-  const strong = latestByPair.filter((signal) => signal.tier === 'STRONG').length;
-  const bullish = latestByPair.filter((signal) => signal.direction === 'BUY').length;
-  const bearish = latestByPair.filter((signal) => signal.direction === 'SELL').length;
-  const averageScore = latestByPair.length
-    ? Math.round(latestByPair.reduce((total, signal) => total + signal.confidence_score, 0) / latestByPair.length)
+  const v2Analyses = Object.values(analysisByPair);
+  const actionable = v2Analyses.filter((analysis) => analysis.total_score >= 55 && analysis.direction !== 'NEUTRAL');
+  const strong = v2Analyses.filter((analysis) => analysis.total_score >= 70 && analysis.direction !== 'NEUTRAL').length;
+  const bullish = v2Analyses.filter((analysis) => analysis.direction === 'BUY').length;
+  const bearish = v2Analyses.filter((analysis) => analysis.direction === 'SELL').length;
+  const averageScore = v2Analyses.length
+    ? Math.round(v2Analyses.reduce((total, analysis) => total + analysis.total_score, 0) / v2Analyses.length)
     : 0;
-  const bestSignal = [...latestByPair].sort((a, b) => b.confidence_score - a.confidence_score)[0];
+  const rankedSignals = [...latestByPair].sort((a, b) => (analysisByPair[b.pair]?.total_score ?? 0) - (analysisByPair[a.pair]?.total_score ?? 0));
+  const bestSignal = rankedSignals[0];
+  const cryptoAnalysis = bestSignal ? analysisByPair[bestSignal.pair] || null : null;
+  const directionAligned = Boolean(bestSignal && cryptoAnalysis && bestSignal.direction === cryptoAnalysis.direction && bestSignal.direction !== 'NEUTRAL');
 
   useEffect(() => {
     if (!bestSignal) {
@@ -80,7 +93,7 @@ const Dashboard: React.FC = () => {
     }
     bwtsApi.calendarStatus(bestSignal.pair).then(setCalendarRisk).catch(() => setCalendarRisk(null));
     bwtsApi.aiStatus().then((status) => setAiConfigured(status.configured)).catch(() => setAiConfigured(false));
-    bwtsApi.cryptoAnalysis(bestSignal.pair).then(setCryptoAnalysis).catch(() => setCryptoAnalysis(null));
+    setAiAnalysis(null);
   }, [bestSignal?.id]);
 
   const analyzeTopSignal = async () => {
@@ -136,24 +149,28 @@ const Dashboard: React.FC = () => {
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <IntelCard icon={Radar} label="Markets tracked" value={loading ? '—' : String(health?.pairs.length ?? 0)} detail="Continuous scanner coverage" color="cyan" />
         <IntelCard icon={Zap} label="Actionable now" value={loading ? '—' : String(actionable.length)} detail={`${strong} strong signal${strong === 1 ? '' : 's'}`} color="violet" />
-        <IntelCard icon={Gauge} label="Average score" value={loading ? '—' : `${averageScore}/80`} detail="Across latest pair scans" color="fuchsia" />
+        <IntelCard icon={Gauge} label="Average V2 score" value={loading ? '—' : `${averageScore}/100`} detail="Full-spectrum crypto engine" color="fuchsia" />
         <IntelCard icon={Activity} label="Market bias" value={loading ? '—' : bullish === bearish ? 'Balanced' : bullish > bearish ? 'Bullish' : 'Bearish'} detail={`${bullish} buy · ${bearish} sell`} color="cyan" />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.55fr_.85fr]">
         <div className="rounded-[24px] border border-white/[0.08] bg-[#090d18] p-5 sm:p-6">
           <div className="mb-5 flex items-center justify-between gap-4">
-            <div><div className="text-[10px] font-black tracking-[0.2em] text-cyan-300">PRIORITY QUEUE</div><h2 className="mt-1 text-xl font-black">Strongest live setups</h2></div>
+            <div><div className="text-[10px] font-black tracking-[0.2em] text-cyan-300">V2 PRIORITY QUEUE</div><h2 className="mt-1 text-xl font-black">Ranked crypto market states</h2></div>
             <Link to="/signals" className="flex items-center gap-1 text-xs font-bold text-slate-400 transition hover:text-cyan-300">All signals <ArrowRight className="h-3.5 w-3.5"/></Link>
           </div>
           <div className="space-y-3">
-            {(latestByPair.length ? latestByPair.slice(0, 5) : []).map((signal, index) => {
-              const DirectionIcon = signal.direction === 'BUY' ? TrendingUp : signal.direction === 'SELL' ? TrendingDown : Activity;
+            {(rankedSignals.length ? rankedSignals.slice(0, 5) : []).map((signal, index) => {
+              const analysis = analysisByPair[signal.pair];
+              const direction = analysis?.direction || 'NEUTRAL';
+              const tier = v2Tier(analysis?.total_score ?? 0);
+              const conflict = signal.direction !== 'NEUTRAL' && direction !== 'NEUTRAL' && signal.direction !== direction;
+              const DirectionIcon = direction === 'BUY' ? TrendingUp : direction === 'SELL' ? TrendingDown : Activity;
               return <div key={signal.id} className="group grid items-center gap-4 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition hover:border-cyan-400/20 hover:bg-white/[0.045] sm:grid-cols-[36px_1fr_auto_auto]">
                 <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.05] text-xs font-black text-slate-500">0{index + 1}</div>
-                <div><div className="flex items-center gap-2"><span className="font-black">{signal.pair}</span><span className={`rounded-md border px-2 py-0.5 text-[9px] font-black ${tierStyles[signal.tier]}`}>{signal.tier}</span></div><div className="mt-1 max-w-md truncate text-xs text-slate-500">{signal.pattern || signal.reasons?.[0] || 'Confluence scan complete'}</div></div>
-                <div className={`flex items-center gap-1.5 text-xs font-black ${signal.direction === 'BUY' ? 'text-emerald-300' : signal.direction === 'SELL' ? 'text-rose-300' : 'text-slate-400'}`}><DirectionIcon className="h-4 w-4"/>{signal.direction}</div>
-                <div className="text-right"><div className="text-xl font-black text-white">{signal.confidence_score}<span className="text-xs text-slate-600">/80</span></div><div className="text-[9px] text-slate-600">{formatTime(signal.created_at)}</div></div>
+                <div><div className="flex items-center gap-2"><span className="font-black">{signal.pair}</span><span className={`rounded-md border px-2 py-0.5 text-[9px] font-black ${tierStyles[tier]}`}>{tier}</span>{conflict && <span className="rounded-md bg-amber-400/10 px-2 py-0.5 text-[9px] font-black text-amber-300">CONFLICT</span>}</div><div className="mt-1 max-w-md truncate text-xs text-slate-500">{analysis?.scenarios.primary || 'Full-spectrum analysis loading'}</div></div>
+                <div className={`flex items-center gap-1.5 text-xs font-black ${direction === 'BUY' ? 'text-emerald-300' : direction === 'SELL' ? 'text-rose-300' : 'text-slate-400'}`}><DirectionIcon className="h-4 w-4"/>{conflict ? 'WAIT' : direction}</div>
+                <div className="text-right"><div className="text-xl font-black text-white">{analysis?.total_score ?? '—'}<span className="text-xs text-slate-600">/100</span></div><div className="text-[9px] text-slate-600">{formatTime(signal.created_at)}</div></div>
               </div>;
             })}
             {!loading && latestByPair.length === 0 && <div className="rounded-2xl border border-dashed border-white/10 py-14 text-center"><Radar className="mx-auto h-8 w-8 text-slate-700"/><p className="mt-3 text-sm text-slate-500">The scanner is online. New setups will appear here when the evidence aligns.</p></div>}
@@ -165,17 +182,17 @@ const Dashboard: React.FC = () => {
           <div className="relative overflow-hidden rounded-[24px] border border-violet-400/15 bg-[#090d18] bg-gradient-to-br from-violet-500/10 to-cyan-500/[0.04] p-6">
             <Sparkles className="absolute -right-2 -top-2 h-24 w-24 text-violet-400/[0.06]"/>
             <div className="text-[10px] font-black tracking-[0.2em] text-violet-300">TOP CONFLUENCE</div>
-            {bestSignal ? <>
-              <div className="mt-5 flex items-start justify-between"><div><div className="text-3xl font-black">{bestSignal.pair}</div><div className="mt-1 text-sm text-slate-400">{bestSignal.pattern || 'Multi-factor setup'}</div></div><div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-3 text-center"><div className="text-2xl font-black text-cyan-300">{bestSignal.confidence_score}</div><div className="text-[8px] font-bold tracking-widest text-cyan-500">SCORE</div></div></div>
+            {bestSignal && cryptoAnalysis ? <>
+              <div className="mt-5 flex items-start justify-between"><div><div className="flex items-center gap-2"><div className="text-3xl font-black">{bestSignal.pair}</div><span className={`rounded-md px-2 py-1 text-[9px] font-black ${cryptoAnalysis.direction === 'BUY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 text-slate-400'}`}>{directionAligned ? cryptoAnalysis.direction : 'WAIT'}</span></div><div className="mt-1 text-sm capitalize text-slate-400">{cryptoAnalysis.scenarios.primary}</div></div><div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-3 text-center"><div className="text-2xl font-black text-cyan-300">{cryptoAnalysis.total_score}</div><div className="text-[8px] font-bold tracking-widest text-cyan-500">V2 / 100</div></div></div>
               <div className="mt-4 flex items-center justify-between rounded-xl border border-white/[0.07] bg-black/20 px-3 py-2.5"><div className="flex items-center gap-2 text-xs text-slate-400"><CalendarClock className="h-4 w-4 text-amber-300"/>Economic calendar</div><span className={`rounded-md px-2 py-1 text-[9px] font-black ${calendarRisk?.status === 'CLEAR' ? 'bg-emerald-400/10 text-emerald-300' : calendarRisk?.status === 'CAUTION' ? 'bg-amber-400/10 text-amber-300' : calendarRisk?.status === 'BLOCKED' || calendarRisk?.status === 'POST_NEWS' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 text-slate-400'}`}>{calendarRisk?.status || 'LOADING'}</span></div>
               {calendarRisk?.next_event && <div className="mt-2 text-[10px] text-slate-500">{calendarRisk.next_event.title} ({calendarRisk.next_event.currency}) {calendarRisk.minutes_to_event !== null ? `in ${calendarRisk.minutes_to_event}m` : ''}</div>}
-              <div className="mt-5 grid grid-cols-3 gap-2 text-center text-xs"><DataPoint label="ENTRY" value={bestSignal.entry}/><DataPoint label="STOP" value={bestSignal.stop_loss}/><DataPoint label="TARGET" value={bestSignal.tp1}/></div>
+              {directionAligned ? <div className="mt-5 grid grid-cols-3 gap-2 text-center text-xs"><DataPoint label="ENTRY" value={bestSignal.entry}/><DataPoint label="STOP" value={bestSignal.stop_loss}/><DataPoint label="TARGET" value={bestSignal.tp1}/></div> : <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/[0.07] p-3 text-xs leading-relaxed text-amber-200"><strong>WAIT:</strong> The legacy scanner and V2 directional analysis do not agree. Trade levels are hidden until both engines align.</div>
               {aiAnalysis && <div className="mt-4 rounded-xl border border-violet-400/15 bg-violet-400/[0.06] p-3"><div className="mb-1 flex items-center gap-2 text-[9px] font-black tracking-widest text-violet-300"><BrainCircuit className="h-3.5 w-3.5"/>{aiConfigured ? 'MINIMAX ANALYSIS' : 'DETERMINISTIC ANALYSIS'}</div><p className="text-xs leading-relaxed text-slate-300">{aiAnalysis.summary}</p><div className="mt-2 text-[10px] text-slate-500">Wait for: {aiAnalysis.wait_for}</div></div>}
               <div className="mt-5 grid grid-cols-2 gap-2"><Link to="/tradingview" className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] py-3 text-xs font-black transition hover:bg-white/[0.09]">Validate chart <Crosshair className="h-4 w-4"/></Link><button onClick={analyzeTopSignal} disabled={analyzing} className="flex items-center justify-center gap-2 rounded-xl border border-violet-400/20 bg-violet-400/10 py-3 text-xs font-black text-violet-200 transition hover:bg-violet-400/15 disabled:opacity-50"><BrainCircuit className={`h-4 w-4 ${analyzing ? 'animate-pulse' : ''}`}/>{analyzing ? 'Analyzing' : 'Analyze setup'}</button></div>
             </> : <div className="py-12 text-center text-sm text-slate-500">Waiting for the next confirmed setup.</div>}
           </div>
 
-          <div className="rounded-[24px] border border-white/[0.08] bg-[#090d18] p-6"><div className="flex items-center justify-between"><div><div className="text-[10px] font-black tracking-[0.2em] text-slate-500">SYSTEM STATE</div><h3 className="mt-1 font-black">Confluence pipeline</h3></div><ShieldCheck className="h-5 w-5 text-emerald-300"/></div><div className="mt-5 space-y-4">{[['01','Scan markets',health?.status === 'ok'],['02','Rank confluence',signals.length > 0],['03','Validate structure',Boolean(bestSignal)],['04','Build the plan',false]].map(([number,label,complete]) => <div key={String(number)} className="flex items-center gap-3"><div className={`flex h-8 w-8 items-center justify-center rounded-lg text-[10px] font-black ${complete ? 'bg-cyan-400/10 text-cyan-300' : 'bg-white/[0.04] text-slate-600'}`}>{number}</div><div className={`flex-1 text-sm ${complete ? 'text-slate-200' : 'text-slate-500'}`}>{String(label)}</div><div className={`h-2 w-2 rounded-full ${complete ? 'bg-cyan-300 shadow-[0_0_10px_#22d3ee]' : 'bg-slate-700'}`}/></div>)}</div></div>
+          <div className="rounded-[24px] border border-white/[0.08] bg-[#090d18] p-6"><div className="flex items-center justify-between"><div><div className="text-[10px] font-black tracking-[0.2em] text-slate-500">SYSTEM STATE</div><h3 className="mt-1 font-black">Confluence pipeline</h3></div><ShieldCheck className="h-5 w-5 text-emerald-300"/></div><div className="mt-5 space-y-4">{[['01','Scan markets',health?.status === 'ok'],['02','Rank V2 confluence',v2Analyses.length > 0],['03','Confirm direction',directionAligned],['04','Build the plan',directionAligned && cryptoAnalysis !== null && cryptoAnalysis.total_score >= 55 && calendarRisk?.status === 'CLEAR']].map(([number,label,complete]) => <div key={String(number)} className="flex items-center gap-3"><div className={`flex h-8 w-8 items-center justify-center rounded-lg text-[10px] font-black ${complete ? 'bg-cyan-400/10 text-cyan-300' : 'bg-white/[0.04] text-slate-600'}`}>{number}</div><div className={`flex-1 text-sm ${complete ? 'text-slate-200' : 'text-slate-500'}`}>{String(label)}</div><div className={`h-2 w-2 rounded-full ${complete ? 'bg-cyan-300 shadow-[0_0_10px_#22d3ee]' : 'bg-slate-700'}`}/></div>)}</div></div>
         </div>
       </section>
 
