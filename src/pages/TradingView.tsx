@@ -104,6 +104,7 @@ const TradingView: React.FC = () => {
   const candleCacheRef = useRef<Record<string, CandlestickData[]>>({});
   const loadedChartKeyRef = useRef('');
   const candleRequestRef = useRef(0);
+  const marketWsRef = useRef<WebSocket | null>(null);
   const [chartType, setChartType] = useState<ChartType>('candlestick');
   const [showVolume, setShowVolume] = useState(true);
   const [chartRevision, setChartRevision] = useState(0);
@@ -113,6 +114,7 @@ const TradingView: React.FC = () => {
   const [timeframe, setTimeframe] = useState('1h');
   const [currentPrice, setCurrentPrice] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [isLive, setIsLive] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [symbolSuggestions, setSymbolSuggestions] = useState<SymbolInfo[]>([]);
@@ -230,8 +232,14 @@ const TradingView: React.FC = () => {
     };
   };
 
-  const fetchBwtsCandles = useCallback(async (symbol: string, tf: string): Promise<CandlestickData[]> => {
-    const params = new URLSearchParams({ pair: symbol, timeframe: tf });
+  const fetchBwtsCandles = useCallback(async (
+    symbol: string, tf: string, limit?: number
+  ): Promise<CandlestickData[]> => {
+    const params = new URLSearchParams({
+      pair: symbol,
+      timeframe: tf,
+      ...(limit ? { limit: String(limit) } : {}),
+    });
     const API_BASE = import.meta.env.VITE_BWTS_API_URL || import.meta.env.VITE_API_URL || '';
     const response = await fetch(`${API_BASE}/api/candles?${params.toString()}`);
     if (!response.ok) {
@@ -478,13 +486,16 @@ const TradingView: React.FC = () => {
     }
   };
 
-  const loadCandlesForSymbol = useCallback(async (symbol: string, tf: string) => {
+  const loadCandlesForSymbol = useCallback(async (
+    symbol: string, tf: string, incremental = false
+  ) => {
     const series = candlestickSeriesRef.current;
     if (!series) return;
     const key = `${symbol}:${tf}`;
     const requestId = ++candleRequestRef.current;
     try {
-      const candles = await fetchBwtsCandles(symbol, tf);
+      const useTinyUpdate = incremental && loadedChartKeyRef.current === key;
+      const candles = await fetchBwtsCandles(symbol, tf, useTinyUpdate ? 2 : undefined);
       if (requestId !== candleRequestRef.current || candles.length === 0) return;
       const previous = candleCacheRef.current[key] || [];
       const last = candles[candles.length - 1];
@@ -953,16 +964,89 @@ const TradingView: React.FC = () => {
     });
   }, [fibonacciLevels, showFibonacci]);
 
-  // Poll BWTS candles without resetting the full chart. Fifteen seconds is
-  // fast enough for the displayed timeframes and avoids redundant redraws.
+  // Native-feeling live candles: REST loads history once, then Binance.US
+  // WebSocket kline events update the active candle as ticks arrive.
+  useEffect(() => {
+    const symbolMap: Record<string, string> = {
+      BTCUSD: 'btcusdt', ETHUSD: 'ethusdt',
+    };
+    const intervalMap: Record<string, string> = {
+      '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
+      '1h': '1h', '4h': '4h', '1d': '1d', '1w': '1w',
+    };
+    const streamSymbol = symbolMap[selectedSymbol];
+    const streamInterval = intervalMap[timeframe];
+    if (!isLive || !streamSymbol || !streamInterval) {
+      setIsStreaming(false);
+      return;
+    }
+
+    let disposed = false;
+    let reconnectTimer: number | undefined;
+    const key = `${selectedSymbol}:${timeframe}`;
+    const connect = () => {
+      if (disposed) return;
+      const ws = new WebSocket(
+        `wss://stream.binance.us:9443/ws/${streamSymbol}@kline_${streamInterval}`
+      );
+      marketWsRef.current = ws;
+      ws.onopen = () => {
+        if (!disposed) { setIsStreaming(true); setIsConnected(true); }
+      };
+      ws.onmessage = (event) => {
+        if (disposed || loadedChartKeyRef.current !== key) return;
+        try {
+          const message = JSON.parse(event.data);
+          const kline = message?.k;
+          if (!kline || !candlestickSeriesRef.current) return;
+          const candle: CandlestickData = {
+            time: Math.floor(Number(kline.t) / 1000) as UTCTimestamp,
+            open: Number(kline.o), high: Number(kline.h),
+            low: Number(kline.l), close: Number(kline.c),
+          };
+          candlestickSeriesRef.current.update(candle);
+          const cached = candleCacheRef.current[key] || [];
+          if (cached.length > 0 && cached[cached.length - 1].time === candle.time) {
+            cached[cached.length - 1] = candle;
+          } else {
+            cached.push(candle);
+            if (cached.length > 250) cached.shift();
+          }
+          candleCacheRef.current[key] = cached;
+          setCurrentPrice(candle.close);
+        } catch (error) {
+          console.warn('Invalid Binance.US stream event:', error);
+        }
+      };
+      ws.onerror = () => ws.close();
+      ws.onclose = () => {
+        if (marketWsRef.current === ws) marketWsRef.current = null;
+        if (!disposed) {
+          setIsStreaming(false);
+          reconnectTimer = window.setTimeout(connect, 2000);
+        }
+      };
+    };
+    connect();
+    return () => {
+      disposed = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      if (marketWsRef.current) {
+        marketWsRef.current.onclose = null;
+        marketWsRef.current.close();
+        marketWsRef.current = null;
+      }
+      setIsStreaming(false);
+    };
+  }, [isLive, selectedSymbol, timeframe]);
+
+  // Slow REST reconciliation is only a fallback for missed WebSocket events.
   useEffect(() => {
     if (!isLive) return;
-
-    const interval = setInterval(() => {
-      loadCandlesForSymbol(selectedSymbol, timeframe);
-    }, 15000);
-
-    return () => clearInterval(interval);
+    const interval = window.setInterval(() => {
+      if (!document.hidden) loadCandlesForSymbol(selectedSymbol, timeframe, true);
+    }, 30000);
+    return () => window.clearInterval(interval);
   }, [isLive, loadCandlesForSymbol, selectedSymbol, timeframe]);
 
   useEffect(() => {
@@ -1124,9 +1208,9 @@ const TradingView: React.FC = () => {
               ) : (
                 <WifiOff className="w-5 h-5 text-red-500" />
               )}
-              <div className={`w-3 h-3 rounded-full ${isConnected && isLive ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`}></div>
+              <div className={`w-3 h-3 rounded-full ${isStreaming && isLive ? 'bg-emerald-500 animate-pulse' : isConnected ? 'bg-sky-500' : 'bg-gray-400'}`}></div>
               <span className="text-sm text-gray-400">
-                {isConnected ? 'Connected' : 'Connecting...'}
+                {isStreaming ? 'Streaming' : isConnected ? 'Connected' : 'Connecting...'}
               </span>
             </div>
 

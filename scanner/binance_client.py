@@ -18,7 +18,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 
 from .data_provider import DataProviderError
 from .data_types import Candle
@@ -75,16 +75,19 @@ class BinanceClient:
     timeout_seconds: float = 15.0
     http: HttpFn = _default_http
 
-    def fetch_candles(self, pair: str, timeframe: str) -> List[Candle]:
+    def fetch_candles(
+        self, pair: str, timeframe: str, limit: Optional[int] = None
+    ) -> List[Candle]:
         sym = BINANCE_SYMBOL_MAP.get(pair)
         if sym is None:
             raise DataProviderError(f"Unknown crypto pair: {pair}")
         tf = BINANCE_TF_MAP.get(timeframe)
         if tf is None:
             raise DataProviderError(f"Unknown timeframe: {timeframe}")
-        interval, limit = tf
+        interval, default_limit = tf
+        request_limit = max(1, min(int(limit or default_limit), 1000))
         params = urllib.parse.urlencode({
-            "symbol": sym, "interval": interval, "limit": str(limit),
+            "symbol": sym, "interval": interval, "limit": str(request_limit),
         })
         url = f"{self.base_url}/api/v3/klines?{params}"
         try:

@@ -47,6 +47,9 @@ class MultiSourceClient:
 
     # Forward fetch_candles for callers (price_oracle, etc.) that only
     # need a single timeframe.
-    def fetch_candles(self, pair: str, timeframe: str):
-        provider = self.crypto if is_crypto(pair) else self.fx
-        return provider.fetch_candles(pair, timeframe)
+    def fetch_candles(self, pair: str, timeframe: str, limit: Optional[int] = None):
+        if is_crypto(pair):
+            if limit is None:
+                return self.crypto.fetch_candles(pair, timeframe)
+            return self.crypto.fetch_candles(pair, timeframe, limit=limit)
+        return self.fx.fetch_candles(pair, timeframe)

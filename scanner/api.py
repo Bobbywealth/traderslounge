@@ -180,8 +180,9 @@ class _ApiHandler(BaseHTTPRequestHandler):
         timeframe = _timeframe_alias(tf_raw)
         if timeframe is None:
             return self._error(400, f"unsupported timeframe: {tf_raw}")
+        limit = _clamp_int(query.get("limit"), default=250, lo=1, hi=1000)
         try:
-            candles = client.fetch_candles(pair, timeframe)
+            candles = client.fetch_candles(pair, timeframe, limit=limit)
         except Exception as exc:
             return self._error(502, f"market data unavailable: {exc}")
         rows = [
