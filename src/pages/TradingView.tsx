@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { createChart, createSeriesMarkers, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts';
+import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts';
 import { 
   TrendingUp, 
   Settings, 
@@ -651,14 +651,8 @@ const TradingView: React.FC = () => {
         value: pattern.points[label].price,
       }));
       patternSeries.setData(lineData);
-      createSeriesMarkers(patternSeries, labels.map((label, index) => ({
-        time: lineData[index].time,
-        position: (index % 2 === 0 ? 'belowBar' : 'aboveBar') as 'belowBar' | 'aboveBar',
-        color,
-        shape: 'circle' as const,
-        text: label,
-      })));
 
+      const xTime = lineData[0].time as number;
       const dTime = lineData[4].time as number;
       const endTime = Math.max(Math.floor(Date.now() / 1000), dTime + 60) as UTCTimestamp;
       for (const [title, value] of [['PRZ Low', pattern.prz.min], ['PRZ High', pattern.prz.max]] as const) {
@@ -674,7 +668,11 @@ const TradingView: React.FC = () => {
         ]);
         harmonicSeriesRefs.current.push(przSeries);
       }
-      chart.timeScale().fitContent();
+      const patternSpan = Math.max(3600, dTime - xTime);
+      chart.timeScale().setVisibleRange({
+        from: Math.floor(xTime - patternSpan * 0.3) as UTCTimestamp,
+        to: Math.floor(dTime + patternSpan * 0.7) as UTCTimestamp,
+      });
     }
   }, [harmonicPatterns, showHarmonics]);
 
