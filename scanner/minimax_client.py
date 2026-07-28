@@ -40,7 +40,7 @@ def analyze(context: dict[str, Any]) -> dict[str, Any]:
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+        with urllib.request.urlopen(request, timeout=45) as response:  # noqa: S310
             body = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"MiniMax request failed ({exc.code})") from exc

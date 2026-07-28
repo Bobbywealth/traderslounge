@@ -217,7 +217,21 @@ class _ApiHandler(BaseHTTPRequestHandler):
         raw_analysis = body.get("analysis") if isinstance(body.get("analysis"), dict) else None
         context = {"pair": pair, "signal": signal, "economic_calendar": calendar}
         if raw_analysis:
-            context["crypto_analysis"] = raw_analysis
+            indicators = raw_analysis.get("indicators") if isinstance(raw_analysis.get("indicators"), dict) else {}
+            zones = raw_analysis.get("zones") if isinstance(raw_analysis.get("zones"), dict) else {}
+            indicator_keys = ("rsi", "macd", "macd_signal", "adx", "stoch_rsi", "cci", "relative_volume", "vwap", "ema_stack_aligned", "sma_stack_aligned", "golden_cross", "death_cross", "patterns", "harmonic", "atr", "compression", "relative_return", "benchmark_correlation")
+            context["crypto_analysis"] = {
+                "version": raw_analysis.get("version"),
+                "direction": raw_analysis.get("direction"),
+                "total_score": raw_analysis.get("total_score"),
+                "category_breakdown": raw_analysis.get("category_breakdown"),
+                "data_quality": raw_analysis.get("data_quality"),
+                "indicators": {key: indicators.get(key) for key in indicator_keys if key in indicators},
+                "zones": {key: zones.get(key) for key in ("support", "resistance", "fair_value_gaps", "order_blocks", "fibonacci", "volume_profile_summary") if key in zones},
+                "scenarios": raw_analysis.get("scenarios"),
+                "risk": raw_analysis.get("risk"),
+                "monitoring": raw_analysis.get("monitoring"),
+            }
         if not minimax_configured():
             status = calendar.get("status", "UNAVAILABLE")
             summary = f"{pair} calendar status is {status}. MiniMax is not configured; deterministic scanner rules remain active."
