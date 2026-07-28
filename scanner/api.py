@@ -274,6 +274,14 @@ class _ApiHandler(BaseHTTPRequestHandler):
             analysis = analyze_crypto(snapshot, benchmark, selected_candles, tf_raw or None)
             calendar = _STATE.news_filter.evaluate(pair) if _STATE.news_filter is not None else {"status": "UNAVAILABLE"}
             analysis["economic_calendar"] = calendar
+            timing = analysis.get("trade_timing") or {}
+            if calendar.get("status") in ("BLOCKED", "POST_NEWS"):
+                timing["status"] = "AVOID"
+                timing.setdefault("wait_for", []).append(f"calendar {calendar.get('status')}")
+            elif calendar.get("status") != "CLEAR":
+                timing["status"] = "WAIT"
+                timing.setdefault("wait_for", []).append(f"calendar {calendar.get('status', 'UNAVAILABLE')}")
+            analysis["trade_timing"] = timing
             analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar)
         except Exception as exc:
             return self._error(502, f"analysis unavailable: {exc}")

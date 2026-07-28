@@ -17,7 +17,16 @@ import {
   CandlestickChart,
   BarChart2,
   Link,
-  Link2Off
+  Link2Off,
+  MousePointer2,
+  Minus,
+  Square,
+  Percent,
+  Type,
+  Trash2,
+  Undo2,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { liveDataService, HarmonicPattern, TrendLine, FibonacciLevel } from '../services/liveDataService';
 import { tradeLockerService, TradeLockerConfig } from '../services/tradeLockerService';
@@ -60,6 +69,9 @@ interface TradeLockerHistoryCandle {
 }
 
 type ChartType = 'candlestick' | 'line' | 'area';
+type DrawingTool = 'select' | 'trend' | 'horizontal' | 'sr' | 'rectangle' | 'fib' | 'text';
+type DrawingPoint = { time: number; price: number };
+type ManualDrawing = { id: string; type: Exclude<DrawingTool, 'select'>; points: DrawingPoint[]; text?: string; color?: string };
 
 interface SymbolInfo {
   symbol: string;
@@ -135,6 +147,14 @@ const TradingView: React.FC = () => {
   const [showFibonacci, setShowFibonacci] = useState(true);
   const [showSupportResistance, setShowSupportResistance] = useState(true);
   const [cryptoAnalysis, setCryptoAnalysis] = useState<CryptoAnalysis | null>(null);
+  const [drawingTool, setDrawingTool] = useState<DrawingTool>('select');
+  const [drawings, setDrawings] = useState<ManualDrawing[]>([]);
+  const [draftDrawing, setDraftDrawing] = useState<ManualDrawing | null>(null);
+  const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
+  const [showManualDrawings, setShowManualDrawings] = useState(true);
+  const [drawingRevision, setDrawingRevision] = useState(0);
+  const drawingUndoRef = useRef<ManualDrawing[][]>([]);
+  const drawingStorageKeyRef = useRef('');
 
   useEffect(() => {
     const assetType = availableSymbols.find((symbol) => symbol.symbol === selectedSymbol)?.type;
@@ -149,6 +169,66 @@ const TradingView: React.FC = () => {
       .catch(() => { if (active) setCryptoAnalysis(null); });
     return () => { active = false; };
   }, [selectedSymbol, timeframe, availableSymbols]);
+
+  const drawingKey = `confluencex:drawings:${selectedSymbol}:${timeframe}`;
+  useEffect(() => {
+    drawingStorageKeyRef.current = drawingKey;
+    try { setDrawings(JSON.parse(localStorage.getItem(drawingKey) || '[]')); } catch { setDrawings([]); }
+    setDraftDrawing(null); setSelectedDrawingId(null); drawingUndoRef.current = [];
+  }, [drawingKey]);
+  useEffect(() => {
+    if (drawingStorageKeyRef.current === drawingKey) localStorage.setItem(drawingKey, JSON.stringify(drawings));
+  }, [drawings, drawingKey]);
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const redraw = () => setDrawingRevision((value) => value + 1);
+    chart.timeScale().subscribeVisibleTimeRangeChange(redraw);
+    return () => chart.timeScale().unsubscribeVisibleTimeRangeChange(redraw);
+  }, [chartRevision]);
+
+  const saveDrawingChange = useCallback((next: ManualDrawing[]) => {
+    drawingUndoRef.current.push(drawings);
+    if (drawingUndoRef.current.length > 40) drawingUndoRef.current.shift();
+    setDrawings(next);
+  }, [drawings]);
+  const drawingPointFromEvent = useCallback((event: React.PointerEvent<SVGSVGElement>): DrawingPoint | null => {
+    const chart = chartRef.current; const series = mainSeriesRef.current; if (!chart || !series) return null;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const time = chart.timeScale().coordinateToTime(event.clientX - rect.left);
+    const price = series.coordinateToPrice(event.clientY - rect.top);
+    if (time == null || price == null || typeof time !== 'number') return null;
+    return { time: Number(time), price: Number(price) };
+  }, []);
+  const handleDrawingPointerDown = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
+    if (drawingTool === 'select') return;
+    const point = drawingPointFromEvent(event); if (!point) return;
+    if (drawingTool === 'horizontal' || drawingTool === 'sr') {
+      saveDrawingChange([...drawings, { id: crypto.randomUUID(), type: drawingTool, points: [point], color: drawingTool === 'sr' ? '#22d3ee' : '#f59e0b' }]);
+      return;
+    }
+    if (drawingTool === 'text') {
+      const text = window.prompt('Annotation text');
+      if (text?.trim()) saveDrawingChange([...drawings, { id: crypto.randomUUID(), type: 'text', points: [point], text: text.trim(), color: '#f8fafc' }]);
+      return;
+    }
+    setDraftDrawing({ id: crypto.randomUUID(), type: drawingTool, points: [point, point], color: drawingTool === 'fib' ? '#a78bfa' : drawingTool === 'rectangle' ? '#22d3ee' : '#f8fafc' });
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }, [drawingTool, drawingPointFromEvent, drawings, saveDrawingChange]);
+  const handleDrawingPointerMove = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
+    if (!draftDrawing) return; const point = drawingPointFromEvent(event); if (!point) return;
+    setDraftDrawing({ ...draftDrawing, points: [draftDrawing.points[0], point] });
+  }, [draftDrawing, drawingPointFromEvent]);
+  const handleDrawingPointerUp = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
+    if (!draftDrawing) return; const point = drawingPointFromEvent(event) || draftDrawing.points[1];
+    const next = { ...draftDrawing, points: [draftDrawing.points[0], point] };
+    if (Math.abs(next.points[0].time-next.points[1].time) > 0 || Math.abs(next.points[0].price-next.points[1].price) > 0) saveDrawingChange([...drawings, next]);
+    setDraftDrawing(null);
+  }, [draftDrawing, drawingPointFromEvent, drawings, saveDrawingChange]);
+  const undoDrawing = () => { const previous = drawingUndoRef.current.pop(); if (previous) { setDrawings(previous); setSelectedDrawingId(null); } };
+  const deleteSelectedDrawing = () => { if (selectedDrawingId) { saveDrawingChange(drawings.filter((drawing) => drawing.id !== selectedDrawingId)); setSelectedDrawingId(null); } };
+  const clearDrawings = () => { if (drawings.length && window.confirm('Clear drawings for this symbol and timeframe?')) { saveDrawingChange([]); setSelectedDrawingId(null); } };
+  const drawingCoordinates = (drawing: ManualDrawing) => drawing.points.map((point) => ({ x: chartRef.current?.timeScale().timeToCoordinate(point.time as UTCTimestamp) ?? null, y: mainSeriesRef.current?.priceToCoordinate(point.price) ?? null }));
 
   const mapTradeLockerType = (instrument: any): SymbolInfo['type'] => {
     const rawType = String(
@@ -961,12 +1041,18 @@ const TradingView: React.FC = () => {
     const levels: { title: string; value: number; color: string; style: LineStyle }[] = [];
 
     if (showSupportResistance) {
-      (cryptoAnalysis.zones.support || []).slice(-3).forEach((value: number, index: number) => levels.push({ title: `S${index + 1}`, value, color: '#22c55e', style: LineStyle.Dashed }));
-      (cryptoAnalysis.zones.resistance || []).slice(-3).forEach((value: number, index: number) => levels.push({ title: `R${index + 1}`, value, color: '#f43f5e', style: LineStyle.Dashed }));
+      const detailed = cryptoAnalysis.zones.support_resistance || [];
+      if (detailed.length) {
+        ['support', 'resistance'].forEach((type) => detailed.filter((zone: any) => zone.type === type).slice(0, 3).forEach((zone: any, index: number) => levels.push({ title: `${type === 'support' ? 'S' : 'R'}${index + 1} ${zone.strength} · ${zone.touches}x`, value: Number(zone.level), color: type === 'support' ? '#22c55e' : '#f43f5e', style: zone.strength === 'strong' ? LineStyle.Solid : LineStyle.Dashed })));
+      } else {
+        (cryptoAnalysis.zones.support || []).slice(0, 3).forEach((value: number, index: number) => levels.push({ title: `S${index + 1}`, value, color: '#22c55e', style: LineStyle.Dashed }));
+        (cryptoAnalysis.zones.resistance || []).slice(0, 3).forEach((value: number, index: number) => levels.push({ title: `R${index + 1}`, value, color: '#f43f5e', style: LineStyle.Dashed }));
+      }
     }
     if (showFibonacci) {
-      const fib = cryptoAnalysis.zones.fibonacci?.levels || {};
-      Object.entries(fib).forEach(([ratio, value]) => levels.push({ title: `Fib ${ratio}`, value: Number(value), color: ['0.5', '0.618', '0.786'].includes(ratio) ? '#a78bfa' : '#6366f1', style: LineStyle.Dotted }));
+      const fibData = cryptoAnalysis.zones.fibonacci || {};
+      const confluenceRatios = new Set((fibData.sr_confluence || []).map((item: any) => String(item.ratio)));
+      Object.entries(fibData.levels || {}).forEach(([ratio, value]) => levels.push({ title: `Fib ${ratio}${confluenceRatios.has(ratio) ? ' + S/R' : ''}`, value: Number(value), color: ['0.618', '0.65'].includes(ratio) ? '#c084fc' : confluenceRatios.has(ratio) ? '#22d3ee' : '#6366f1', style: LineStyle.Dotted }));
     }
 
     levels.filter((level) => Number.isFinite(level.value)).forEach((level) => {
@@ -1262,6 +1348,21 @@ const TradingView: React.FC = () => {
         </div>
       </div>
 
+      {/* Manual drawing toolbar. Drawings persist independently per symbol and timeframe. */}
+      <div className="flex items-center gap-1 border-b border-white/[0.08] bg-[#080d18] px-4 py-1.5">
+        <span className="mr-2 text-[9px] font-black tracking-widest text-slate-600">DRAW</span>
+        {([
+          ['select', MousePointer2, 'Cursor / select'], ['trend', LineChart, 'Trend line'], ['horizontal', Minus, 'Horizontal line'],
+          ['sr', Target, 'S/R level'], ['rectangle', Square, 'Rectangle / zone'], ['fib', Percent, 'Fibonacci retracement'], ['text', Type, 'Text annotation'],
+        ] as const).map(([tool, Icon, label]) => <button key={tool} onClick={() => setDrawingTool(tool)} title={label} className={`rounded-md p-2 transition ${drawingTool === tool ? 'bg-cyan-400/15 text-cyan-300' : 'text-slate-500 hover:bg-white/[0.06] hover:text-slate-200'}`}><Icon className="h-4 w-4"/></button>)}
+        <div className="mx-2 h-5 w-px bg-white/10"/>
+        <button onClick={deleteSelectedDrawing} disabled={!selectedDrawingId} title="Delete selected" className="rounded-md p-2 text-slate-500 hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25"><Trash2 className="h-4 w-4"/></button>
+        <button onClick={undoDrawing} disabled={!drawingUndoRef.current.length} title="Undo" className="rounded-md p-2 text-slate-500 hover:bg-white/[0.06] hover:text-slate-200 disabled:opacity-25"><Undo2 className="h-4 w-4"/></button>
+        <button onClick={clearDrawings} disabled={!drawings.length} title="Clear drawings" className="rounded-md px-2 py-1.5 text-[10px] font-black text-slate-500 hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25">CLEAR</button>
+        <button onClick={() => setShowManualDrawings((visible) => !visible)} title="Show / hide drawings" className="ml-auto rounded-md p-2 text-slate-500 hover:bg-white/[0.06] hover:text-slate-200">{showManualDrawings ? <Eye className="h-4 w-4"/> : <EyeOff className="h-4 w-4"/>}</button>
+        <span className="text-[9px] font-bold text-slate-600">{drawings.length} · {selectedSymbol} {timeframe}</span>
+      </div>
+
       {/* Technical Analysis Controls */}
       <div className="bg-gray-800 border-b border-gray-700 px-4 py-2">
         <div className="flex items-center justify-between">
@@ -1394,12 +1495,38 @@ const TradingView: React.FC = () => {
         </div>
       )}
 
+      {cryptoAnalysis?.market_context && (
+        <div className="flex items-center gap-5 border-b border-cyan-500/15 bg-[#09131b] px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+          <span className="text-cyan-300">MARKET DIRECTION</span>
+          <span>Month <b className={cryptoAnalysis.market_context.timeframes.mn1?.trend === 'bullish' ? 'text-emerald-300' : cryptoAnalysis.market_context.timeframes.mn1?.trend === 'bearish' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.market_context.timeframes.mn1?.trend || 'neutral'}</b></span>
+          <span>Week <b className={cryptoAnalysis.market_context.timeframes.w1?.trend === 'bullish' ? 'text-emerald-300' : cryptoAnalysis.market_context.timeframes.w1?.trend === 'bearish' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.market_context.timeframes.w1?.trend || 'neutral'}</b></span>
+          <span>{timeframe} <b className={cryptoAnalysis.market_context.timeframes.selected?.trend === 'bullish' ? 'text-emerald-300' : cryptoAnalysis.market_context.timeframes.selected?.trend === 'bearish' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.market_context.timeframes.selected?.trend || 'neutral'}</b></span>
+          <span>Alignment <b className="text-slate-200">{cryptoAnalysis.market_context.alignment_score}%</b></span>
+          <span className={`ml-auto rounded px-2 py-1 ${cryptoAnalysis.trade_timing?.status === 'READY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.trade_timing?.status === 'AVOID' ? 'bg-rose-400/10 text-rose-300' : 'bg-amber-400/10 text-amber-300'}`}>TIMING {cryptoAnalysis.trade_timing?.status || 'WAIT'}</span>
+          {cryptoAnalysis.trade_timing?.wait_for?.[0] && <span className="normal-case tracking-normal text-slate-500">Wait: {String(cryptoAnalysis.trade_timing.wait_for[0]).replace(/_/g, ' ')}</span>}
+        </div>
+      )}
+
       {/* Chart Area */}
       <div className="flex-1 min-w-0 min-h-0 overflow-hidden relative bg-gray-900">
         <div
           ref={chartContainerRef}
           className="w-full h-full min-w-0 min-h-0 overflow-hidden"
         />
+        {showManualDrawings && <svg key={drawingRevision} className="absolute inset-0 z-20 h-full w-full" style={{ pointerEvents: drawingTool === 'select' ? 'none' : 'auto', cursor: drawingTool === 'select' ? 'default' : 'crosshair' }} onPointerDown={handleDrawingPointerDown} onPointerMove={handleDrawingPointerMove} onPointerUp={handleDrawingPointerUp}>
+          {[...drawings, ...(draftDrawing ? [draftDrawing] : [])].map((drawing) => {
+            const points = drawingCoordinates(drawing); if (!points.length || points.some((point) => point.x == null || point.y == null)) return null;
+            const selected = drawing.id === selectedDrawingId; const stroke = selected ? '#facc15' : drawing.color || '#e2e8f0';
+            const select = (event: React.PointerEvent<SVGElement>) => { event.stopPropagation(); if (drawingTool === 'select') setSelectedDrawingId(drawing.id); };
+            if (drawing.type === 'horizontal' || drawing.type === 'sr') return <g key={drawing.id} onPointerDown={select} style={{ pointerEvents: 'stroke' }}><line x1="0" x2="100%" y1={points[0].y!} y2={points[0].y!} stroke={stroke} strokeWidth={selected ? 2 : 1.5} strokeDasharray={drawing.type === 'sr' ? '7 4' : undefined}/><text x="8" y={points[0].y!-5} fill={stroke} fontSize="10">{drawing.type === 'sr' ? 'S/R' : 'H'} {drawing.points[0].price.toFixed(2)}</text></g>;
+            if (drawing.type === 'text') return <text key={drawing.id} x={points[0].x!} y={points[0].y!} fill={stroke} fontSize="12" fontWeight="700" onPointerDown={select} style={{ pointerEvents: 'all' }}>{drawing.text}</text>;
+            if (points.length < 2) return null;
+            if (drawing.type === 'trend') return <line key={drawing.id} x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke={stroke} strokeWidth={selected ? 2.5 : 1.7} onPointerDown={select} style={{ pointerEvents: 'stroke' }}/>;
+            if (drawing.type === 'rectangle') { const x=Math.min(points[0].x!,points[1].x!), y=Math.min(points[0].y!,points[1].y!), width=Math.abs(points[1].x!-points[0].x!), height=Math.abs(points[1].y!-points[0].y!); return <rect key={drawing.id} x={x} y={y} width={width} height={height} fill={`${stroke}18`} stroke={stroke} strokeWidth={selected ? 2 : 1.5} onPointerDown={select} style={{ pointerEvents: 'all' }}/>; }
+            if (drawing.type === 'fib') { const x1=Math.min(points[0].x!,points[1].x!), x2=Math.max(points[0].x!,points[1].x!); return <g key={drawing.id} onPointerDown={select} style={{ pointerEvents: 'stroke' }}>{[0,.236,.382,.5,.618,.65,.786,1,1.272,1.618].map((ratio) => { const y=points[0].y!+(points[1].y!-points[0].y!)*ratio; return <g key={ratio}><line x1={x1} x2={x2} y1={y} y2={y} stroke={['0.618','0.65'].includes(String(ratio)) ? '#c084fc' : stroke} strokeWidth={selected ? 2 : 1} strokeDasharray="4 3"/><text x={x2+4} y={y+3} fill={stroke} fontSize="9">{ratio}</text></g>; })}</g>; }
+            return null;
+          })}
+        </svg>}
         
         {/* Pattern Info Overlay */}
         {(harmonicPatterns.length > 0 || trendLines.length > 0) && (

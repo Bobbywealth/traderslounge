@@ -146,6 +146,58 @@ def _fvg(candles):
     return found[-3:]
 
 
+def _cluster_support_resistance(candles, price, atr_value):
+    """Cluster repeated swing reactions into ATR-aware support/resistance zones."""
+    if len(candles) < 12 or not price:
+        return []
+    candidates = []
+    for width in (2, 4, 7):
+        for swing in detect_swings(candles, width):
+            candidates.append((float(swing.price), getattr(swing, "time", None)))
+    tolerance = max((atr_value or 0) * .20, price * .0008)
+    clusters = []
+    for level, swing_time in sorted(candidates):
+        cluster = next((item for item in clusters if abs(item["center"] - level) <= tolerance), None)
+        if cluster:
+            cluster["values"].append(level)
+            cluster["center"] = mean(cluster["values"])
+            cluster["last_swing_time"] = swing_time or cluster["last_swing_time"]
+        else:
+            clusters.append({"center": level, "values": [level], "last_swing_time": swing_time})
+    recent = candles[-120:]
+    output = []
+    for cluster in clusters:
+        center = cluster["center"]
+        touches = sum(1 for candle in recent if candle.low - tolerance <= center <= candle.high + tolerance)
+        rejections = sum(1 for candle in recent if candle.low <= center <= candle.high and abs(candle.close-center) >= tolerance*.5)
+        strength_score = _clamp(len(cluster["values"]) + min(touches, 4) + min(rejections, 3), 1, 10)
+        output.append({
+            "type": "support" if center < price else "resistance",
+            "level": center, "low": center-tolerance, "high": center+tolerance,
+            "touches": touches, "rejections": rejections,
+            "strength_score": strength_score,
+            "strength": "strong" if strength_score >= 7 else "moderate" if strength_score >= 4 else "weak",
+            "distance_atr": abs(price-center)/(atr_value or tolerance),
+            "last_swing_time": cluster["last_swing_time"],
+        })
+    return sorted(output, key=lambda zone: (zone["distance_atr"], -zone["strength_score"]))[:10]
+
+
+def _significant_leg(candles, atr_value):
+    """Choose the latest swing leg large enough to matter on this timeframe."""
+    if len(candles) < 12:
+        return latest_leg(candles)
+    swings = detect_swings(candles, max(2, min(7, len(candles)//60)))
+    minimum = (atr_value or 0) * 1.5
+    for end_index in range(len(swings)-1, 0, -1):
+        end = swings[end_index]
+        for start in reversed(swings[:end_index]):
+            if start.type != end.type and abs(end.price-start.price) >= minimum:
+                low, high = sorted((float(start.price), float(end.price)))
+                return low, high, "up" if end.price > start.price else "down"
+    return latest_leg(candles)
+
+
 def _candle_patterns(candles):
     if len(candles) < 2:
         return []
@@ -230,8 +282,11 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         swings = detect_swings(bars, 2)
         recent_highs = [s.price for s in swings if s.type == "high"][-3:]
         recent_lows = [s.price for s in swings if s.type == "low"][-3:]
-        zones["support"] = recent_lows
-        zones["resistance"] = recent_highs
+        level_atr = atr(bars)
+        sr_zones = _cluster_support_resistance(bars, price, level_atr)
+        zones["support_resistance"] = sr_zones
+        zones["support"] = sorted([z["level"] for z in sr_zones if z["type"] == "support"], reverse=True)[:4]
+        zones["resistance"] = sorted([z["level"] for z in sr_zones if z["type"] == "resistance"])[:4]
         tolerance = price * .0015 if price else 0
         zones["liquidity_pools"] = {
             "equal_highs": [level for i, level in enumerate(recent_highs) if any(abs(level-other) <= tolerance for other in recent_highs[i+1:])],
@@ -311,13 +366,13 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         indicators.update({**{f"ema_{p}": ema_values[p] for p in ema_periods}, **{f"sma_{p}": sma_values[p] for p in sma_periods}, "ema_stack_aligned": ema_stack, "sma_stack_aligned": sma_stack, "golden_cross": golden_cross, "death_cross": death_cross})
         scores["moving_averages"] = _clamp((4 if ema_stack else 1) + (3 if sma_stack else 0) + (2 if dynamic_support else 0) + (1 if (golden_cross and sign > 0) or (death_cross and sign < 0) else 0), 0, 10) if sign else 0
 
-        leg = latest_leg(bars)
+        leg = _significant_leg(bars, level_atr)
         if leg:
             low, high, leg_dir = leg
             retrace = retracement_pct(price, low, high, leg_dir)
             span = high - low
-            retracement_ratios = (.236, .382, .5, .618, .786)
-            extension_ratios = (1.272, 1.618, 2.618)
+            retracement_ratios = (.236, .382, .5, .618, .65, .786)
+            extension_ratios = (1.272, 1.618, 2.0, 2.618)
             fibs = {
                 f"{ratio:g}": high - span*ratio if leg_dir == "up" else low + span*ratio
                 for ratio in retracement_ratios
@@ -326,9 +381,23 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
                 f"{ratio:g}": low + span*ratio if leg_dir == "up" else high - span*ratio
                 for ratio in extension_ratios
             })
-            zones["fibonacci"] = {"leg": leg_dir, "swing_low": low, "swing_high": high, "retracement": retrace, "levels": fibs}
-            fib_ok = .382 <= retrace <= .786 and ((leg_dir == "up") == (sign > 0))
-            scores["fibonacci"] = 10 if fib_ok else 3 if sign and ((leg_dir == "up") == (sign > 0)) else 0
+            fib_tolerance = max((level_atr or 0)*.25, price*.001)
+            confluence = []
+            for ratio, fib_level in fibs.items():
+                matched = [zone for zone in sr_zones if abs(zone["level"]-fib_level) <= fib_tolerance]
+                if matched:
+                    confluence.append({"ratio": ratio, "level": fib_level, "sr_level": matched[0]["level"], "sr_strength": matched[0]["strength"], "distance": abs(matched[0]["level"]-fib_level)})
+            golden_low, golden_high = sorted((fibs["0.618"], fibs["0.65"]))
+            in_golden_pocket = golden_low <= price <= golden_high
+            nearest_ratio, nearest_level = min(fibs.items(), key=lambda item: abs(item[1]-price))
+            zones["fibonacci"] = {
+                "leg": leg_dir, "swing_low": low, "swing_high": high, "leg_size_atr": span/(level_atr or span),
+                "retracement": retrace, "levels": fibs, "golden_pocket": {"low": golden_low, "high": golden_high, "contains_price": in_golden_pocket},
+                "nearest": {"ratio": nearest_ratio, "level": nearest_level, "distance_atr": abs(price-nearest_level)/(level_atr or span)},
+                "sr_confluence": confluence,
+            }
+            aligned_leg = sign and ((leg_dir == "up") == (sign > 0))
+            scores["fibonacci"] = _clamp((4 if aligned_leg else 0) + (3 if .382 <= retrace <= .786 else 0) + (2 if confluence else 0) + (1 if in_golden_pocket else 0), 0, 10)
 
         gaps = _fvg(bars)
         zones["fair_value_gaps"] = gaps
@@ -379,6 +448,30 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
     scores = {key: int(_clamp(_num(value), 0, CAPS[key])) for key, value in scores.items()}
     total = sum(scores.values())
     quality = {"primary_timeframe": primary_name, "bars": len(bars), "timeframes_available": [x for x, v in frames.items() if v], "issues": issues, "status": "good" if not issues else "limited" if bars else "insufficient"}
+    bias = {name: trends.get(name, {"trend": "neutral", "labels": []}) for name in ("mn1", "w1", "d1", "h4", "h1")}
+    bias["selected"] = trends.get("selected" if selected else primary_name, {"trend": "neutral", "labels": []})
+    weights = {"mn1": 3, "w1": 2, "d1": 1, "h4": 1}
+    macro_value = sum((1 if bias[name]["trend"] == "bullish" else -1 if bias[name]["trend"] == "bearish" else 0)*weight for name, weight in weights.items())
+    macro_bias = "bullish" if macro_value > 1 else "bearish" if macro_value < -1 else "neutral"
+    expected_trend = "bullish" if sign > 0 else "bearish" if sign < 0 else "neutral"
+    opposing_frames = [name for name in ("mn1", "w1", "d1", "h4") if bias[name]["trend"] not in ("neutral", expected_trend)]
+    aligned_frames = [name for name in ("mn1", "w1", "d1", "h4") if bias[name]["trend"] == expected_trend]
+    market_context = {"macro_bias": macro_bias, "timeframes": bias, "aligned_frames": aligned_frames, "opposing_frames": opposing_frames, "alignment_score": round(len(aligned_frames)/4*100)}
+
+    sr_for_direction = next((zone for zone in zones.get("support_resistance", []) if zone["type"] == ("support" if sign > 0 else "resistance") and zone["distance_atr"] <= .6), None) if sign else None
+    fib_data = zones.get("fibonacci") or {}
+    fib_near = bool((fib_data.get("nearest") or {}).get("distance_atr", 99) <= .35 or (fib_data.get("golden_pocket") or {}).get("contains_price"))
+    confirmation = bool((indicators.get("relative_volume") or 0) >= 1.1 or indicators.get("patterns") or scores.get("liquidity", 0) >= 10)
+    technical_checks = {
+        "score_threshold": total >= 55, "macro_alignment": not opposing_frames,
+        "sr_location": bool(sr_for_direction), "fibonacci_location": fib_near,
+        "confirmation": confirmation, "data_quality": quality["status"] == "good",
+    }
+    location_ready = technical_checks["sr_location"] or technical_checks["fibonacci_location"]
+    technical_ready = all((technical_checks["score_threshold"], technical_checks["macro_alignment"], location_ready, technical_checks["confirmation"], technical_checks["data_quality"]))
+    trade_timing = {"status": "READY" if technical_ready else "WAIT", "checks": technical_checks, "location_ready": location_ready,
+                    "nearest_sr": sr_for_direction, "nearest_fibonacci": fib_data.get("nearest"),
+                    "wait_for": [label for label, passed in technical_checks.items() if not passed and label not in ("sr_location", "fibonacci_location")] + ([] if location_ready else ["S/R or Fibonacci location"])}
     scenario = "bullish continuation" if direction == "BUY" else "bearish continuation" if direction == "SELL" else "wait for directional confirmation"
     stop = None
     if bars and price:
@@ -386,7 +479,7 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         stop = price-sign*2*a if sign else None
     return {"version": VERSION, "asset_class": "crypto", "pair": getattr(snapshot, "pair", None), "direction": direction,
             "total_score": int(_clamp(total, 0, 100)), "category_breakdown": scores, "data_quality": quality,
-            "indicators": indicators, "zones": zones,
+            "indicators": indicators, "zones": zones, "market_context": market_context, "trade_timing": trade_timing,
             "scenarios": {"primary": scenario, "invalidation": "close beyond ATR stop or opposing structure break", "confidence": "high" if total >= 70 else "moderate" if total >= 45 else "low"},
             "risk": {"atr_stop": stop, "atr_multiple": 2, "warning": "Crypto can gap and liquidity can thin; use position sizing and hard stops."},
             "monitoring": ["primary timeframe close", "volume relative to 20-bar average", "VWAP reclaim/loss", "structure break", "ATR volatility regime"]}

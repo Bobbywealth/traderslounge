@@ -79,6 +79,8 @@ export interface CryptoTradePlan {
   targets: { label: string; price: number; r_multiple: number; reachable: boolean }[];
   account_risk_percent: number;
   calendar_status: string;
+  timing_status?: string;
+  timing?: CryptoAnalysis['trade_timing'];
   reasons: string[];
 }
 
@@ -92,6 +94,21 @@ export interface CryptoAnalysis {
   data_quality: { status: string; issues: string[]; primary_timeframe: string; bars: number; timeframes_available: string[] };
   indicators: Record<string, any>;
   zones: Record<string, any>;
+  market_context: {
+    macro_bias: 'bullish' | 'bearish' | 'neutral';
+    timeframes: Record<string, { trend: 'bullish' | 'bearish' | 'neutral'; labels: string[] }>;
+    aligned_frames: string[];
+    opposing_frames: string[];
+    alignment_score: number;
+  };
+  trade_timing: {
+    status: 'READY' | 'WAIT' | 'AVOID';
+    checks: Record<string, boolean>;
+    location_ready: boolean;
+    nearest_sr?: any;
+    nearest_fibonacci?: any;
+    wait_for: string[];
+  };
   scenarios: { primary: string; invalidation: string; confidence: string };
   risk: { atr_stop: number | null; atr_multiple: number; warning: string };
   monitoring: string[];

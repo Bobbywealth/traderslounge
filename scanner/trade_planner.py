@@ -60,6 +60,8 @@ def build_trade_plan(
     entry = float(bars[-1].close) if bars else 0.0
     atr_value = atr(bars) if len(bars) >= 16 else None
     calendar_status = str((calendar or {}).get("status") or "UNAVAILABLE")
+    timing = analysis.get("trade_timing") or {}
+    timing_status = str(timing.get("status") or "WAIT")
     reasons = []
 
     if not bars or entry <= 0:
@@ -68,6 +70,9 @@ def build_trade_plan(
         reasons.append("V2 has no confirmed direction")
     if score < minimum_score:
         reasons.append(f"V2 score {score}/100 is below the {minimum_score} setup threshold")
+    if timing_status != "READY":
+        missing = ", ".join(str(item).replace("_", " ") for item in (timing.get("wait_for") or [])[:3])
+        reasons.append(f"Trade timing is {timing_status}{': waiting for ' + missing if missing else ''}")
     if quality not in ("good", "limited"):
         reasons.append(f"Data quality is {quality}")
     if calendar_status in ("BLOCKED", "POST_NEWS", "UNAVAILABLE"):
@@ -158,6 +163,8 @@ def build_trade_plan(
         "structural_targets": structural_targets[:5],
         "account_risk_percent": risk_percent,
         "calendar_status": calendar_status,
+        "timing_status": timing_status,
+        "timing": timing,
         "reasons": reasons,
         "position_size_formula": "account_equity * account_risk_percent / 100 / risk_distance",
     }
@@ -173,6 +180,6 @@ def _empty_plan(direction, score, calendar_status, reasons):
         "expected_move_percent": None, "available_rr": 0,
         "minimum_rr": 1.5, "targets": [], "daily_range": {},
         "structural_targets": [], "account_risk_percent": 0,
-        "calendar_status": calendar_status, "reasons": reasons,
+        "calendar_status": calendar_status, "timing_status": "WAIT", "timing": {}, "reasons": reasons,
         "position_size_formula": "account_equity * account_risk_percent / 100 / risk_distance",
     }
