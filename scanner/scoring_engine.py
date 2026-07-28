@@ -64,6 +64,24 @@ def _build_trade_levels(
         tp2 = min(tp1 * 0.998, max(ext, adr_low) if adr_low < tp1 else ext)
         tp3 = min(tp2 * 0.998, ext, adr_low)
 
+    # Hard safety invariant: stops and targets must remain on the correct
+    # side of entry even when the latest Fibonacci leg opposes HTF bias.
+    min_risk = max(abs(entry) * 0.002, 1e-8)
+    if direction == Direction.BUY:
+        if sl >= entry:
+            sl = entry - min_risk
+        risk = max(entry - sl, min_risk)
+        tp1 = max(tp1, entry + risk)
+        tp2 = max(tp2, tp1 + risk * 0.5)
+        tp3 = max(tp3, tp2 + risk * 0.5)
+    elif direction == Direction.SELL:
+        if sl <= entry:
+            sl = entry + min_risk
+        risk = max(sl - entry, min_risk)
+        tp1 = min(tp1, entry - risk)
+        tp2 = min(tp2, tp1 - risk * 0.5)
+        tp3 = min(tp3, tp2 - risk * 0.5)
+
     return entry, sl, tp1, tp2, tp3
 
 
