@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import logging
+import os
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -24,7 +25,10 @@ from .data_types import Candle
 
 log = logging.getLogger(__name__)
 
-BINANCE_BASE = "https://api.binance.com"
+# Default to the US-legal endpoint: api.binance.com is geo-blocked (HTTP 451)
+# from the US, which includes Render's Oregon region. Override with
+# BINANCE_BASE_URL if you ever need a different endpoint.
+BINANCE_BASE = os.environ.get("BINANCE_BASE_URL", "https://api.binance.us")
 
 # Internal pair → Binance symbol. USDT is the de-facto USD stable.
 BINANCE_SYMBOL_MAP: Dict[str, str] = {

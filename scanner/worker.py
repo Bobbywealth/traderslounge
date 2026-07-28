@@ -30,8 +30,20 @@ def main() -> int:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
     if not cfg.twelve_data_api_key:
-        print("ERROR: TWELVE_DATA_API_KEY env var not set", file=sys.stderr)
-        return 1
+        # Crypto pairs (Binance, keyless) still work without a Twelve Data key;
+        # forex/gold/index pairs are simply skipped. Warn instead of exiting
+        # so a crypto-only scan can run with zero API keys.
+        from .binance_client import supports as _is_crypto
+        fx_pairs = [p for p in cfg.pairs if not _is_crypto(p)]
+        if fx_pairs:
+            print(
+                "WARNING: TWELVE_DATA_API_KEY not set — forex/gold/index pairs "
+                f"will be skipped: {fx_pairs}",
+                file=sys.stderr,
+            )
+        else:
+            print("INFO: running crypto-only (Binance, no API key required)",
+                  file=sys.stderr)
     fx = TwelveDataClient(api_key=cfg.twelve_data_api_key)
     crypto = BinanceClient()
     client = MultiSourceClient(fx=fx, crypto=crypto)
