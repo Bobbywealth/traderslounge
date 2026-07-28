@@ -251,11 +251,14 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
     response rather than raising.  Benchmark candles may be a candle list or
     a MarketSnapshot (its closest matching populated timeframe is selected).
     """
-    frames = {name: _candles(getattr(snapshot, name, []))
-              for name in ("d1", "h4", "h1", "m15", "m5", "m1")}
+    frames = {}
+    for name in ("d1", "h4", "h1", "m15", "m5", "m1"):
+        source = _candles(getattr(snapshot, name, []))
+        frames[name] = source[:-1] if len(source) > 8 else source
     frames["w1"] = _aggregate_days(frames["d1"], 7)
     frames["mn1"] = _aggregate_days(frames["d1"], 30)
-    selected = _candles(primary_candles or [])
+    selected_source = _candles(primary_candles or [])
+    selected = selected_source[:-1] if len(selected_source) > 8 else selected_source
     if selected:
         frames["selected"] = selected
         primary_name = str(primary_timeframe or "selected").lower()
@@ -288,7 +291,7 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
     sign = 1 if direction == "BUY" else -1 if direction == "SELL" else 0
 
     scores = dict((key, 0) for key in CAPS)
-    indicators, zones = {}, {"fair_value_gaps": [], "order_blocks": [], "volume_profile": []}
+    indicators, zones = {"raw_bias": raw_bias, "directional_strength": abs(raw_bias)*100}, {"fair_value_gaps": [], "order_blocks": [], "volume_profile": []}
     if bars:
         # Structure: MTF agreement and latest price position.
         aligned = sum(1 for info in trends.values() if info["trend"] == ("bullish" if sign > 0 else "bearish"))
@@ -418,7 +421,7 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         aligned_gap = any(gap["type"] == ("bullish" if sign > 0 else "bearish") for gap in gaps) if sign else False
         if aligned_gap:
             scores["liquidity"] = _clamp(scores["liquidity"] + 3, 0, CAPS["liquidity"])
-        confirmed_bars = bars[:-1] if len(bars) > 2 else bars
+        confirmed_bars = bars
         candle_patterns = _candle_patterns(confirmed_bars)
         harmonic = detect_harmonic(confirmed_bars)
         pattern_ok = any(("bullish" in p or p == "hammer") if sign > 0 else ("bearish" in p or p == "shooting_star") for p in candle_patterns)
@@ -462,7 +465,7 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
 
     scores = {key: int(_clamp(_num(value), 0, CAPS[key])) for key, value in scores.items()}
     total = sum(scores.values())
-    quality = {"primary_timeframe": primary_name, "bars": len(bars), "timeframes_available": [x for x, v in frames.items() if v], "issues": issues, "status": "good" if not issues else "limited" if bars else "insufficient"}
+    quality = {"primary_timeframe": primary_name, "bars": len(bars), "closed_bar_time": getattr(bars[-1], "time", None) if bars else None, "timeframes_available": [x for x, v in frames.items() if v], "issues": issues, "status": "good" if not issues else "limited" if bars else "insufficient"}
     bias = {name: trends.get(name, {"trend": "neutral", "labels": []}) for name in ("mn1", "w1", "d1", "h4", "h1")}
     bias["selected"] = trends.get("selected" if selected else primary_name, {"trend": "neutral", "labels": []})
     weights = {"mn1": 3, "w1": 2, "d1": 1, "h4": 1}
@@ -483,8 +486,8 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
     gap_near = any(gap.get("low", 0)-zone_tolerance <= price <= gap.get("high", 0)+zone_tolerance for gap in zones.get("fair_value_gaps", [])) if price else False
     location_signals = [name for name, passed in {"strong_sr": bool(sr_for_direction), "fibonacci": fib_near, "fib_sr_confluence": fib_confluence, "order_block": block_near, "fair_value_gap": gap_near}.items() if passed]
 
-    completed = bars[-2] if len(bars) >= 2 else bars[-1] if bars else None
-    prior = bars[-3] if len(bars) >= 3 else None
+    completed = bars[-1] if bars else None
+    prior = bars[-2] if len(bars) >= 2 else None
     completed_patterns = indicators.get("patterns") or []
     pattern_confirmation = any((name in ("bullish_engulfing", "morning_star", "hammer", "bullish_marubozu")) if sign > 0 else (name in ("bearish_engulfing", "evening_star", "shooting_star", "bearish_marubozu")) for name in completed_patterns)
     rejection_confirmation = False
