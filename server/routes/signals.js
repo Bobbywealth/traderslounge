@@ -101,12 +101,43 @@ async function initializeTable() {
     console.error('Failed to initialize signals table:', error.message);
   }
 }
-initializeTable();
+
+// The signals router requires PostgreSQL. When DATABASE_URL is not set
+// (common during local dev, in Render env without a DB, or during incident
+// recovery) the pool falls back to localhost:5432 and every query throws
+// ECONNREFUSED, which surfaces to the UI as a noisy 500 with an empty
+// error message. Surface a clear 503 instead so the admin can see
+// "database not configured" and the operator can fix the env var.
+//
+// Return shape stays compatible with the success response
+// ({ success: true, signals: [] }) so the frontend degrades gracefully
+// to the empty-state UI it already has.
+const DB_CONFIGURED = Boolean(process.env.DATABASE_URL);
+const UNAVAILABLE_MESSAGE = DB_CONFIGURED
+  ? 'Database temporarily unavailable.'
+  : 'Database not configured. Set DATABASE_URL on the Render service to enable signals.';
+
+function sendDbUnavailable(req, res) {
+  res.status(503).json({
+    success: false,
+    error: UNAVAILABLE_MESSAGE,
+    code: DB_CONFIGURED ? 'DB_UNAVAILABLE' : 'DB_NOT_CONFIGURED',
+  });
+}
+
+if (!DB_CONFIGURED) {
+  console.warn(
+    '[signals] DATABASE_URL is not set. All signals routes will return 503 until the env var is configured.'
+  );
+} else {
+  initializeTable();
+}
 
 import { runStrategy } from '../services/strategy.js';
 
 // Get all signals
 router.get('/', async (req, res) => {
+  if (!DB_CONFIGURED) return sendDbUnavailable(req, res);
   try {
     const { symbol, limit = 50, includeExpired = 'false' } = req.query;
     
@@ -139,6 +170,7 @@ router.get('/', async (req, res) => {
 
 // Get single signal
 router.get('/:symbol', async (req, res) => {
+  if (!DB_CONFIGURED) return sendDbUnavailable(req, res);
   try {
     const { symbol } = req.params;
     
@@ -160,6 +192,7 @@ router.get('/:symbol', async (req, res) => {
 
 // Refresh/Generate new analysis for symbols
 router.post('/refresh', async (req, res) => {
+  if (!DB_CONFIGURED) return sendDbUnavailable(req, res);
   const forceRefresh = req.query.force === 'true';
   const metadata = buildRefreshMetadata();
 
