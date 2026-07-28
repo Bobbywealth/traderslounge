@@ -1,169 +1,54 @@
-// Live Scanner — real-time view of the latest signal per configured pair.
-// Pulls /api/pairs once, then /api/signals?pair=X for each pair.
-// Auto-refreshes every 30s.
+import React, { useEffect, useMemo, useState } from 'react';
+import { Activity, ArrowRight, CalendarClock, RefreshCw, ShieldAlert, TrendingDown, TrendingUp } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { bwtsApi, type CryptoAnalysis } from '../services/bwtsApi';
 
-import React, { useEffect, useState } from 'react';
-import { Activity, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react';
-import { bwtsApi, type BwtsSignal, type SignalTier } from '../services/bwtsApi';
-
-type PairRow = {
-  pair: string;
-  signal?: BwtsSignal;
-  loading: boolean;
-  error?: string;
-};
-
-const TIER_STYLES: Record<SignalTier, string> = {
-  STRONG: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
-  GOOD: 'bg-blue-500/20 text-blue-300 border-blue-500/40',
-  WATCHLIST: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
-  NO_TRADE: 'bg-gray-500/20 text-gray-400 border-gray-500/40',
+type PairRow = { pair: string; analysis?: CryptoAnalysis; loading: boolean; error?: string };
+const planStyle: Record<string, string> = {
+  STRONG: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300', VALID: 'border-cyan-400/30 bg-cyan-400/10 text-cyan-300',
+  WATCHLIST: 'border-amber-400/30 bg-amber-400/10 text-amber-300', WAIT: 'border-slate-400/20 bg-slate-400/10 text-slate-400',
+  BLOCKED: 'border-rose-400/30 bg-rose-400/10 text-rose-300',
 };
 
 const LiveScanner: React.FC = () => {
-  const [rows, setRows] = useState<PairRow[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-  const [globalError, setGlobalError] = useState<string | null>(null);
-
+  const [rows, setRows] = useState<PairRow[]>([]); const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null); const [globalError, setGlobalError] = useState<string | null>(null);
   const refresh = async () => {
-    setRefreshing(true);
-    setGlobalError(null);
+    setRefreshing(true); setGlobalError(null);
     try {
-      const { pairs } = await bwtsApi.pairs();
-      const next: PairRow[] = pairs.map((p) => ({ pair: p, loading: true }));
-      setRows(next);
-      // Fetch latest signal per pair in parallel
-      const results = await Promise.all(
-        pairs.map(async (pair) => {
-          try {
-            const { signals } = await bwtsApi.signals({ pair, limit: 1 });
-            return { pair, signal: signals[0], loading: false } as PairRow;
-          } catch (e: any) {
-            return { pair, loading: false, error: e?.message || 'fetch failed' } as PairRow;
-          }
-        }),
-      );
-      setRows(results);
-      setLastUpdate(new Date());
-    } catch (e: any) {
-      setGlobalError(e?.message || 'Failed to load pairs');
-    } finally {
-      setRefreshing(false);
-    }
+      const { pairs } = await bwtsApi.pairs(); setRows(pairs.map((pair) => ({ pair, loading: true })));
+      const results = await Promise.all(pairs.map(async (pair): Promise<PairRow> => {
+        try { return { pair, analysis: await bwtsApi.cryptoAnalysis(pair), loading: false }; }
+        catch (error: any) { return { pair, loading: false, error: error?.message || 'V2 analysis failed' }; }
+      }));
+      setRows(results.sort((a, b) => (b.analysis?.total_score || 0) - (a.analysis?.total_score || 0))); setLastUpdate(new Date());
+    } catch (error: any) { setGlobalError(error?.message || 'Failed to load tracked markets'); } finally { setRefreshing(false); }
   };
-
-  useEffect(() => {
-    refresh();
-    const id = setInterval(refresh, 30_000);
-    return () => clearInterval(id);
-  }, []);
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-            <Activity className="w-8 h-8 text-emerald-400" />
-            Live Scanner
-          </h1>
-          <p className="text-gray-400 mt-1">
-            Latest confidence score per pair from the BWTS scanner.
-            {lastUpdate && (
-              <span className="ml-2 text-xs">
-                Updated {lastUpdate.toLocaleTimeString()}
-              </span>
-            )}
-          </p>
-        </div>
-        <button
-          onClick={refresh}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
-      </div>
-
-      {globalError && (
-        <div className="bg-red-500/10 border border-red-500/30 text-red-300 rounded-lg px-4 py-3">
-          {globalError}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {rows.map((row) => (
-          <PairCard key={row.pair} row={row} />
-        ))}
-        {rows.length === 0 && !globalError && (
-          <div className="col-span-full text-center text-gray-500 py-12">
-            {refreshing ? 'Loading pairs…' : 'No pairs configured.'}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  useEffect(() => { refresh(); const id = setInterval(refresh, 60_000); return () => clearInterval(id); }, []);
+  const loaded = useMemo(() => rows.filter((row) => row.analysis), [rows]);
+  const eligible = loaded.filter((row) => row.analysis?.trade_plan?.eligible).length;
+  const average = loaded.length ? Math.round(loaded.reduce((sum, row) => sum + (row.analysis?.total_score || 0), 0) / loaded.length) : 0;
+  return <div className="space-y-6">
+    <section className="relative overflow-hidden rounded-[24px] border border-violet-400/15 bg-[#090d18] bg-gradient-to-br from-violet-500/10 to-cyan-500/[0.04] p-6">
+      <div className="flex flex-wrap items-center justify-between gap-4"><div><div className="text-[10px] font-black tracking-[0.22em] text-cyan-300">V2 MARKET INTELLIGENCE</div><h1 className="mt-2 flex items-center gap-3 text-3xl font-black text-white"><Activity className="h-7 w-7 text-cyan-300"/>Live Scanner</h1><p className="mt-2 text-sm text-slate-400">One engine for score, direction, movement and trade eligibility.{lastUpdate && <span className="ml-2 text-xs text-slate-600">Updated {lastUpdate.toLocaleTimeString()}</span>}</p></div><button onClick={refresh} disabled={refreshing} className="flex items-center gap-2 rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-2.5 text-xs font-black text-cyan-200 transition hover:bg-cyan-400/15 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`}/>Refresh V2</button></div>
+      <div className="mt-6 grid grid-cols-3 gap-3"><Metric label="MARKETS" value={String(rows.length)}/><Metric label="ELIGIBLE PLANS" value={String(eligible)}/><Metric label="AVERAGE SCORE" value={`${average}/100`}/></div>
+    </section>
+    {globalError && <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-rose-300">{globalError}</div>}
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{rows.map((row) => <PairCard key={row.pair} row={row}/>)}{rows.length === 0 && !globalError && <div className="col-span-full py-12 text-center text-slate-500">{refreshing ? 'Loading V2 analysis…' : 'No markets configured.'}</div>}</div>
+  </div>;
 };
-
+const Metric = ({ label, value }: { label: string; value: string }) => <div className="rounded-xl border border-white/[0.06] bg-black/20 p-3"><div className="text-[9px] font-black tracking-widest text-slate-500">{label}</div><div className="mt-1 text-xl font-black text-white">{value}</div></div>;
+const Point = ({ label, value }: { label: string; value: number | null | undefined }) => <div className="rounded-lg bg-black/20 p-2"><div className="text-[8px] font-black tracking-widest text-slate-600">{label}</div><div className="mt-1 font-mono text-xs text-slate-300">{value == null ? 'WAIT' : value.toLocaleString(undefined, { maximumFractionDigits: 5 })}</div></div>;
 const PairCard: React.FC<{ row: PairRow }> = ({ row }) => {
-  const { pair, signal, loading, error } = row;
-
-  if (loading) {
-    return (
-      <div className="bg-gray-900/60 border border-gray-700/50 rounded-xl p-5 animate-pulse">
-        <div className="h-5 w-20 bg-gray-700 rounded mb-3" />
-        <div className="h-3 w-32 bg-gray-800 rounded" />
-      </div>
-    );
-  }
-
-  if (error || !signal) {
-    return (
-      <div className="bg-gray-900/60 border border-gray-700/50 rounded-xl p-5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-white">{pair}</h3>
-          <span className="text-xs text-gray-500">no data</span>
-        </div>
-        <p className="text-sm text-gray-500 mt-2">{error || 'No signals scanned yet.'}</p>
-      </div>
-    );
-  }
-
-  const DirectionIcon =
-    signal.direction === 'BUY' ? TrendingUp : signal.direction === 'SELL' ? TrendingDown : Activity;
-
-  return (
-    <div className="bg-gray-900/60 border border-gray-700/50 rounded-xl p-5 hover:border-emerald-500/40 transition-colors">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-lg font-semibold text-white">{pair}</h3>
-        <span className={`text-xs px-2 py-1 rounded border ${TIER_STYLES[signal.tier]}`}>
-          {signal.tier}
-        </span>
-      </div>
-      <div className="flex items-center gap-2 mb-2">
-        <DirectionIcon
-          className={`w-4 h-4 ${
-            signal.direction === 'BUY'
-              ? 'text-emerald-400'
-              : signal.direction === 'SELL'
-              ? 'text-red-400'
-              : 'text-gray-400'
-          }`}
-        />
-        <span className="text-sm text-gray-300">{signal.direction}</span>
-        <span className="ml-auto text-2xl font-bold text-white">
-          {signal.confidence_score}
-          <span className="text-sm text-gray-500">/80</span>
-        </span>
-      </div>
-      <div className="text-xs text-gray-500 space-y-0.5">
-        <div>Entry: {signal.entry.toFixed(5)}</div>
-        <div>SL: {signal.stop_loss.toFixed(5)} · TP1: {signal.tp1.toFixed(5)}</div>
-        <div className="truncate">{signal.pattern || 'No pattern'}</div>
-      </div>
-    </div>
-  );
+  if (row.loading) return <div className="h-72 animate-pulse rounded-[20px] border border-white/[0.06] bg-[#090d18]"/>;
+  if (row.error || !row.analysis) return <div className="rounded-[20px] border border-white/[0.06] bg-[#090d18] p-5"><div className="flex justify-between"><h3 className="text-lg font-black">{row.pair}</h3><span className="text-xs text-slate-600">NO DATA</span></div><p className="mt-2 text-sm text-slate-500">{row.error || 'No V2 analysis available.'}</p></div>;
+  const analysis = row.analysis; const plan = analysis.trade_plan; const Icon = analysis.direction === 'BUY' ? TrendingUp : analysis.direction === 'SELL' ? TrendingDown : Activity;
+  const topCategories = Object.entries(analysis.categories).sort((a, b) => b[1].score - a[1].score).slice(0, 3);
+  return <article className="rounded-[20px] border border-white/[0.08] bg-[#090d18] p-5 transition hover:border-cyan-400/20">
+    <div className="flex items-start justify-between"><div><div className="flex items-center gap-2"><h2 className="text-xl font-black text-white">{row.pair}</h2><span className={`rounded-md border px-2 py-1 text-[9px] font-black ${planStyle[plan?.status || 'WAIT']}`}>{plan?.status || 'WAIT'}</span></div><div className="mt-1 text-xs capitalize text-slate-500">{analysis.scenarios.primary}</div></div><div className="text-right"><div className="text-3xl font-black text-cyan-300">{analysis.total_score}<span className="text-xs text-cyan-700">/100</span></div><div className={`mt-1 flex items-center justify-end gap-1 text-xs font-black ${analysis.direction === 'BUY' ? 'text-emerald-300' : analysis.direction === 'SELL' ? 'text-rose-300' : 'text-slate-500'}`}><Icon className="h-3.5 w-3.5"/>{analysis.direction}</div></div></div>
+    <div className="mt-4 grid grid-cols-3 gap-2">{topCategories.map(([name, value]) => <div key={name} className="rounded-lg border border-white/[0.05] bg-white/[0.025] p-2"><div className="truncate text-[8px] font-black uppercase tracking-wider text-slate-600">{name.replace('_',' ')}</div><div className="mt-1 text-xs font-black text-slate-300">{value.score}/{value.cap}</div></div>)}</div>
+    {plan?.eligible ? <><div className="mt-4 grid grid-cols-3 gap-2"><Point label="ENTRY" value={plan.entry}/><Point label="STOP" value={plan.stop}/><Point label="TP1" value={plan.targets[0]?.price}/></div><div className="mt-3 flex justify-between text-[10px] text-slate-500"><span>Movement {plan.available_rr.toFixed(2)}R</span><span>Price risk {plan.risk_percent_of_price?.toFixed(2)}%</span><span>Account risk {plan.account_risk_percent.toFixed(2)}%</span></div></> : <div className="mt-4 flex gap-2 rounded-xl border border-amber-400/15 bg-amber-400/[0.06] p-3 text-xs leading-relaxed text-amber-200"><ShieldAlert className="mt-0.5 h-4 w-4 shrink-0"/><span>{plan?.reasons?.[0] || 'Waiting for an eligible V2 trade plan.'}</span></div>}
+    <div className="mt-4 flex items-center justify-between border-t border-white/[0.06] pt-3"><div className="flex items-center gap-2 text-[10px] text-slate-600"><CalendarClock className="h-3.5 w-3.5"/>Calendar {plan?.calendar_status || analysis.economic_calendar?.status || 'UNAVAILABLE'}</div><Link to="/tradingview" className="flex items-center gap-1 text-xs font-black text-cyan-300 hover:text-cyan-200">Validate chart <ArrowRight className="h-3.5 w-3.5"/></Link></div>
+  </article>;
 };
-
 export default LiveScanner;
