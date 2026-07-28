@@ -106,9 +106,12 @@ class Scanner:
         try:
             count = refresh_filter(self.news_client, self.news)
             log.info("news feed refreshed: %d high-impact events", count)
+            # Retry on the next scanner cycle when the provider is temporarily
+            # unavailable instead of leaving the gate empty for six hours.
+            if count:
+                self._last_news_refresh = now
         except Exception:
             log.exception("news feed refresh failed")
-        self._last_news_refresh = now
 
     def run_forever(self) -> None:
         log.info("scanner starting: %d pairs, interval=%ds",
