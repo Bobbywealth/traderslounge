@@ -258,15 +258,20 @@ class _ApiHandler(BaseHTTPRequestHandler):
         pair = str(query.get("pair") or query.get("symbol") or "").upper()
         if not pair:
             return self._error(400, "pair is required")
+        tf_raw = str(query.get("timeframe") or "").lower()
+        selected_timeframe = _timeframe_alias(tf_raw) if tf_raw else None
+        if tf_raw and selected_timeframe is None:
+            return self._error(400, f"unsupported timeframe: {tf_raw}")
         try:
             snapshot = client.fetch_snapshot(pair)
+            selected_candles = client.fetch_candles(pair, selected_timeframe, limit=250) if selected_timeframe else None
             benchmark = None
             if pair != "BTCUSD":
                 try:
-                    benchmark = client.fetch_snapshot("BTCUSD")
+                    benchmark = client.fetch_candles("BTCUSD", selected_timeframe, limit=250) if selected_timeframe else client.fetch_snapshot("BTCUSD")
                 except Exception:
                     benchmark = None
-            analysis = analyze_crypto(snapshot, benchmark)
+            analysis = analyze_crypto(snapshot, benchmark, selected_candles, tf_raw or None)
             calendar = _STATE.news_filter.evaluate(pair) if _STATE.news_filter is not None else {"status": "UNAVAILABLE"}
             analysis["economic_calendar"] = calendar
             analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar)

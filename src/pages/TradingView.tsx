@@ -142,10 +142,13 @@ const TradingView: React.FC = () => {
       setCryptoAnalysis(null);
       return;
     }
-    bwtsApi.cryptoAnalysis(selectedSymbol)
-      .then(setCryptoAnalysis)
-      .catch(() => setCryptoAnalysis(null));
-  }, [selectedSymbol, availableSymbols]);
+    let active = true;
+    setCryptoAnalysis(null);
+    bwtsApi.cryptoAnalysis(selectedSymbol, timeframe)
+      .then((analysis) => { if (active) setCryptoAnalysis(analysis); })
+      .catch(() => { if (active) setCryptoAnalysis(null); });
+    return () => { active = false; };
+  }, [selectedSymbol, timeframe, availableSymbols]);
 
   const mapTradeLockerType = (instrument: any): SymbolInfo['type'] => {
     const rawType = String(
@@ -1386,7 +1389,8 @@ const TradingView: React.FC = () => {
           <span>Volume {cryptoAnalysis.category_breakdown.volume}/10</span>
           <span>Momentum {cryptoAnalysis.category_breakdown.momentum}/10</span>
           <span>Liquidity {cryptoAnalysis.category_breakdown.liquidity}/15</span>
-          <span className="ml-auto font-semibold uppercase text-slate-500">{cryptoAnalysis.data_quality.status} data</span>
+          <span className="ml-auto font-semibold uppercase text-cyan-500">{cryptoAnalysis.data_quality.primary_timeframe}</span>
+          <span className="font-semibold uppercase text-slate-500">{cryptoAnalysis.data_quality.status} data</span>
         </div>
       )}
 

@@ -178,7 +178,7 @@ def _candle_patterns(candles):
     return patterns
 
 
-def analyze_crypto(snapshot, benchmark_candles=None):
+def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, primary_timeframe=None):
     """Return a capped 100-point crypto analysis dictionary.
 
     Insufficient or malformed data produces a neutral, explicitly degraded
@@ -189,8 +189,14 @@ def analyze_crypto(snapshot, benchmark_candles=None):
               for name in ("d1", "h4", "h1", "m15", "m5", "m1")}
     frames["w1"] = _aggregate_days(frames["d1"], 7)
     frames["mn1"] = _aggregate_days(frames["d1"], 30)
-    primary_name = next((x for x in ("m15", "m5", "h1", "m1", "h4", "d1") if frames[x]), "m15")
-    bars = frames[primary_name]
+    selected = _candles(primary_candles or [])
+    if selected:
+        frames["selected"] = selected
+        primary_name = str(primary_timeframe or "selected").lower()
+        bars = selected
+    else:
+        primary_name = next((x for x in ("m15", "m5", "h1", "m1", "h4", "d1") if frames[x]), "m15")
+        bars = frames[primary_name]
     closes = [_num(c.close) for c in bars]
     price = closes[-1] if closes else None
     issues = []
@@ -203,8 +209,8 @@ def analyze_crypto(snapshot, benchmark_candles=None):
 
     # Direction is determined from independent broad signals before scoring.
     trends, votes = {}, []
-    for name in ("mn1", "w1", "d1", "h4", "h1", primary_name):
-        if frames[name]:
+    for name in ("mn1", "w1", "d1", "h4", "h1", "selected" if selected else primary_name):
+        if frames.get(name):
             trend, sign, labels = _trend(frames[name])
             trends[name] = {"trend": trend, "labels": labels}
             votes.append(sign)

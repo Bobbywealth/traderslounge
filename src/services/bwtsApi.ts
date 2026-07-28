@@ -227,7 +227,7 @@ export const bwtsApi = {
   calendarStatus: (pair: string) => get<CalendarGateStatus>('/api/calendar/status', { pair }),
   calendarEvents: (pair?: string) => get<{ source: string; source_health: string; events: any[]; count: number }>('/api/calendar/events', pair ? { pair } : undefined),
   aiStatus: () => get<{ configured: boolean }>('/api/ai/status'),
-  cryptoAnalysis: (pair: string) => get<CryptoAnalysis>('/api/analysis', { pair }),
+  cryptoAnalysis: (pair: string, timeframe?: string) => get<CryptoAnalysis>('/api/analysis', timeframe ? { pair, timeframe } : { pair }),
   analyzeSignal: (pair: string, signal: BwtsSignal, analysis?: CryptoAnalysis) => post<{ configured: boolean; analysis: AiSignalAnalysis; calendar: CalendarGateStatus }>('/api/ai/analyze', { pair, signal, analysis }),
 
   baseUrl: () => BASE,
