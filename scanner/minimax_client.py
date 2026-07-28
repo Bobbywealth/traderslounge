@@ -46,7 +46,10 @@ def analyze(context: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError(f"MiniMax request failed ({exc.code})") from exc
     content = body.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
     # MiniMax reasoning models may prefix a <think>...</think> block even
-    # when JSON-only output is requested. Parse only the outer JSON object.
+    # when JSON-only output is requested. Remove it before extracting JSON.
+    if "</think>" in content:
+        content = content.rsplit("</think>", 1)[1].strip()
+    content = content.removeprefix("```json").removesuffix("```").strip()
     start, end = content.find("{"), content.rfind("}")
     if start < 0 or end <= start:
         raise RuntimeError("MiniMax returned invalid structured output")
