@@ -31,7 +31,8 @@ import {
   Unlock,
   Copy,
   Magnet,
-  Tag
+  Tag,
+  Hand
 } from 'lucide-react';
 import { liveDataService, HarmonicPattern, TrendLine, FibonacciLevel } from '../services/liveDataService';
 import { tradeLockerService, TradeLockerConfig } from '../services/tradeLockerService';
@@ -74,9 +75,9 @@ interface TradeLockerHistoryCandle {
 }
 
 type ChartType = 'candlestick' | 'line' | 'area';
-type DrawingTool = 'select' | 'trend' | 'horizontal' | 'sr' | 'rectangle' | 'fib' | 'text';
+type DrawingTool = 'pan' | 'select' | 'trend' | 'horizontal' | 'sr' | 'rectangle' | 'fib' | 'text';
 type DrawingPoint = { time: number; price: number };
-type ManualDrawing = { id: string; type: Exclude<DrawingTool, 'select'>; points: DrawingPoint[]; text?: string; color?: string; locked?: boolean; lineStyle?: 'solid' | 'dashed'; showPrice?: boolean };
+type ManualDrawing = { id: string; type: Exclude<DrawingTool, 'select' | 'pan'>; points: DrawingPoint[]; text?: string; color?: string; locked?: boolean; lineStyle?: 'solid' | 'dashed'; showPrice?: boolean };
 
 interface SymbolInfo {
   symbol: string;
@@ -154,7 +155,7 @@ const TradingView: React.FC = () => {
   const [showFibonacci, setShowFibonacci] = useState(true);
   const [showSupportResistance, setShowSupportResistance] = useState(true);
   const [cryptoAnalysis, setCryptoAnalysis] = useState<CryptoAnalysis | null>(null);
-  const [drawingTool, setDrawingTool] = useState<DrawingTool>('select');
+  const [drawingTool, setDrawingTool] = useState<DrawingTool>('pan');
   const [drawings, setDrawings] = useState<ManualDrawing[]>([]);
   const [draftDrawing, setDraftDrawing] = useState<ManualDrawing | null>(null);
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
@@ -218,7 +219,7 @@ const TradingView: React.FC = () => {
   }, [magnetDrawing, selectedSymbol, timeframe]);
   const drawingPointFromEvent = useCallback((event: React.PointerEvent<SVGSVGElement>) => drawingPointFromClient(event.clientX,event.clientY), [drawingPointFromClient]);
   const handleDrawingPointerDown = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
-    if (drawingTool === 'select') return;
+    if (drawingTool === 'select' || drawingTool === 'pan') return;
     const point = drawingPointFromEvent(event); if (!point) return;
     if (drawingTool === 'horizontal' || drawingTool === 'sr') {
       saveDrawingChange([...drawings, { id: crypto.randomUUID(), type: drawingTool, points: [point], color: drawingColor, lineStyle: drawingTool === 'sr' ? 'dashed' : 'solid', showPrice: true }]);
@@ -1383,7 +1384,7 @@ const TradingView: React.FC = () => {
       <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-white/[0.08] bg-[#080d18] px-4 py-1.5">
         <span className="mr-2 text-[9px] font-black tracking-widest text-slate-600">DRAW</span>
         {([
-          ['select', MousePointer2, 'Cursor / select'], ['trend', LineChart, 'Trend line'], ['horizontal', Minus, 'Horizontal line'],
+          ['pan', Hand, 'Pan chart'], ['select', MousePointer2, 'Select drawing'], ['trend', LineChart, 'Trend line'], ['horizontal', Minus, 'Horizontal line'],
           ['sr', Target, 'S/R level'], ['rectangle', Square, 'Rectangle / zone'], ['fib', Percent, 'Fibonacci retracement'], ['text', Type, 'Text annotation'],
         ] as const).map(([tool, Icon, label]) => <button key={tool} onClick={() => setDrawingTool(tool)} title={label} className={`rounded-md p-2 transition ${drawingTool === tool ? 'bg-cyan-400/15 text-cyan-300' : 'text-slate-500 hover:bg-white/[0.06] hover:text-slate-200'}`}><Icon className="h-4 w-4"/></button>)}
         <div className="mx-2 h-5 w-px bg-white/10"/>
@@ -1550,7 +1551,7 @@ const TradingView: React.FC = () => {
           ref={chartContainerRef}
           className="w-full h-full min-w-0 min-h-0 overflow-hidden"
         />
-        {showManualDrawings && <svg data-revision={drawingRevision} className="absolute inset-0 z-20 h-full w-full" style={{ pointerEvents: drawingTool === 'select' ? 'none' : 'auto', cursor: drawingTool === 'select' ? 'default' : 'crosshair' }} onPointerDown={handleDrawingPointerDown} onPointerMove={handleDrawingPointerMove} onPointerUp={handleDrawingPointerUp}>
+        {showManualDrawings && <svg data-revision={drawingRevision} className="absolute inset-0 z-20 h-full w-full" style={{ pointerEvents: drawingTool === 'pan' ? 'none' : 'auto', cursor: drawingTool === 'select' ? 'default' : drawingTool === 'pan' ? 'grab' : 'crosshair' }} onPointerDown={handleDrawingPointerDown} onPointerMove={handleDrawingPointerMove} onPointerUp={handleDrawingPointerUp}>
           {[...drawings, ...(draftDrawing ? [draftDrawing] : [])].map((drawing) => {
             const points = drawingCoordinates(drawing); if (!points.length || points.some((point) => point.x == null || point.y == null)) return null;
             const selected = drawing.id === selectedDrawingId; const stroke = selected ? '#facc15' : drawing.color || '#e2e8f0'; const dash = drawing.lineStyle === 'dashed' ? '7 4' : undefined;
