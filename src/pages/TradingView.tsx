@@ -23,6 +23,7 @@ import { liveDataService, HarmonicPattern, TrendLine, FibonacciLevel } from '../
 import { tradeLockerService, TradeLockerConfig } from '../services/tradeLockerService';
 import { tradeLockerApi } from '../services/apiService';
 import ConfluenceXLogo from '../components/ConfluenceXLogo';
+import { bwtsApi, type CryptoAnalysis } from '../services/bwtsApi';
 
 interface CandlestickData {
   time: UTCTimestamp;
@@ -131,6 +132,18 @@ const TradingView: React.FC = () => {
   const [showHarmonics, setShowHarmonics] = useState(true);
   const [showTrendLines, setShowTrendLines] = useState(true);
   const [showFibonacci, setShowFibonacci] = useState(false);
+  const [cryptoAnalysis, setCryptoAnalysis] = useState<CryptoAnalysis | null>(null);
+
+  useEffect(() => {
+    const assetType = availableSymbols.find((symbol) => symbol.symbol === selectedSymbol)?.type;
+    if (assetType !== 'crypto') {
+      setCryptoAnalysis(null);
+      return;
+    }
+    bwtsApi.cryptoAnalysis(selectedSymbol)
+      .then(setCryptoAnalysis)
+      .catch(() => setCryptoAnalysis(null));
+  }, [selectedSymbol, availableSymbols]);
 
   const mapTradeLockerType = (instrument: any): SymbolInfo['type'] => {
     const rawType = String(
@@ -1345,6 +1358,19 @@ const TradingView: React.FC = () => {
           <span>Open: {adrData.day_open.toFixed(2)}</span>
           <span>ADR High: {adrData.adr_high.toFixed(2)}</span>
           {adrData.exhausted && <span className="font-bold">Range exhausted</span>}
+        </div>
+      )}
+
+      {cryptoAnalysis && (
+        <div className="flex items-center gap-4 border-b border-violet-500/20 bg-[#0d1020] px-4 py-2 text-xs text-slate-400">
+          <span className="font-black tracking-wider text-violet-300">CONFLUENCE V2</span>
+          <span className="text-base font-black text-cyan-300">{cryptoAnalysis.total_score}<span className="text-[10px] text-slate-600">/100</span></span>
+          <span className={`rounded px-2 py-1 text-[9px] font-black ${cryptoAnalysis.direction === 'BUY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 text-slate-400'}`}>{cryptoAnalysis.direction}</span>
+          <span>Structure {cryptoAnalysis.category_breakdown.structure}/20</span>
+          <span>Volume {cryptoAnalysis.category_breakdown.volume}/10</span>
+          <span>Momentum {cryptoAnalysis.category_breakdown.momentum}/10</span>
+          <span>Liquidity {cryptoAnalysis.category_breakdown.liquidity}/15</span>
+          <span className="ml-auto font-semibold uppercase text-slate-500">{cryptoAnalysis.data_quality.status} data</span>
         </div>
       )}
 
