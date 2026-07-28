@@ -110,6 +110,7 @@ export interface CryptoAnalysis {
     location_ready: boolean;
     nearest_sr?: any;
     nearest_fibonacci?: any;
+    avoid_reasons?: string[];
     wait_for: string[];
   };
   scenarios: { primary: string; invalidation: string; confidence: string };

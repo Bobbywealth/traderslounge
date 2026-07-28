@@ -1513,7 +1513,7 @@ const TradingView: React.FC = () => {
           <span>{timeframe} <b className={cryptoAnalysis.market_context.timeframes.selected?.trend === 'bullish' ? 'text-emerald-300' : cryptoAnalysis.market_context.timeframes.selected?.trend === 'bearish' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.market_context.timeframes.selected?.trend || 'neutral'}</b></span>
           <span>Alignment <b className="text-slate-200">{cryptoAnalysis.market_context.alignment_score}%</b></span>
           <span className={`ml-auto rounded px-2 py-1 ${cryptoAnalysis.trade_timing?.status === 'READY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.trade_timing?.status === 'AVOID' ? 'bg-rose-400/10 text-rose-300' : 'bg-amber-400/10 text-amber-300'}`}>TIMING {cryptoAnalysis.trade_timing?.status || 'WAIT'}</span>
-          {cryptoAnalysis.trade_timing?.wait_for?.[0] && <span className="normal-case tracking-normal text-slate-500">Wait: {String(cryptoAnalysis.trade_timing.wait_for[0]).replace(/_/g, ' ')}</span>}
+          {(cryptoAnalysis.trade_timing?.status === 'AVOID' ? cryptoAnalysis.trade_timing.avoid_reasons?.[0] : cryptoAnalysis.trade_timing?.wait_for?.[0]) && <span className="normal-case tracking-normal text-slate-500">{cryptoAnalysis.trade_timing.status === 'AVOID' ? 'Avoid: ' : 'Wait: '}{String(cryptoAnalysis.trade_timing.status === 'AVOID' ? cryptoAnalysis.trade_timing.avoid_reasons?.[0] : cryptoAnalysis.trade_timing.wait_for[0]).replace(/_/g, ' ')}</span>}
         </div>
       )}
 

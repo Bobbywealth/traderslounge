@@ -521,13 +521,15 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         "adr_available": not adr_exhausted, "not_chasing": not chasing, "data_quality": quality["status"] == "good",
     }
     technical_ready = all(technical_checks.values())
-    avoid = unstable_volatility or adr_exhausted or (sign and not macro_aligned)
+    avoid_reasons = [label for label, triggered in {"higher_timeframe_conflict": bool(sign and not macro_aligned), "unstable_volatility": unstable_volatility, "adr_exhausted": adr_exhausted}.items() if triggered]
+    avoid = bool(avoid_reasons)
     trade_timing = {
         "status": "AVOID" if avoid else "READY" if technical_ready else "WAIT", "checks": technical_checks,
         "location_ready": bool(location_signals), "location_signals": location_signals, "confirmation_signals": confirmation_signals,
         "nearest_sr": sr_for_direction, "nearest_fibonacci": fib_data.get("nearest"),
         "session": {"name": "London/New York liquidity" if preferred_session else "off-peak or weekend", "preferred": preferred_session, "utc_hour": moment.hour if moment else None},
         "regime": {"low_volume": low_volume, "unstable_volatility": unstable_volatility, "adr_exhausted": adr_exhausted, "ema20_distance_atr": ema20_distance, "chasing": chasing, "monthly_weekly_conflict": macro_conflict},
+        "avoid_reasons": avoid_reasons,
         "wait_for": [label for label, passed in technical_checks.items() if not passed],
     }
     scenario = "bullish continuation" if direction == "BUY" else "bearish continuation" if direction == "SELL" else "wait for directional confirmation"

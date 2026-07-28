@@ -73,7 +73,8 @@ def build_trade_plan(
     if score < minimum_score:
         reasons.append(f"V2 score {score}/100 is below the {minimum_score} setup threshold")
     if timing_status != "READY":
-        missing = ", ".join(str(item).replace("_", " ") for item in (timing.get("wait_for") or [])[:3])
+        timing_reasons = timing.get("avoid_reasons") if timing_status == "AVOID" else timing.get("wait_for")
+        missing = ", ".join(str(item).replace("_", " ") for item in (timing_reasons or [])[:3])
         reasons.append(f"Trade timing is {timing_status}{': waiting for ' + missing if missing else ''}")
     if quality not in ("good", "limited"):
         reasons.append(f"Data quality is {quality}")
