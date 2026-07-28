@@ -354,17 +354,25 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._error(400, "V2 backtest timeframe must be 15m, 1h, or 4h")
         selected_tf, stride, holding = replay_timeframes[tf_raw]
         limit = _clamp_int(query.get("limit"), default=3000, lo=400, hi=5000)
+        cache_key = f"backtest:{pair}:{tf_raw}:{limit}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return self._json(200, cached)
         try:
             report = run_v2_backtest(
                 pair,
                 client.fetch_candles(pair, "D1", limit=min(limit, 1000)),
-                client.fetch_candles(pair, "H4", limit=min(limit, 1000)),
-                client.fetch_candles(pair, "H1", limit=min(limit, 1000)),
+                client.fetch_candles(pair, "H4", limit=limit),
+                client.fetch_candles(pair, "H1", limit=limit),
                 client.fetch_candles(pair, selected_tf, limit=limit),
                 stride=stride, maximum_holding_bars=holding, timeframe=tf_raw,
             )
         except Exception as exc:
+            stale = self._cache_get(cache_key, allow_stale=True)
+            if stale is not None:
+                return self._json(200, stale)
             return self._error(502, f"V2 backtest unavailable: {exc}")
+        self._cache_set(cache_key, report, ttl=900, stale_ttl=3600)
         self._json(200, report)
 
     def _candles(self, query: dict) -> None:
