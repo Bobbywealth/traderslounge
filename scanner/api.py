@@ -18,7 +18,7 @@ import json
 import logging
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import parse_qs, urlsplit
 
 from .config import Config
@@ -38,6 +38,7 @@ class ApiState:
     closed_trade_repo: Optional[ClosedTradeRepository] = None
     kill_switch: Optional[KillSwitch] = None
     scan_request_path: Optional[str] = None  # path to scan trigger file
+    market_client: Optional[Any] = None  # fetch_candles(pair, timeframe)
 
 
 # Module-level state pointer — http.server's handler API doesn't make
@@ -124,6 +125,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._json(200, {"pairs": list(_STATE.config.pairs)})
         if path == "/api/config":
             return self._public_config()
+        if path == "/api/candles":
+            return self._candles(query)
         if path == "/api/signals":
             return self._list_signals(query)
         if path.startswith("/api/signals/"):
@@ -160,6 +163,43 @@ class _ApiHandler(BaseHTTPRequestHandler):
             "status": "ok",
             "db_signals": n,
             "pairs": list(_STATE.config.pairs),
+        })
+
+    def _candles(self, query: dict) -> None:
+        client = _STATE.market_client
+        if client is None:
+            return self._error(503, "market data client not configured")
+        pair = str(query.get("pair") or query.get("symbol") or "").upper()
+        if not pair:
+            return self._error(400, "pair is required")
+        tf_raw = str(query.get("timeframe") or "1h").lower()
+        tf_aliases = {
+            "1m": "M1", "m1": "M1",
+            "5m": "M5", "m5": "M5",
+            "15m": "M15", "m15": "M15",
+            "30m": "M30", "m30": "M30",
+            "1h": "H1", "h1": "H1",
+            "4h": "H4", "h4": "H4",
+            "1d": "D1", "d1": "D1",
+            "1w": "W1", "w1": "W1",
+        }
+        timeframe = tf_aliases.get(tf_raw)
+        if timeframe is None:
+            return self._error(400, f"unsupported timeframe: {tf_raw}")
+        try:
+            candles = client.fetch_candles(pair, timeframe)
+        except Exception as exc:
+            return self._error(502, f"market data unavailable: {exc}")
+        rows = [
+            {
+                "time": c.time, "open": c.open, "high": c.high,
+                "low": c.low, "close": c.close, "volume": c.volume,
+            }
+            for c in candles
+        ]
+        self._json(200, {
+            "pair": pair, "timeframe": timeframe,
+            "candles": rows, "count": len(rows),
         })
 
     def _list_signals(self, query: dict) -> None:

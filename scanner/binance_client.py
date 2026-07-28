@@ -49,9 +49,11 @@ BINANCE_TF_MAP: Dict[str, tuple[str, int]] = {
     "D1":  ("1d",  250),
     "H4":  ("4h",  250),
     "H1":  ("1h",  250),
+    "M30": ("30m", 200),
     "M15": ("15m", 200),
     "M5":  ("5m",  200),
     "M1":  ("1m",  200),
+    "W1":  ("1w",  250),
 }
 
 HttpFn = Callable[[str, float], str]

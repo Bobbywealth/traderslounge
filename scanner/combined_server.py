@@ -81,6 +81,7 @@ def main() -> int:
         closed_trade_repo=closed_trade_repo,
         kill_switch=kill_switch,
         scan_request_path=scan_request_path,
+        market_client=client,
     )
     host = os.environ.get("API_HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))

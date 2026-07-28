@@ -7,6 +7,7 @@ from .data_types import Direction, MarketSnapshot, ModuleResult
 from .modules import (
     adr_calculator,
     fibonacci,
+    harmonic,
     htf_bias,
     liquidity,
     market_structure,
@@ -88,6 +89,13 @@ def score(snap: MarketSnapshot) -> Signal:
     entry, sl, tp1, tp2, tp3 = _build_trade_levels(snap, proposed, fib, adr, liq)
 
     reasons = [m.reason for m in modules if m.points > 0]
+    harmonic_match = harmonic.detect(ltf)
+    if harmonic_match:
+        reasons.append(
+            f"{harmonic_match['direction'].capitalize()} "
+            f"{harmonic_match['name']} harmonic completed near PRZ "
+            f"{harmonic_match['prz']:.5f}"
+        )
     last_time = ltf[-1].time if ltf else 0
     adr_details = adr.details or {}
     adr_status = (
@@ -101,6 +109,12 @@ def score(snap: MarketSnapshot) -> Signal:
         pattern_bits.append(f"BOS-{struct.details['last_bos']}")
     if fib.points > 0:
         pattern_bits.append("Fib retest")
+    if harmonic_match:
+        pattern_bits.append(
+            f"{harmonic_match['direction'].capitalize()} "
+            f"{harmonic_match['name']} harmonic "
+            f"(PRZ {harmonic_match['prz']:.5f})"
+        )
 
     return Signal(
         pair=snap.pair,

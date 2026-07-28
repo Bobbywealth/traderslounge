@@ -68,6 +68,11 @@ interface SymbolInfo {
   price?: number;
 }
 
+const BWTS_SYMBOLS: SymbolInfo[] = [
+  { symbol: 'BTCUSD', name: 'Bitcoin / US Dollar', exchange: 'Binance.US', type: 'crypto' },
+  { symbol: 'ETHUSD', name: 'Ethereum / US Dollar', exchange: 'Binance.US', type: 'crypto' },
+];
+
 const TradingView: React.FC = () => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const volumeContainerRef = useRef<HTMLDivElement>(null);
@@ -81,15 +86,15 @@ const TradingView: React.FC = () => {
   const [showVolume, setShowVolume] = useState(true);
   
   // State management
-  const [selectedSymbol, setSelectedSymbol] = useState('EURUSD');
+  const [selectedSymbol, setSelectedSymbol] = useState('BTCUSD');
   const [timeframe, setTimeframe] = useState('1h');
-  const [currentPrice, setCurrentPrice] = useState(1.12031);
+  const [currentPrice, setCurrentPrice] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
   const [isLive, setIsLive] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [symbolSuggestions, setSymbolSuggestions] = useState<SymbolInfo[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [availableSymbols, setAvailableSymbols] = useState<SymbolInfo[]>([]);
+  const [availableSymbols, setAvailableSymbols] = useState<SymbolInfo[]>(BWTS_SYMBOLS);
   const [selectedBroker, setSelectedBroker] = useState('polygon');
   
   // Technical analysis data
@@ -201,23 +206,15 @@ const TradingView: React.FC = () => {
     };
   };
 
-  const fetchTradeLockerCandles = useCallback(async (symbol: string, tf: string): Promise<CandlestickData[]> => {
-    const sessionId = localStorage.getItem('tl_session_id');
-    const params = new URLSearchParams({
-      symbol,
-      timeframe: tf,
-      count: '250',
-      ...(sessionId ? { sessionId } : {}),
-    });
-    const API_BASE = import.meta.env.VITE_API_URL || '';
-    const response = await fetch(`${API_BASE}/api/tradelocker/history?${params.toString()}`);
+  const fetchBwtsCandles = useCallback(async (symbol: string, tf: string): Promise<CandlestickData[]> => {
+    const params = new URLSearchParams({ pair: symbol, timeframe: tf });
+    const API_BASE = import.meta.env.VITE_BWTS_API_URL || import.meta.env.VITE_API_URL || '';
+    const response = await fetch(`${API_BASE}/api/candles?${params.toString()}`);
     if (!response.ok) {
-      throw new Error(`Failed to fetch history: ${response.status}`);
+      throw new Error(`Failed to fetch BWTS candles: ${response.status}`);
     }
     const payload = await response.json();
-    const rawCandles: Array<TradeLockerHistoryCandle | (number | string)[]> = Array.isArray(payload)
-      ? payload
-      : (payload?.d || payload?.candles || payload?.history || []);
+    const rawCandles: Array<TradeLockerHistoryCandle | (number | string)[]> = payload?.candles || [];
     return rawCandles
       .map(normalizeHistoryCandle)
       .filter((candle): candle is CandlestickData => candle !== null)
@@ -423,18 +420,18 @@ const TradingView: React.FC = () => {
   const loadCandlesForSymbol = useCallback(async (symbol: string, tf: string) => {
     if (!candlestickSeriesRef.current) return;
     try {
-      const candles = await fetchTradeLockerCandles(symbol, tf);
+      const candles = await fetchBwtsCandles(symbol, tf);
       candlestickSeriesRef.current.setData(candles);
       if (candles.length > 0) {
         setCurrentPrice(candles[candles.length - 1].close);
         setIsConnected(true);
       }
     } catch (error) {
-      console.error('Failed to load TradeLocker candles:', error);
+      console.error('Failed to load BWTS candles:', error);
       setIsConnected(false);
       candlestickSeriesRef.current.setData([]);
     }
-  }, [fetchTradeLockerCandles]);
+  }, [fetchBwtsCandles]);
 
   const loadTradeLockerInstruments = useCallback(async () => {
     try {
@@ -683,7 +680,7 @@ const TradingView: React.FC = () => {
     });
   }, [fibonacciLevels, showFibonacci]);
 
-  // Poll TradeLocker candles for near-real-time updates
+  // Poll BWTS candles for near-real-time updates
   useEffect(() => {
     if (!isLive) return;
 
@@ -716,7 +713,7 @@ const TradingView: React.FC = () => {
     return symbolDatabase.find(s => s.symbol === symbol);
   };
 
-  const symbolDatabase = availableSymbols;
+  const symbolDatabase = availableSymbols.length > 0 ? availableSymbols : BWTS_SYMBOLS;
 
   const currentSymbolInfo = getSymbolInfo(selectedSymbol);
 
