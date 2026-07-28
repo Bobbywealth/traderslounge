@@ -32,7 +32,8 @@ def analyze(context: dict[str, Any]) -> dict[str, Any]:
             {"role": "user", "content": json.dumps(context, separators=(",", ":"))},
         ],
         "temperature": 0.2,
-        "max_tokens": 2000,
+        "max_tokens": 1200,
+        "thinking": {"type": "disabled"},
         "stream": False,
     }).encode("utf-8")
     request = urllib.request.Request(
