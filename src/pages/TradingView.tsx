@@ -193,7 +193,7 @@ const TradingView: React.FC = () => {
     setDrawings(next);
   }, [drawings]);
   const drawingPointFromEvent = useCallback((event: React.PointerEvent<SVGSVGElement>): DrawingPoint | null => {
-    const chart = chartRef.current; const series = mainSeriesRef.current; if (!chart || !series) return null;
+    const chart = chartRef.current; const series = candlestickSeriesRef.current || mainSeriesRef.current; if (!chart || !series) return null;
     const rect = event.currentTarget.getBoundingClientRect();
     const time = chart.timeScale().coordinateToTime(event.clientX - rect.left);
     const price = series.coordinateToPrice(event.clientY - rect.top);
@@ -228,7 +228,7 @@ const TradingView: React.FC = () => {
   const undoDrawing = () => { const previous = drawingUndoRef.current.pop(); if (previous) { setDrawings(previous); setSelectedDrawingId(null); } };
   const deleteSelectedDrawing = () => { if (selectedDrawingId) { saveDrawingChange(drawings.filter((drawing) => drawing.id !== selectedDrawingId)); setSelectedDrawingId(null); } };
   const clearDrawings = () => { if (drawings.length && window.confirm('Clear drawings for this symbol and timeframe?')) { saveDrawingChange([]); setSelectedDrawingId(null); } };
-  const drawingCoordinates = (drawing: ManualDrawing) => drawing.points.map((point) => ({ x: chartRef.current?.timeScale().timeToCoordinate(point.time as UTCTimestamp) ?? null, y: mainSeriesRef.current?.priceToCoordinate(point.price) ?? null }));
+  const drawingCoordinates = (drawing: ManualDrawing) => { const series = candlestickSeriesRef.current || mainSeriesRef.current; return drawing.points.map((point) => ({ x: chartRef.current?.timeScale().timeToCoordinate(point.time as UTCTimestamp) ?? null, y: series?.priceToCoordinate(point.price) ?? null })); };
 
   const mapTradeLockerType = (instrument: any): SymbolInfo['type'] => {
     const rawType = String(
