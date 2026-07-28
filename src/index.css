@@ -2,18 +2,27 @@
 
 /* ===== Design System Variables ===== */
 @theme {
-  /* Primary Brand Colors */
-  --color-emerald-50: #ecfdf5;
-  --color-emerald-100: #d1fae5;
-  --color-emerald-500: #10b981;
-  --color-emerald-600: #059669;
-  --color-emerald-700: #047857;
-  --color-emerald-900: #064e3b;
+  /* ConfluenceX brand: laser cyan → electric violet */
+  --color-emerald-50: #ecfeff;
+  --color-emerald-100: #cffafe;
+  --color-emerald-400: #22d3ee;
+  --color-emerald-500: #06b6d4;
+  --color-emerald-600: #0891b2;
+  --color-emerald-700: #0e7490;
+  --color-emerald-900: #164e63;
 
-  /* Accent Teal */
-  --color-teal-400: #2dd4bf;
-  --color-teal-500: #14b8a6;
-  --color-teal-600: #0d9488;
+  --color-teal-400: #a78bfa;
+  --color-teal-500: #8b5cf6;
+  --color-teal-600: #7c3aed;
+
+  /* Obsidian surfaces */
+  --color-gray-950: #05070d;
+  --color-gray-900: #070a12;
+  --color-gray-800: #0d1324;
+  --color-gray-700: #17203a;
+  --color-gray-600: #283554;
+  --color-gray-500: #5d6b8c;
+  --color-gray-400: #8f9bb8;
 
   /* Semantic Colors */
   --color-success: #10b981;
@@ -36,8 +45,8 @@
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
-  --shadow-glow: 0 0 20px rgb(16 185 129 / 0.3);
-  --shadow-glow-sm: 0 0 10px rgb(16 185 129 / 0.2);
+  --shadow-glow: 0 0 24px rgb(34 211 238 / 0.28), 0 0 44px rgb(139 92 246 / 0.14);
+  --shadow-glow-sm: 0 0 12px rgb(34 211 238 / 0.2);
 
   /* Border Radius */
   --radius-sm: 0.375rem;
@@ -58,7 +67,9 @@ html {
 }
 
 body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #070a12;
+  color: #e8edf8;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -74,15 +85,15 @@ body {
 }
 
 .glass-dark {
-  background: rgba(30, 41, 59, 0.8);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(7, 10, 18, 0.86);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(99, 115, 159, 0.2);
 }
 
 /* Gradient Text */
 .gradient-text {
-  background: linear-gradient(135deg, #10b981 0%, #14b8a6 50%, #0d9488 100%);
+  background: linear-gradient(135deg, #22d3ee 0%, #8b5cf6 55%, #d946ef 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -92,14 +103,14 @@ body {
 .gradient-border {
   position: relative;
   background: linear-gradient(white, white) padding-box,
-              linear-gradient(135deg, #10b981, #14b8a6) border-box;
+              linear-gradient(135deg, #22d3ee, #8b5cf6) border-box;
   border: 1px solid transparent;
 }
 
 .gradient-border-dark {
   position: relative;
-  background: linear-gradient(#1e293b, #1e293b) padding-box,
-              linear-gradient(135deg, #10b981, #14b8a6) border-box;
+  background: linear-gradient(#0d1324, #0d1324) padding-box,
+              linear-gradient(135deg, #22d3ee, #8b5cf6) border-box;
   border: 1px solid transparent;
 }
 

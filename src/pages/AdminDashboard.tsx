@@ -748,7 +748,7 @@ const AdminDashboard: React.FC = () => {
             </div>
             {sidebarOpen && (
               <div>
-                <h1 className="text-lg font-bold text-gray-900 dark:text-white">TradersLounge</h1>
+                <h1 className="text-lg font-bold text-gray-900 dark:text-white">ConfluenceX</h1>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Admin Panel</p>
               </div>
             )}

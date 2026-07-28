@@ -64,7 +64,7 @@ const Community: React.FC = () => {
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
             <Users className="w-5 h-5 mr-2" />
-            TradersLounge
+            ConfluenceX
           </h2>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
             3,467 members online

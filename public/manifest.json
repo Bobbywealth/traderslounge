@@ -1,23 +1,17 @@
 {
-  "name": "TradersLounge - Professional Trading Dashboard",
-  "short_name": "TradersLounge",
-  "description": "Professional trading dashboard with real-time data, broker integration, and advanced analytics",
+  "name": "ConfluenceX - Professional Trading Dashboard",
+  "short_name": "ConfluenceX",
+  "description": "Live market intelligence where signals, structure, harmonics, and ADR converge.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#1f2937",
-  "theme_color": "#10b981",
+  "background_color": "#070a12",
+  "theme_color": "#7c3aed",
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
+      "src": "/confluencex-mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
       "purpose": "any maskable"
     }
   ],

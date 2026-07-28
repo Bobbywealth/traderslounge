@@ -1,10 +1,11 @@
 import React from 'react';
-import { Bell, Settings, Sun, Moon, Link, Rss, LogOut, Zap } from 'lucide-react';
+import { Bell, Settings, Sun, Moon, Link, Rss, LogOut } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import BrokerSetup from './BrokerSetup';
 import ApiConfiguration from './ApiConfiguration';
 import { useBroker } from '../contexts/BrokerContext';
+import ConfluenceXLogo from './ConfluenceXLogo';
 
 const Header: React.FC = () => {
   const { isDark, toggleTheme } = useTheme();
@@ -20,10 +21,8 @@ const Header: React.FC = () => {
       <header className="h-16 glass dark:glass-dark border-b border-gray-200/50 dark:border-gray-700/50 flex items-center justify-between px-6 backdrop-blur-xl">
         <div className="flex items-center space-x-4">
           {/* Logo / Brand */}
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-lg flex items-center justify-center shadow-lg">
-              <Zap className="w-4 h-4 text-white" />
-            </div>
+          <div className="flex items-center gap-3">
+            <ConfluenceXLogo compact size="sm" />
             <h2 className="text-lg font-bold text-gray-900 dark:text-white">
               Welcome back, <span className="gradient-text">{user?.name || 'Trader'}</span>
             </h2>

@@ -77,7 +77,7 @@ const Dashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Welcome Section - Enhanced with gradient and glow */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-600 p-8 shadow-xl">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-cyan-500 via-violet-600 to-fuchsia-600 p-8 shadow-xl shadow-violet-950/30">
         {/* Decorative glow orbs */}
         <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-3xl"></div>
         <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-teal-400/20 rounded-full blur-2xl"></div>
@@ -86,7 +86,7 @@ const Dashboard: React.FC = () => {
         <div className="relative z-10">
           <div className="flex items-center gap-2 mb-2">
             <Sparkles className="w-5 h-5 text-emerald-200 animate-pulse-subtle" />
-            <span className="text-sm font-medium text-emerald-100 uppercase tracking-wide">Trading Lounge</span>
+            <span className="text-sm font-semibold text-cyan-100 uppercase tracking-[0.18em]">ConfluenceX · Market Intelligence</span>
           </div>
           <h1 className="text-3xl font-bold mb-2 text-white drop-shadow-sm">
             Good morning, {user?.name || 'Trader'}!

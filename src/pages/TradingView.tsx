@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts';
-import { 
-  TrendingUp, 
+import {
   Settings, 
   Maximize2, 
   Search, 
@@ -23,6 +22,7 @@ import {
 import { liveDataService, HarmonicPattern, TrendLine, FibonacciLevel } from '../services/liveDataService';
 import { tradeLockerService, TradeLockerConfig } from '../services/tradeLockerService';
 import { tradeLockerApi } from '../services/apiService';
+import ConfluenceXLogo from '../components/ConfluenceXLogo';
 
 interface CandlestickData {
   time: UTCTimestamp;
@@ -608,19 +608,19 @@ const TradingView: React.FC = () => {
     try {
       const chart = createChart(chartContainerRef.current, {
         layout: {
-          background: { type: ColorType.Solid, color: '#1a1a1a' },
-          textColor: '#d1d5db',
+          background: { type: ColorType.Solid, color: '#070a12' },
+          textColor: '#9aa7c3',
         },
         grid: {
-          vertLines: { color: '#374151' },
-          horzLines: { color: '#374151' },
+          vertLines: { color: '#17203a' },
+          horzLines: { color: '#17203a' },
         },
         crosshair: { mode: 1 },
         rightPriceScale: {
-          borderColor: '#485563',
+          borderColor: '#273452',
         },
         timeScale: {
-          borderColor: '#485563',
+          borderColor: '#273452',
         },
         width: chartContainerRef.current.clientWidth,
         height: chartContainerRef.current.clientHeight,
@@ -1086,12 +1086,7 @@ const TradingView: React.FC = () => {
         <div className="flex items-center justify-between">
           {/* Left Section - Logo & Symbol Search */}
           <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
-                <TrendingUp className="w-5 h-5 text-white" />
-              </div>
-              <span className="text-xl font-bold text-white">TradingView Pro</span>
-            </div>
+            <ConfluenceXLogo size="sm" />
             
             {/* Symbol Search */}
             <div className="relative">

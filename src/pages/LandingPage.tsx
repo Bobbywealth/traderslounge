@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  TrendingUp, 
+import {
   Shield, 
   Zap, 
   Users, 
@@ -19,6 +18,7 @@ import {
   X
 } from 'lucide-react';
 import AuthModal from '../components/AuthModal';
+import ConfluenceXLogo from '../components/ConfluenceXLogo';
 
 const LandingPage: React.FC = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -80,7 +80,7 @@ const LandingPage: React.FC = () => {
       role: 'Professional Trader',
       avatar: 'SC',
       rating: 5,
-      text: 'TradersLounge has revolutionized my trading workflow. The multi-broker integration saves me hours every day.'
+      text: 'ConfluenceX has revolutionized my trading workflow. The multi-broker integration saves me hours every day.'
     },
     {
       name: 'Marcus Rodriguez',
@@ -166,12 +166,7 @@ const LandingPage: React.FC = () => {
       <nav className="fixed top-0 w-full bg-white/80 dark:bg-gray-900/80 backdrop-blur-lg border-b border-gray-200 dark:border-gray-700 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
-                <TrendingUp className="w-5 h-5 text-white" />
-              </div>
-              <span className="text-xl font-bold text-gray-900 dark:text-white">TradersLounge</span>
-            </div>
+            <ConfluenceXLogo size="sm" />
             
             <div className="hidden md:flex items-center space-x-2">
               <a href="#features" className="inline-flex items-center py-3 min-h-[44px] text-gray-600 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Features</a>
@@ -276,7 +271,7 @@ const LandingPage: React.FC = () => {
 
             <p className="text-xl text-gray-200 mb-8 max-w-3xl mx-auto drop-shadow">
               The most advanced trading platform with AI-powered insights, multi-broker integration,
-              and professional-grade tools. Join 50,000+ traders who trust TradersLounge.
+              and professional-grade tools. Join 50,000+ traders who trust ConfluenceX.
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4 mb-12">
@@ -454,7 +449,7 @@ const LandingPage: React.FC = () => {
             Ready to Transform Your Trading?
           </h2>
           <p className="text-xl text-gray-600 dark:text-gray-300 mb-8">
-            Join thousands of traders who have already upgraded their trading experience with TradersLounge.
+            Join thousands of traders who have already upgraded their trading experience with ConfluenceX.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4">
             <button
@@ -477,12 +472,7 @@ const LandingPage: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div>
-              <div className="flex items-center space-x-2 mb-4">
-                <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
-                  <TrendingUp className="w-5 h-5 text-white" />
-                </div>
-                <span className="text-xl font-bold">TradersLounge</span>
-              </div>
+              <ConfluenceXLogo size="sm" showTagline className="mb-4" />
               <p className="text-gray-400">
                 The most advanced trading platform for professional traders worldwide.
               </p>
@@ -520,7 +510,7 @@ const LandingPage: React.FC = () => {
           </div>
           
           <div className="border-t border-gray-800 mt-8 pt-8 flex flex-col md:flex-row items-center justify-between">
-            <p className="text-gray-400">© 2024 TradersLounge. All rights reserved.</p>
+            <p className="text-gray-400">© 2024 ConfluenceX. All rights reserved.</p>
             <div className="flex items-center space-x-6 mt-4 md:mt-0">
               <a href="#" className="inline-block py-2 -my-2 min-h-[44px] text-gray-400 hover:text-white transition-colors">Privacy</a>
               <a href="#" className="inline-block py-2 -my-2 min-h-[44px] text-gray-400 hover:text-white transition-colors">Terms</a>

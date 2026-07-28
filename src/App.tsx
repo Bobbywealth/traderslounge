@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
-import { TrendingUp } from 'lucide-react';
+import ConfluenceXLogo from './components/ConfluenceXLogo';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -45,12 +45,9 @@ const AppContent: React.FC = () => {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 bg-emerald-500 rounded-2xl flex items-center justify-center mx-auto mb-4 animate-pulse">
-            <TrendingUp className="w-8 h-8 text-white" />
-          </div>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">TradersLounge</h2>
-          <p className="text-gray-600 dark:text-gray-400">Loading your trading dashboard...</p>
+        <div className="text-center flex flex-col items-center">
+          <ConfluenceXLogo size="lg" showTagline className="animate-pulse mb-5" />
+          <p className="text-gray-600 dark:text-gray-400">Loading market intelligence...</p>
         </div>
       </div>
     );
