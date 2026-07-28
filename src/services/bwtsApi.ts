@@ -75,6 +75,9 @@ export interface CryptoTradePlan {
   expected_movement: number | null;
   expected_move_percent: number | null;
   available_rr: number;
+  net_available_rr?: number;
+  estimated_cost_r?: number | null;
+  estimated_round_trip_cost_bps?: number;
   minimum_rr: number;
   targets: { label: string; price: number; r_multiple: number; reachable: boolean }[];
   account_risk_percent: number;
@@ -136,6 +139,9 @@ export interface AiSignalAnalysis {
   educational_note: string;
 }
 
+const responseCache = new Map<string, { expires: number; value: unknown }>();
+const inFlight = new Map<string, Promise<unknown>>();
+
 async function get<T>(path: string, query?: Record<string, string | number>): Promise<T> {
   const url = new URL(`${BASE}${path}`);
   if (query) {
@@ -157,6 +163,20 @@ async function get<T>(path: string, query?: Record<string, string | number>): Pr
     throw new Error(msg);
   }
   return res.json() as Promise<T>;
+}
+
+async function getCached<T>(path: string, query?: Record<string, string | number>, ttlMs = 15_000): Promise<T> {
+  const params = new URLSearchParams(Object.entries(query || {}).map(([name, value]) => [name, String(value)]));
+  const key = `${path}?${params.toString()}`;
+  const cached = responseCache.get(key);
+  if (cached && cached.expires > Date.now()) return cached.value as T;
+  const existing = inFlight.get(key);
+  if (existing) return existing as Promise<T>;
+  const request = get<T>(path, query)
+    .then((value) => { responseCache.set(key, { expires: Date.now()+ttlMs, value }); return value; })
+    .finally(() => inFlight.delete(key));
+  inFlight.set(key, request);
+  return request;
 }
 
 export interface BwtsPosition {
@@ -233,11 +253,12 @@ async function post<T>(path: string, body: any): Promise<T> {
 }
 
 export const bwtsApi = {
+  clearCache: () => responseCache.clear(),
   health: () => get<BwtsHealth>('/api/health'),
   pairs: () => get<{ pairs: string[] }>('/api/pairs'),
   config: () => get<BwtsConfig>('/api/config'),
   signals: (opts?: { pair?: string; tier?: SignalTier; limit?: number }) =>
-    get<{ signals: BwtsSignal[]; count: number }>('/api/signals', opts as any),
+    getCached<{ signals: BwtsSignal[]; count: number }>('/api/signals', opts as any, 10_000),
   signal: (id: number) => get<{ signal: BwtsSignal }>(`/api/signals/${id}`),
 
   positions: () => get<{ positions: BwtsPosition[]; count: number }>('/api/positions'),
@@ -250,10 +271,10 @@ export const bwtsApi = {
     post<BwtsKillStatus>('/api/kill-switch', { engaged, reason }),
 
   requestScan: () => post<{ queued: boolean }>('/api/scans/refresh', {}),
-  calendarStatus: (pair: string) => get<CalendarGateStatus>('/api/calendar/status', { pair }),
+  calendarStatus: (pair: string) => getCached<CalendarGateStatus>('/api/calendar/status', { pair }, 30_000),
   calendarEvents: (pair?: string) => get<{ source: string; source_health: string; events: any[]; count: number }>('/api/calendar/events', pair ? { pair } : undefined),
   aiStatus: () => get<{ configured: boolean }>('/api/ai/status'),
-  cryptoAnalysis: (pair: string, timeframe?: string) => get<CryptoAnalysis>('/api/analysis', timeframe ? { pair, timeframe } : { pair }),
+  cryptoAnalysis: (pair: string, timeframe?: string) => getCached<CryptoAnalysis>('/api/analysis', timeframe ? { pair, timeframe } : { pair }, 20_000),
   v2Backtest: (pair: string, timeframe = '15m', limit = 3000) => get<V2BacktestReport>('/api/backtest/v2', { pair, timeframe, limit }),
   analyzeSignal: (pair: string, signal: BwtsSignal, analysis?: CryptoAnalysis) => post<{ configured: boolean; analysis: AiSignalAnalysis; calendar: CalendarGateStatus }>('/api/ai/analyze', { pair, signal, analysis }),
 

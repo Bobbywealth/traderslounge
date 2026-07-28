@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Activity, ArrowRight, BarChart3, BrainCircuit, CalendarClock, Clock3, Crosshair, Gauge,
@@ -13,9 +13,13 @@ const tierStyles: Record<string, string> = {
   GOOD: 'border-cyan-400/30 bg-cyan-400/10 text-cyan-300',
   WATCHLIST: 'border-amber-400/30 bg-amber-400/10 text-amber-300',
   NO_TRADE: 'border-slate-500/30 bg-slate-500/10 text-slate-400',
+  VALID: 'border-cyan-400/30 bg-cyan-400/10 text-cyan-300',
+  WAIT: 'border-amber-400/30 bg-amber-400/10 text-amber-300',
+  BLOCKED: 'border-rose-400/30 bg-rose-400/10 text-rose-300',
 };
 
-const v2Tier = (score: number) => score >= 70 ? 'STRONG' : score >= 55 ? 'GOOD' : score >= 40 ? 'WATCHLIST' : 'NO_TRADE';
+const v2Tier = (analysis?: CryptoAnalysis) => analysis?.trade_plan?.status || (analysis && analysis.total_score >= 40 ? 'WATCHLIST' : 'NO_TRADE');
+const planRank = (analysis?: CryptoAnalysis) => ({ STRONG: 5, VALID: 4, WATCHLIST: 3, WAIT: 2, BLOCKED: 1 }[analysis?.trade_plan?.status || ''] || 0);
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
@@ -31,9 +35,11 @@ const Dashboard: React.FC = () => {
   const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisByPair, setAnalysisByPair] = useState<Record<string, CryptoAnalysis>>({});
+  const loadInFlight = useRef(false);
 
   const load = useCallback(async (manual = false) => {
-    if (manual) setRefreshing(true);
+    if (loadInFlight.current) return;
+    loadInFlight.current = true; if (manual) setRefreshing(true);
     try {
       const [healthData, configData, signalData] = await Promise.all([
         bwtsApi.health(), bwtsApi.config(), bwtsApi.signals({ limit: 50 }),
@@ -53,6 +59,7 @@ const Dashboard: React.FC = () => {
     } catch (loadError: any) {
       setError(loadError?.message || 'Market intelligence feed is unavailable');
     } finally {
+      loadInFlight.current = false;
       setLoading(false);
       setRefreshing(false);
     }
@@ -66,7 +73,8 @@ const Dashboard: React.FC = () => {
 
   const latestByPair = useMemo(() => {
     const seen = new Set<string>();
-    return signals.filter((signal) => {
+    const ordered = [...signals].sort((a, b) => { const at=typeof a.created_at === 'number' ? a.created_at : new Date(a.created_at).getTime(); const bt=typeof b.created_at === 'number' ? b.created_at : new Date(b.created_at).getTime(); return bt-at; });
+    return ordered.filter((signal) => {
       if (seen.has(signal.pair)) return false;
       seen.add(signal.pair);
       return true;
@@ -74,14 +82,14 @@ const Dashboard: React.FC = () => {
   }, [signals]);
 
   const v2Analyses = Object.values(analysisByPair);
-  const actionable = v2Analyses.filter((analysis) => analysis.total_score >= 55 && analysis.direction !== 'NEUTRAL');
-  const strong = v2Analyses.filter((analysis) => analysis.total_score >= 70 && analysis.direction !== 'NEUTRAL').length;
+  const actionable = v2Analyses.filter((analysis) => analysis.trade_plan?.eligible);
+  const strong = v2Analyses.filter((analysis) => analysis.trade_plan?.eligible && analysis.total_score >= 70).length;
   const bullish = v2Analyses.filter((analysis) => analysis.direction === 'BUY').length;
   const bearish = v2Analyses.filter((analysis) => analysis.direction === 'SELL').length;
   const averageScore = v2Analyses.length
     ? Math.round(v2Analyses.reduce((total, analysis) => total + analysis.total_score, 0) / v2Analyses.length)
     : 0;
-  const rankedSignals = [...latestByPair].sort((a, b) => (analysisByPair[b.pair]?.total_score ?? 0) - (analysisByPair[a.pair]?.total_score ?? 0));
+  const rankedSignals = [...latestByPair].sort((a, b) => { const aa=analysisByPair[a.pair], ba=analysisByPair[b.pair]; return planRank(ba)-planRank(aa) || (ba?.total_score ?? 0)-(aa?.total_score ?? 0) || (ba?.trade_plan?.net_available_rr ?? ba?.trade_plan?.available_rr ?? 0)-(aa?.trade_plan?.net_available_rr ?? aa?.trade_plan?.available_rr ?? 0); });
   const bestSignal = rankedSignals[0];
   const cryptoAnalysis = bestSignal ? analysisByPair[bestSignal.pair] || null : null;
   const tradePlan = cryptoAnalysis?.trade_plan || null;
@@ -134,7 +142,7 @@ const Dashboard: React.FC = () => {
             <p className="mt-3 max-w-2xl text-slate-400">Welcome back, {user?.name || 'Trader'}. Start with the strongest confluence, validate the structure, then build the plan.</p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <button onClick={() => load(true)} disabled={refreshing} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold text-slate-300 transition hover:bg-white/[0.08] disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`}/> Refresh</button>
+            <button onClick={() => { bwtsApi.clearCache(); load(true); }} disabled={refreshing} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold text-slate-300 transition hover:bg-white/[0.08] disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`}/> Refresh</button>
             <Link to="/scanner" className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-5 py-3 text-sm font-black text-[#05070d] shadow-[0_0_26px_rgba(34,211,238,0.16)] transition hover:-translate-y-0.5"><Radar className="h-4 w-4"/> Open live scanner</Link>
           </div>
         </div>
@@ -164,7 +172,7 @@ const Dashboard: React.FC = () => {
             {(rankedSignals.length ? rankedSignals.slice(0, 5) : []).map((signal, index) => {
               const analysis = analysisByPair[signal.pair];
               const direction = analysis?.direction || 'NEUTRAL';
-              const tier = v2Tier(analysis?.total_score ?? 0);
+              const tier = v2Tier(analysis);
               const conflict = signal.direction !== 'NEUTRAL' && direction !== 'NEUTRAL' && signal.direction !== direction;
               const DirectionIcon = direction === 'BUY' ? TrendingUp : direction === 'SELL' ? TrendingDown : Activity;
               return <div key={signal.id} className="group grid items-center gap-4 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition hover:border-cyan-400/20 hover:bg-white/[0.045] sm:grid-cols-[36px_1fr_auto_auto]">
@@ -188,7 +196,7 @@ const Dashboard: React.FC = () => {
               <div className="mt-4 flex items-center justify-between rounded-xl border border-white/[0.07] bg-black/20 px-3 py-2.5"><div className="flex items-center gap-2 text-xs text-slate-400"><CalendarClock className="h-4 w-4 text-amber-300"/>Economic calendar</div><span className={`rounded-md px-2 py-1 text-[9px] font-black ${calendarRisk?.status === 'CLEAR' ? 'bg-emerald-400/10 text-emerald-300' : calendarRisk?.status === 'CAUTION' ? 'bg-amber-400/10 text-amber-300' : calendarRisk?.status === 'BLOCKED' || calendarRisk?.status === 'POST_NEWS' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 text-slate-400'}`}>{calendarRisk?.status || 'LOADING'}</span></div>
               {calendarRisk?.next_event && <div className="mt-2 text-[10px] text-slate-500">{calendarRisk.next_event.title} ({calendarRisk.next_event.currency}) {calendarRisk.minutes_to_event !== null ? `in ${calendarRisk.minutes_to_event}m` : ''}</div>}
               {cryptoAnalysis.market_context && <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[9px] font-bold uppercase tracking-wider"><div className="rounded-lg bg-black/20 p-2 text-slate-500">Month <span className="block mt-1 text-slate-200">{cryptoAnalysis.market_context.timeframes.mn1?.trend || 'neutral'}</span></div><div className="rounded-lg bg-black/20 p-2 text-slate-500">Week <span className="block mt-1 text-slate-200">{cryptoAnalysis.market_context.timeframes.w1?.trend || 'neutral'}</span></div><div className="rounded-lg bg-black/20 p-2 text-slate-500">Timing <span className={`block mt-1 ${cryptoAnalysis.trade_timing?.status === 'READY' ? 'text-emerald-300' : cryptoAnalysis.trade_timing?.status === 'AVOID' ? 'text-rose-300' : 'text-amber-300'}`}>{cryptoAnalysis.trade_timing?.status || 'WAIT'}</span></div></div>}
-              {tradePlan && planReady && tradePlan.entry !== null && tradePlan.stop !== null ? <><div className="mt-5 grid grid-cols-3 gap-2 text-center text-xs"><DataPoint label="ENTRY" value={tradePlan.entry}/><DataPoint label="STOP" value={tradePlan.stop}/><DataPoint label="TP1" value={tradePlan.targets[0]?.price ?? 0}/></div><div className="mt-2 flex items-center justify-between text-[10px] text-slate-500"><span>Available movement: {tradePlan.available_rr.toFixed(2)}R</span><span>Account risk: {tradePlan.account_risk_percent.toFixed(2)}%</span></div></> : <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/[0.07] p-3 text-xs leading-relaxed text-amber-200"><strong>{tradePlan?.status || 'WAIT'}:</strong> {tradePlan?.reasons?.[0] || 'V2 has not produced an eligible trade plan.'}</div>}
+              {tradePlan && planReady && tradePlan.entry !== null && tradePlan.stop !== null ? <><div className="mt-5 grid grid-cols-3 gap-2 text-center text-xs"><DataPoint label="ENTRY" value={tradePlan.entry}/><DataPoint label="STOP" value={tradePlan.stop}/><DataPoint label="TP1" value={tradePlan.targets[0]?.price ?? 0}/></div><div className="mt-2 flex items-center justify-between text-[10px] text-slate-500"><span>Net movement: {(tradePlan.net_available_rr ?? tradePlan.available_rr).toFixed(2)}R</span><span>Account risk: {tradePlan.account_risk_percent.toFixed(2)}%</span></div></> : <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/[0.07] p-3 text-xs leading-relaxed text-amber-200"><strong>{tradePlan?.status || 'WAIT'}:</strong> {tradePlan?.reasons?.[0] || 'V2 has not produced an eligible trade plan.'}</div>}
               {aiAnalysis && <div className="mt-4 rounded-xl border border-violet-400/15 bg-violet-400/[0.06] p-3"><div className="mb-1 flex items-center gap-2 text-[9px] font-black tracking-widest text-violet-300"><BrainCircuit className="h-3.5 w-3.5"/>{aiConfigured ? 'MINIMAX ANALYSIS' : 'DETERMINISTIC ANALYSIS'}</div><p className="text-xs leading-relaxed text-slate-300">{aiAnalysis.summary}</p><div className="mt-2 text-[10px] text-slate-500">Wait for: {aiAnalysis.wait_for}</div></div>}
               <div className="mt-5 grid grid-cols-2 gap-2"><Link to="/tradingview" className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] py-3 text-xs font-black transition hover:bg-white/[0.09]">Validate chart <Crosshair className="h-4 w-4"/></Link><button onClick={analyzeTopSignal} disabled={analyzing} className="flex items-center justify-center gap-2 rounded-xl border border-violet-400/20 bg-violet-400/10 py-3 text-xs font-black text-violet-200 transition hover:bg-violet-400/15 disabled:opacity-50"><BrainCircuit className={`h-4 w-4 ${analyzing ? 'animate-pulse' : ''}`}/>{analyzing ? 'Analyzing' : 'Analyze setup'}</button></div>
             </> : <div className="py-12 text-center text-sm text-slate-500">Waiting for the next confirmed setup.</div>}

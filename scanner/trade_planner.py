@@ -52,11 +52,13 @@ def build_trade_plan(
     calendar: Optional[dict[str, Any]] = None,
     minimum_score: int = 60,
     minimum_rr: float = 2.0,
+    primary_candles=None,
+    estimated_round_trip_cost_bps: float = 24.0,
 ) -> dict[str, Any]:
     direction = str(analysis.get("direction") or "NEUTRAL")
     score = int(analysis.get("total_score") or 0)
     quality = str((analysis.get("data_quality") or {}).get("status") or "insufficient")
-    bars = snapshot.ltf() or snapshot.h1 or snapshot.h4 or snapshot.d1
+    bars = list(primary_candles or []) or snapshot.ltf() or snapshot.h1 or snapshot.h4 or snapshot.d1
     entry = float(bars[-1].close) if bars else 0.0
     atr_value = atr(bars) if len(bars) >= 16 else None
     calendar_status = str((calendar or {}).get("status") or "UNAVAILABLE")
@@ -114,15 +116,18 @@ def build_trade_plan(
     daily = _daily_range(snapshot, entry)
     remaining_adr = daily.get("remaining_up") if direction == "BUY" else daily.get("remaining_down")
     volatility_ceiling = atr_value * 3.0
-    structural_ceiling = abs(structural_targets[-1] - entry) if structural_targets else volatility_ceiling
+    structural_ceiling = abs(structural_targets[0] - entry) if structural_targets else volatility_ceiling
     candidates = [volatility_ceiling, structural_ceiling]
     if remaining_adr is not None and remaining_adr > 0:
         candidates.append(remaining_adr)
     expected_movement = min(candidates)
     available_rr = expected_movement / risk_distance
+    estimated_cost = entry*(estimated_round_trip_cost_bps/10000.0)
+    cost_r = estimated_cost/risk_distance
+    net_available_rr = max(0.0, available_rr-cost_r)
 
-    if available_rr < minimum_rr:
-        reasons.append(f"Only {available_rr:.2f}R of realistic movement is available; minimum is {minimum_rr:.1f}R")
+    if net_available_rr < minimum_rr:
+        reasons.append(f"Only {net_available_rr:.2f}R remains after estimated costs; minimum is {minimum_rr:.1f}R")
 
     targets = []
     for multiple in (1.0, 2.0, 3.0):
@@ -131,9 +136,9 @@ def build_trade_plan(
         targets.append({"label": f"TP{int(multiple)}", "price": raw, "r_multiple": multiple, "reachable": reachable})
 
     eligible = not reasons
-    if eligible and score >= 70 and available_rr >= 3:
+    if eligible and score >= 70 and net_available_rr >= 3:
         status = "STRONG"
-    elif eligible and available_rr >= 2:
+    elif eligible and net_available_rr >= 2:
         status = "VALID"
     elif eligible:
         status = "WATCHLIST"
@@ -159,6 +164,9 @@ def build_trade_plan(
         "expected_movement": expected_movement,
         "expected_move_percent": expected_movement / entry * 100,
         "available_rr": available_rr,
+        "net_available_rr": net_available_rr,
+        "estimated_cost_r": cost_r,
+        "estimated_round_trip_cost_bps": estimated_round_trip_cost_bps,
         "minimum_rr": minimum_rr,
         "targets": targets,
         "daily_range": daily,
@@ -180,6 +188,7 @@ def _empty_plan(direction, score, calendar_status, reasons):
         "atr_buffer": None, "risk_distance": None,
         "risk_percent_of_price": None, "expected_movement": None,
         "expected_move_percent": None, "available_rr": 0,
+        "net_available_rr": 0, "estimated_cost_r": None, "estimated_round_trip_cost_bps": 24.0,
         "minimum_rr": 2.0, "targets": [], "daily_range": {},
         "structural_targets": [], "account_risk_percent": 0,
         "calendar_status": calendar_status, "timing_status": "WAIT", "timing": {}, "reasons": reasons,

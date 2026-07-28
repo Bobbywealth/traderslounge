@@ -169,13 +169,23 @@ def _cluster_support_resistance(candles, price, atr_value):
     output = []
     for cluster in clusters:
         center = cluster["center"]
-        touches = sum(1 for candle in recent if candle.low - tolerance <= center <= candle.high + tolerance)
-        rejections = sum(1 for candle in recent if candle.low <= center <= candle.high and abs(candle.close-center) >= tolerance*.5)
-        strength_score = _clamp(len(cluster["values"]) + min(touches, 4) + min(rejections, 3), 1, 10)
+        zone_type = "support" if center < price else "resistance"
+        reactions, last_reaction = [], None
+        for index, candle in enumerate(recent[:-1]):
+            contacted = candle.low <= center+tolerance*.5 and candle.high >= center-tolerance*.5
+            if not contacted or (reactions and index-reactions[-1] < 3):
+                continue
+            following = recent[index+1]
+            rejected = (candle.close > center and following.close >= candle.close) if zone_type == "support" else (candle.close < center and following.close <= candle.close)
+            if rejected:
+                reactions.append(index); last_reaction = index
+        touches = len(reactions)
+        recency = 2 if last_reaction is not None and len(recent)-last_reaction <= 15 else 1 if last_reaction is not None and len(recent)-last_reaction <= 40 else 0
+        strength_score = _clamp(min(len(cluster["values"]), 3) + min(touches*2, 5) + recency, 1, 10)
         output.append({
-            "type": "support" if center < price else "resistance",
+            "type": zone_type,
             "level": center, "low": center-tolerance, "high": center+tolerance,
-            "touches": touches, "rejections": rejections,
+            "touches": touches, "rejections": touches, "recency_score": recency,
             "strength_score": strength_score,
             "strength": "strong" if strength_score >= 7 else "moderate" if strength_score >= 4 else "weak",
             "distance_atr": abs(price-center)/(atr_value or tolerance),
@@ -189,11 +199,14 @@ def _significant_leg(candles, atr_value):
     if len(candles) < 12:
         return latest_leg(candles)
     swings = detect_swings(candles, max(2, min(7, len(candles)//60)))
-    minimum = (atr_value or 0) * 1.5
+    minimum = (atr_value or 0) * 2.0
+    intervals = [candles[i].time-candles[i-1].time for i in range(1, min(len(candles), 40)) if candles[i].time > candles[i-1].time]
+    minimum_duration = (sorted(intervals)[len(intervals)//2] if intervals else 0)*8
     for end_index in range(len(swings)-1, 0, -1):
         end = swings[end_index]
         for start in reversed(swings[:end_index]):
-            if start.type != end.type and abs(end.price-start.price) >= minimum:
+            duration = abs((getattr(end, "time", 0) or 0)-(getattr(start, "time", 0) or 0))
+            if start.type != end.type and abs(end.price-start.price) >= minimum and duration >= minimum_duration:
                 low, high = sorted((float(start.price), float(end.price)))
                 return low, high, "up" if end.price > start.price else "down"
     return latest_leg(candles)

@@ -104,6 +104,7 @@ const BWTS_SYMBOLS: SymbolInfo[] = [
 ];
 
 const TradingView: React.FC = () => {
+  const workspaceRef = useRef<HTMLDivElement>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const volumeContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -114,6 +115,7 @@ const TradingView: React.FC = () => {
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const harmonicSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
   const adrSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
+  const trendSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
   const v2LevelSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
   const candleCacheRef = useRef<Record<string, CandlestickData[]>>({});
   const loadedChartKeyRef = useRef('');
@@ -824,15 +826,8 @@ const TradingView: React.FC = () => {
       }));
       patternSeries.setData(lineData);
 
-      const xTime = lineData[0].time as number;
-      const dTime = lineData[4].time as number;
-      // PRZ is rendered as a compact SVG box around D below. Do not add
-      // horizontal series that bleed through the rest of the chart.
-      const patternSpan = Math.max(3600, dTime - xTime);
-      chart.timeScale().setVisibleRange({
-        from: Math.floor(xTime - patternSpan * 0.3) as UTCTimestamp,
-        to: Math.floor(dTime + patternSpan * 0.7) as UTCTimestamp,
-      });
+      // Keep the user's current zoom and pan. Pattern overlays must never
+      // force the visible range when scans refresh.
     }
   }, [harmonicPatterns, showHarmonics]);
 
@@ -999,7 +994,13 @@ const TradingView: React.FC = () => {
 
   // Draw trendlines on chart
   useEffect(() => {
-    if (!chartRef.current || !showTrendLines) return;
+    const chart = chartRef.current;
+    if (!chart) return;
+    for (const series of trendSeriesRefs.current) {
+      try { chart.removeSeries(series); } catch { /* chart was rebuilt */ }
+    }
+    trendSeriesRefs.current = [];
+    if (!showTrendLines) return;
 
     trendLines.forEach((trendLine) => {
       if (trendLine.isActive && trendLine.points.length >= 2) {
@@ -1017,12 +1018,13 @@ const TradingView: React.FC = () => {
           }));
 
           trendSeries.setData(lineData);
+          trendSeriesRefs.current.push(trendSeries);
         } catch (error) {
           console.warn('Failed to draw trendline:', error);
         }
       }
     });
-  }, [trendLines, showTrendLines]);
+  }, [trendLines, showTrendLines, chartRevision]);
 
   // Draw V2 Fibonacci plus support/resistance from the same analysis used by the dashboard.
   useEffect(() => {
@@ -1052,11 +1054,13 @@ const TradingView: React.FC = () => {
     if (showFibonacci) {
       const fibData = cryptoAnalysis.zones.fibonacci || {};
       const confluenceRatios = new Set((fibData.sr_confluence || []).map((item: any) => String(item.ratio)));
-      Object.entries(fibData.levels || {}).forEach(([ratio, value]) => levels.push({ title: `Fib ${ratio}${confluenceRatios.has(ratio) ? ' + S/R' : ''}`, value: Number(value), color: ['0.618', '0.65'].includes(ratio) ? '#c084fc' : confluenceRatios.has(ratio) ? '#22d3ee' : '#6366f1', style: LineStyle.Dotted }));
+      const atrDistance = Number(cryptoAnalysis.indicators.atr || 0)*8;
+      Object.entries(fibData.levels || {}).filter(([, value]) => !atrDistance || Math.abs(Number(value)-currentPrice) <= atrDistance).forEach(([ratio, value]) => levels.push({ title: `Fib ${ratio}${confluenceRatios.has(ratio) ? ' + S/R' : ''}`, value: Number(value), color: ['0.618', '0.65'].includes(ratio) ? '#c084fc' : confluenceRatios.has(ratio) ? '#22d3ee' : '#6366f1', style: LineStyle.Dotted }));
     }
 
     levels.filter((level) => Number.isFinite(level.value)).forEach((level) => {
-      const series = chart.addSeries(LineSeries, { color: level.color, lineWidth: 1, lineStyle: level.style, title: level.title, lastValueVisible: true, priceLineVisible: false });
+      const showAxisLabel = /^[SR]\d/.test(level.title) || level.title.startsWith('Fib 0.618') || level.title.startsWith('Fib 0.65');
+      const series = chart.addSeries(LineSeries, { color: level.color, lineWidth: 1, lineStyle: level.style, title: level.title, lastValueVisible: showAxisLabel, priceLineVisible: false });
       series.setData([{ time: start, value: level.value }, { time: end, value: level.value }]);
       v2LevelSeriesRefs.current.push(series);
     });
@@ -1186,11 +1190,16 @@ const TradingView: React.FC = () => {
   const symbolDatabase = availableSymbols.length > 0 ? availableSymbols : BWTS_SYMBOLS;
 
   const currentSymbolInfo = getSymbolInfo(selectedSymbol);
+  const toggleFullscreen = async () => {
+    if (!document.fullscreenElement) await workspaceRef.current?.requestFullscreen();
+    else await document.exitFullscreen();
+    setIsFullscreen(Boolean(document.fullscreenElement));
+  };
 
   return (
-    <div className="h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 text-white flex flex-col">
+    <div ref={workspaceRef} className="h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 text-white flex flex-col">
       {/* Enhanced Top Controls */}
-      <div className="bg-gray-800 border-b border-gray-700 px-4 py-3">
+      <div className="relative bg-gray-800 border-b border-gray-700 px-4 py-3">
         <div className="flex items-center justify-between">
           {/* Left Section - Logo & Symbol Search */}
           <div className="flex items-center space-x-4">
@@ -1338,18 +1347,19 @@ const TradingView: React.FC = () => {
             </button>
             
             <button 
-              onClick={() => setIsFullscreen(!isFullscreen)}
+              onClick={toggleFullscreen}
               className="p-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
-              title="Toggle Fullscreen"
+              title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
             >
               <Maximize2 className="w-4 h-4" />
             </button>
           </div>
         </div>
+        {showSettings && <div className="absolute right-4 top-14 z-50 w-56 rounded-xl border border-white/10 bg-[#0b1020] p-3 shadow-2xl"><div className="mb-2 text-[9px] font-black tracking-widest text-slate-500">OVERLAYS</div>{[[showHarmonics,setShowHarmonics,'Harmonics'],[showSupportResistance,setShowSupportResistance,'Support / resistance'],[showFibonacci,setShowFibonacci,'Fibonacci'],[showManualDrawings,setShowManualDrawings,'Manual drawings']].map(([checked,setChecked,label]) => <label key={String(label)} className="flex items-center justify-between py-1.5 text-xs text-slate-300"><span>{String(label)}</span><input type="checkbox" checked={Boolean(checked)} onChange={(event) => (setChecked as React.Dispatch<React.SetStateAction<boolean>>)(event.target.checked)}/></label>)}</div>}
       </div>
 
       {/* Manual drawing toolbar. Drawings persist independently per symbol and timeframe. */}
-      <div className="flex items-center gap-1 border-b border-white/[0.08] bg-[#080d18] px-4 py-1.5">
+      <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-white/[0.08] bg-[#080d18] px-4 py-1.5">
         <span className="mr-2 text-[9px] font-black tracking-widest text-slate-600">DRAW</span>
         {([
           ['select', MousePointer2, 'Cursor / select'], ['trend', LineChart, 'Trend line'], ['horizontal', Minus, 'Horizontal line'],
@@ -1364,8 +1374,8 @@ const TradingView: React.FC = () => {
       </div>
 
       {/* Technical Analysis Controls */}
-      <div className="bg-gray-800 border-b border-gray-700 px-4 py-2">
-        <div className="flex items-center justify-between">
+      <div className="shrink-0 overflow-x-auto bg-gray-800 border-b border-gray-700 px-4 py-2">
+        <div className="flex min-w-max items-center justify-between gap-6">
           <div className="flex items-center space-x-4">
             <span className="text-sm text-gray-400">Technical Analysis:</span>
             
@@ -1513,7 +1523,7 @@ const TradingView: React.FC = () => {
           ref={chartContainerRef}
           className="w-full h-full min-w-0 min-h-0 overflow-hidden"
         />
-        {showManualDrawings && <svg key={drawingRevision} className="absolute inset-0 z-20 h-full w-full" style={{ pointerEvents: drawingTool === 'select' ? 'none' : 'auto', cursor: drawingTool === 'select' ? 'default' : 'crosshair' }} onPointerDown={handleDrawingPointerDown} onPointerMove={handleDrawingPointerMove} onPointerUp={handleDrawingPointerUp}>
+        {showManualDrawings && <svg data-revision={drawingRevision} className="absolute inset-0 z-20 h-full w-full" style={{ pointerEvents: drawingTool === 'select' ? 'none' : 'auto', cursor: drawingTool === 'select' ? 'default' : 'crosshair' }} onPointerDown={handleDrawingPointerDown} onPointerMove={handleDrawingPointerMove} onPointerUp={handleDrawingPointerUp}>
           {[...drawings, ...(draftDrawing ? [draftDrawing] : [])].map((drawing) => {
             const points = drawingCoordinates(drawing); if (!points.length || points.some((point) => point.x == null || point.y == null)) return null;
             const selected = drawing.id === selectedDrawingId; const stroke = selected ? '#facc15' : drawing.color || '#e2e8f0';

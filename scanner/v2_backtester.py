@@ -5,12 +5,22 @@ from collections import defaultdict
 from typing import Any
 
 from .crypto_analysis import analyze_crypto
-from .data_types import MarketSnapshot
+from .data_types import Candle, MarketSnapshot
 from .trade_planner import build_trade_plan
 
 
 def _before(candles, timestamp, limit):
     return [c for c in candles if c.time <= timestamp][-limit:]
+
+
+def _higher_without_lookahead(higher, intraday, current_index, bucket_seconds):
+    current = intraday[current_index]
+    bucket_start = current.time-(current.time % bucket_seconds)
+    completed = [c for c in higher if c.time < bucket_start][-299:]
+    partial = [c for c in intraday[:current_index+1] if c.time >= bucket_start]
+    if partial:
+        completed.append(Candle(time=bucket_start, open=partial[0].open, high=max(c.high for c in partial), low=min(c.low for c in partial), close=partial[-1].close, volume=sum(c.volume for c in partial)))
+    return completed
 
 
 def _metrics(trades):
@@ -32,16 +42,16 @@ def _group(trades, key):
     return {name: _metrics(rows) for name, rows in sorted(groups.items())}
 
 
-def run_v2_backtest(pair, d1, h4, h1, m15, stride=4, maximum_holding_bars=96, minimum_history=250, timeframe="15m") -> dict[str, Any]:
+def run_v2_backtest(pair, d1, h4, h1, m15, stride=4, maximum_holding_bars=96, minimum_history=250, timeframe="15m", round_trip_cost_bps=24.0) -> dict[str, Any]:
     """Replay V2 without look-ahead and enter only READY, eligible 2R plans."""
     trades, candidates, blocked = [], 0, defaultdict(int)
     index = minimum_history
     while index < len(m15)-2:
         current = m15[index]
-        snap = MarketSnapshot(pair=pair, d1=_before(d1, current.time, 300), h4=_before(h4, current.time, 300),
-                              h1=_before(h1, current.time, 300), m15=m15[max(0, index-300):index+1])
+        snap = MarketSnapshot(pair=pair, d1=_higher_without_lookahead(d1, m15, index, 86400), h4=_higher_without_lookahead(h4, m15, index, 14400),
+                              h1=_higher_without_lookahead(h1, m15, index, 3600), m15=m15[max(0, index-300):index+1])
         analysis = analyze_crypto(snap, None, snap.m15, timeframe)
-        plan = build_trade_plan(snap, analysis, {"status": "CLEAR"})
+        plan = build_trade_plan(snap, analysis, {"status": "CLEAR"}, primary_candles=snap.m15)
         if not plan["eligible"]:
             for reason in plan.get("reasons", [])[:1]: blocked[reason] += 1
             index += stride
@@ -50,34 +60,39 @@ def run_v2_backtest(pair, d1, h4, h1, m15, stride=4, maximum_holding_bars=96, mi
         next_bar = m15[index+1]
         entry = float(next_bar.open)
         original_entry = float(plan["entry"])
-        risk = abs(original_entry-float(plan["stop"]))
-        if risk <= 0:
+        direction = plan["direction"]
+        stop = float(plan["stop"])
+        target = float(plan["targets"][1]["price"])
+        risk = abs(entry-stop)
+        reward = abs(target-entry)
+        invalidated_at_open = entry <= stop if direction == "BUY" else entry >= stop
+        fill_cost_r = (entry*(round_trip_cost_bps/10000.0))/risk if risk > 0 else float("inf")
+        if risk <= 0 or invalidated_at_open or reward/risk-fill_cost_r < 2.0:
+            blocked["next-open fill invalidated structure or reduced net reward below 2R"] += 1
             index += stride
             continue
-        direction = plan["direction"]
-        stop = entry-risk if direction == "BUY" else entry+risk
-        target = entry+2*risk if direction == "BUY" else entry-2*risk
         exit_index = min(len(m15)-1, index+maximum_holding_bars)
+        cost_r = fill_cost_r
         outcome, exit_price, r_multiple = "timeout", float(m15[exit_index].close), 0.0
         for cursor in range(index+1, exit_index+1):
             bar = m15[cursor]
             stop_hit = bar.low <= stop if direction == "BUY" else bar.high >= stop
             target_hit = bar.high >= target if direction == "BUY" else bar.low <= target
             if stop_hit:  # conservative when both occur in one candle
-                outcome, exit_price, r_multiple, exit_index = "loss", stop, -1.0, cursor
+                outcome, exit_price, r_multiple, exit_index = "loss", stop, -1.0-cost_r, cursor
                 break
             if target_hit:
-                outcome, exit_price, r_multiple, exit_index = "win", target, 2.0, cursor
+                outcome, exit_price, r_multiple, exit_index = "win", target, reward/risk-cost_r, cursor
                 break
         if outcome == "timeout":
-            r_multiple = ((exit_price-entry) if direction == "BUY" else (entry-exit_price))/risk
+            r_multiple = ((exit_price-entry) if direction == "BUY" else (entry-exit_price))/risk-cost_r
         timing = analysis.get("trade_timing") or {}
         locations = timing.get("location_signals") or ["unknown"]
         confirmations = timing.get("confirmation_signals") or ["unknown"]
         score = int(analysis.get("total_score") or 0)
         trades.append({"entry_time": next_bar.time, "exit_time": m15[exit_index].time, "direction": direction, "entry": entry,
                        "stop": stop, "target_2r": target, "exit": exit_price, "outcome": outcome, "r_multiple": r_multiple,
-                       "score": score, "score_band": f"{score//10*10}-{score//10*10+9}", "timeframe": timeframe,
+                       "score": score, "cost_r": cost_r, "score_band": f"{score//10*10}-{score//10*10+9}", "timeframe": timeframe,
                        "session": (timing.get("session") or {}).get("name"), "setup": "+".join(sorted(locations)),
                        "confirmation": "+".join(sorted(confirmations)), "macro_bias": (analysis.get("market_context") or {}).get("macro_bias")})
         index = exit_index+1
@@ -85,12 +100,16 @@ def run_v2_backtest(pair, d1, h4, h1, m15, stride=4, maximum_holding_bars=96, mi
     split = int(len(trades)*.7)
     in_sample, out_sample = trades[:split], trades[split:]
     out_sample_metrics = _metrics(out_sample)
-    validation = {"status": "INSUFFICIENT_DATA" if len(out_sample) < 30 else "PROMISING" if out_sample_metrics["expectancy_r"] > 0 and out_sample_metrics["profit_factor"] > 1 else "REJECT",
+    slice_size = max(1, len(trades)//4)
+    time_slices = [_metrics(trades[start:start+slice_size]) for start in range(0, len(trades), slice_size)][:4]
+    positive_slices = sum(1 for item in time_slices if item["trades"] and item["expectancy_r"] > 0)
+    validation = {"status": "INSUFFICIENT_DATA" if len(out_sample) < 30 else "PROMISING" if out_sample_metrics["expectancy_r"] > 0 and out_sample_metrics["profit_factor"] > 1 and positive_slices >= 3 else "REJECT",
                   "minimum_out_of_sample_trades": 30, "observed_out_of_sample_trades": len(out_sample),
+                  "positive_time_slices": positive_slices, "required_positive_time_slices": 3,
                   "warning": "Do not optimize or deploy thresholds from a small sample."}
     return {"version": "2.0.0", "pair": pair, "timeframe": timeframe, "bars": len(m15), "candidates": candidates,
-            "rules": {"minimum_score": 60, "minimum_rr": 2.0, "entry": "next candle open", "target": "TP2 at 2R", "same_bar_policy": "stop first", "maximum_holding_bars": maximum_holding_bars},
-            "overall": _metrics(trades), "in_sample_70pct": _metrics(in_sample), "out_of_sample_30pct": out_sample_metrics, "validation": validation,
+            "rules": {"minimum_score": 60, "minimum_rr": 2.0, "entry": "next candle open", "target": "absolute structural TP2", "same_bar_policy": "stop first", "maximum_holding_bars": maximum_holding_bars, "round_trip_cost_bps": round_trip_cost_bps},
+            "overall": _metrics(trades), "in_sample_70pct": _metrics(in_sample), "out_of_sample_30pct": out_sample_metrics, "time_slices": time_slices, "validation": validation,
             "by_setup": _group(trades, "setup"), "by_confirmation": _group(trades, "confirmation"),
             "by_score_band": _group(trades, "score_band"), "by_session": _group(trades, "session"),
             "blocked_reasons": dict(sorted(blocked.items(), key=lambda item: item[1], reverse=True)[:10]), "trades": trades[-100:]}

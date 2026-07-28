@@ -14,6 +14,7 @@ import datetime as _dt
 import json
 import logging
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -95,10 +96,18 @@ class BinanceClient:
             if end_time is not None:
                 values["endTime"] = str(end_time)
             url = f"{self.base_url}/api/v3/klines?{urllib.parse.urlencode(values)}"
-            try:
-                body = self.http(url, self.timeout_seconds)
-            except urllib.error.URLError as exc:
-                raise DataProviderError(f"binance HTTP error: {exc}") from exc
+            body = None
+            last_error = None
+            for attempt in range(3):
+                try:
+                    body = self.http(url, self.timeout_seconds)
+                    break
+                except urllib.error.URLError as exc:
+                    last_error = exc
+                    if attempt < 2:
+                        time.sleep(.25*(2**attempt))
+            if body is None:
+                raise DataProviderError(f"binance HTTP error after retries: {last_error}") from last_error
             try:
                 rows = json.loads(body)
             except json.JSONDecodeError as exc:

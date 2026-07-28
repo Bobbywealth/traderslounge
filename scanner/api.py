@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+import threading
+import time
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlsplit
@@ -45,6 +47,9 @@ class ApiState:
     scan_request_path: Optional[str] = None  # path to scan trigger file
     market_client: Optional[Any] = None  # fetch_candles(pair, timeframe)
     news_filter: Optional[NewsFilter] = None
+    response_cache: dict = field(default_factory=dict)
+    cache_lock: Any = field(default_factory=threading.RLock)
+    started_at: float = field(default_factory=time.time)
 
 
 # Module-level state pointer — http.server's handler API doesn't make
@@ -75,6 +80,26 @@ class _ApiHandler(BaseHTTPRequestHandler):
 
     def _error(self, status: int, message: str) -> None:
         self._json(status, {"error": message})
+
+    def _cache_get(self, key: str, allow_stale: bool = False):
+        with _STATE.cache_lock:
+            item = _STATE.response_cache.get(key)
+        if not item:
+            return None
+        expires, stale_until, value = item
+        now = time.monotonic()
+        if now <= expires or (allow_stale and now <= stale_until):
+            return value
+        return None
+
+    def _cache_set(self, key: str, value, ttl: float = 20.0, stale_ttl: float = 300.0) -> None:
+        now = time.monotonic()
+        with _STATE.cache_lock:
+            _STATE.response_cache[key] = (now+ttl, now+stale_ttl, value)
+            if len(_STATE.response_cache) > 200:
+                expired = [cache_key for cache_key, item in _STATE.response_cache.items() if item[1] < now]
+                for cache_key in expired:
+                    _STATE.response_cache.pop(cache_key, None)
 
     def log_message(self, fmt, *args):  # noqa: N802
         log.info("%s - %s", self.address_string(), fmt % args)
@@ -181,10 +206,17 @@ class _ApiHandler(BaseHTTPRequestHandler):
             n = _count(_STATE.repository)
         except Exception as exc:  # pragma: no cover
             return self._json(500, {"status": "degraded", "error": str(exc)})
+        calendar_health = getattr(_STATE.news_filter, "source_health", "unconfigured") if _STATE.news_filter else "unconfigured"
+        ready = _STATE.market_client is not None and calendar_health not in ("unavailable", "unconfigured")
         self._json(200, {
-            "status": "ok",
+            "status": "ok" if ready else "degraded",
+            "ready": ready,
             "db_signals": n,
             "pairs": list(_STATE.config.pairs),
+            "uptime_seconds": int(time.time()-_STATE.started_at),
+            "dependencies": {"market_data": "configured" if _STATE.market_client else "unconfigured", "calendar": calendar_health, "minimax": "configured" if minimax_configured() else "unconfigured"},
+            "cache": {"entries": len(_STATE.response_cache), "analysis_ttl_seconds": 20},
+            "engine": {"minimum_score": 60, "minimum_rr": 2.0, "actionable_status": "READY"},
         })
 
     def _calendar_events(self, query: dict) -> None:
@@ -262,16 +294,30 @@ class _ApiHandler(BaseHTTPRequestHandler):
         if not pair:
             return self._error(400, "pair is required")
         tf_raw = str(query.get("timeframe") or "").lower()
+        cache_key = f"analysis:{pair}:{tf_raw or 'default'}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return self._json(200, cached)
         selected_timeframe = _timeframe_alias(tf_raw) if tf_raw else None
         if tf_raw and selected_timeframe is None:
             return self._error(400, f"unsupported timeframe: {tf_raw}")
         try:
-            snapshot = client.fetch_snapshot(pair)
+            snapshot_key = f"snapshot:{pair}"
+            snapshot = self._cache_get(snapshot_key)
+            if snapshot is None:
+                snapshot = client.fetch_snapshot(pair)
+                self._cache_set(snapshot_key, snapshot, ttl=15, stale_ttl=60)
             selected_candles = client.fetch_candles(pair, selected_timeframe, limit=250) if selected_timeframe else None
             benchmark = None
             if pair != "BTCUSD":
                 try:
-                    benchmark = client.fetch_candles("BTCUSD", selected_timeframe, limit=250) if selected_timeframe else client.fetch_snapshot("BTCUSD")
+                    if selected_timeframe:
+                        benchmark = client.fetch_candles("BTCUSD", selected_timeframe, limit=250)
+                    else:
+                        benchmark = self._cache_get("snapshot:BTCUSD")
+                        if benchmark is None:
+                            benchmark = client.fetch_snapshot("BTCUSD")
+                            self._cache_set("snapshot:BTCUSD", benchmark, ttl=15, stale_ttl=60)
                 except Exception:
                     benchmark = None
             analysis = analyze_crypto(snapshot, benchmark, selected_candles, tf_raw or None)
@@ -285,9 +331,16 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 timing["status"] = "WAIT"
                 timing.setdefault("wait_for", []).append(f"calendar {calendar.get('status', 'UNAVAILABLE')}")
             analysis["trade_timing"] = timing
-            analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar)
+            analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar, primary_candles=selected_candles)
         except Exception as exc:
+            stale = self._cache_get(cache_key, allow_stale=True)
+            if stale is not None:
+                stale = dict(stale)
+                stale["cache"] = {"stale": True, "reason": str(exc)}
+                return self._json(200, stale)
             return self._error(502, f"analysis unavailable: {exc}")
+        analysis["cache"] = {"stale": False, "ttl_seconds": 20}
+        self._cache_set(cache_key, analysis)
         self._json(200, analysis)
 
     def _backtest_v2(self, query: dict) -> None:
