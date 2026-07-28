@@ -22,7 +22,7 @@ export interface LivePrice {
 export interface HarmonicPattern {
   id: string;
   symbol: string;
-  type: 'Gartley' | 'Butterfly' | 'Bat' | 'Crab' | 'Cypher' | 'ABCD';
+  type: 'Gartley' | 'Butterfly' | 'Bat' | 'Crab' | 'Deep Crab' | 'Shark' | 'Cypher' | 'ABCD';
   direction: 'bullish' | 'bearish';
   completion: number;
   points: {

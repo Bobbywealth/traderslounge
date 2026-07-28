@@ -127,6 +127,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._public_config()
         if path == "/api/candles":
             return self._candles(query)
+        if path == "/api/harmonics":
+            return self._harmonics(query)
         if path == "/api/signals":
             return self._list_signals(query)
         if path.startswith("/api/signals/"):
@@ -173,17 +175,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
         if not pair:
             return self._error(400, "pair is required")
         tf_raw = str(query.get("timeframe") or "1h").lower()
-        tf_aliases = {
-            "1m": "M1", "m1": "M1",
-            "5m": "M5", "m5": "M5",
-            "15m": "M15", "m15": "M15",
-            "30m": "M30", "m30": "M30",
-            "1h": "H1", "h1": "H1",
-            "4h": "H4", "h4": "H4",
-            "1d": "D1", "d1": "D1",
-            "1w": "W1", "w1": "W1",
-        }
-        timeframe = tf_aliases.get(tf_raw)
+        timeframe = _timeframe_alias(tf_raw)
         if timeframe is None:
             return self._error(400, f"unsupported timeframe: {tf_raw}")
         try:
@@ -200,6 +192,43 @@ class _ApiHandler(BaseHTTPRequestHandler):
         self._json(200, {
             "pair": pair, "timeframe": timeframe,
             "candles": rows, "count": len(rows),
+        })
+
+    def _harmonics(self, query: dict) -> None:
+        client = _STATE.market_client
+        if client is None:
+            return self._error(503, "market data client not configured")
+        pair = str(query.get("pair") or query.get("symbol") or "").upper()
+        if not pair:
+            return self._error(400, "pair is required")
+        tf_raw = str(query.get("timeframe") or "1h").lower()
+        timeframe = _timeframe_alias(tf_raw)
+        if timeframe is None:
+            return self._error(400, f"unsupported timeframe: {tf_raw}")
+        try:
+            candles = client.fetch_candles(pair, timeframe)
+            from .modules.harmonic import detect
+            match = detect(candles)
+        except Exception as exc:
+            return self._error(502, f"harmonic data unavailable: {exc}")
+        if match is None:
+            return self._json(200, {
+                "pair": pair, "timeframe": timeframe,
+                "status": "none", "pattern": None,
+            })
+        points = {
+            label: {"time": swing.time, "price": swing.price}
+            for label, swing in match["points"].items()
+        }
+        prz = float(match["prz"])
+        width = max(abs(prz) * 0.0015, 1e-8)
+        self._json(200, {
+            "pair": pair, "timeframe": timeframe, "status": "completed",
+            "pattern": {
+                "name": match["name"], "direction": match["direction"],
+                "prz": {"price": prz, "low": prz - width, "high": prz + width},
+                "points": points, "ratios": match["ratios"],
+            },
         })
 
     def _list_signals(self, query: dict) -> None:
@@ -300,6 +329,19 @@ class _ApiHandler(BaseHTTPRequestHandler):
             "scan_interval_seconds": cfg.scan_interval_seconds,
             "news_blackout_minutes": cfg.news_blackout_minutes,
         })
+
+
+def _timeframe_alias(value: str) -> Optional[str]:
+    return {
+        "1m": "M1", "m1": "M1",
+        "5m": "M5", "m5": "M5",
+        "15m": "M15", "m15": "M15",
+        "30m": "M30", "m30": "M30",
+        "1h": "H1", "h1": "H1",
+        "4h": "H4", "h4": "H4",
+        "1d": "D1", "d1": "D1",
+        "1w": "W1", "w1": "W1",
+    }.get(value.lower())
 
 
 def _json_default(o):

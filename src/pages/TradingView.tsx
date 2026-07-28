@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts';
+import { createChart, createSeriesMarkers, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts';
 import { 
   TrendingUp, 
   Settings, 
@@ -82,6 +82,7 @@ const TradingView: React.FC = () => {
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const chartInitialized = useRef<boolean>(false);
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const harmonicSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
   const [chartType, setChartType] = useState<ChartType>('candlestick');
   const [showVolume, setShowVolume] = useState(true);
   
@@ -219,6 +220,39 @@ const TradingView: React.FC = () => {
       .map(normalizeHistoryCandle)
       .filter((candle): candle is CandlestickData => candle !== null)
       .sort((a, b) => a.time - b.time);
+  }, []);
+
+  const fetchBwtsHarmonics = useCallback(async (symbol: string, tf: string): Promise<HarmonicPattern[]> => {
+    const params = new URLSearchParams({ pair: symbol, timeframe: tf });
+    const API_BASE = import.meta.env.VITE_BWTS_API_URL || import.meta.env.VITE_API_URL || '';
+    const response = await fetch(`${API_BASE}/api/harmonics?${params.toString()}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch BWTS harmonics: ${response.status}`);
+    }
+    const payload = await response.json();
+    const pattern = payload?.pattern;
+    if (!pattern) return [];
+    const point = (label: 'X' | 'A' | 'B' | 'C' | 'D') => ({
+      price: Number(pattern.points[label].price),
+      time: new Date(Number(pattern.points[label].time) * 1000),
+    });
+    return [{
+      id: `${symbol}-${tf}-${pattern.name}-${pattern.points.D.time}`,
+      symbol,
+      type: pattern.name as HarmonicPattern['type'],
+      direction: pattern.direction,
+      completion: 100,
+      points: { X: point('X'), A: point('A'), B: point('B'), C: point('C'), D: point('D') },
+      ratios: {
+        AB_XA: Number(pattern.ratios.ab_xa),
+        BC_AB: Number(pattern.ratios.bc_ab),
+        CD_BC: Number(pattern.ratios.cd_bc),
+        AD_XA: Number(pattern.ratios.ad_xa),
+      },
+      prz: { min: Number(pattern.prz.low), max: Number(pattern.prz.high) },
+      confidence: 100,
+      status: 'completed',
+    }];
   }, []);
   // TradeLocker connection function
   const connectToTradeLocker = async () => {
@@ -384,12 +418,8 @@ const TradingView: React.FC = () => {
     try {
       console.log(`🔄 Loading data for ${symbol}...`);
       
-      // Load harmonic patterns
-      if (showHarmonics) {
-        const patterns = await liveDataService.detectHarmonicPatterns(symbol);
-        setHarmonicPatterns(patterns);
-        console.log(`📊 Loaded ${patterns.length} harmonic patterns`);
-      }
+      // Harmonics are loaded independently from the BWTS Python scanner so
+      // they refresh whenever the symbol or timeframe changes.
 
       // Load trendlines
       if (showTrendLines) {
@@ -577,52 +607,73 @@ const TradingView: React.FC = () => {
     }
   }, []);
 
-  // Draw harmonic patterns on chart
+  // Refresh harmonics from the same live candles displayed on the chart.
   useEffect(() => {
-    if (!chartRef.current || !showHarmonics) return;
+    let active = true;
+    if (!showHarmonics) {
+      setHarmonicPatterns([]);
+      return () => { active = false; };
+    }
+    fetchBwtsHarmonics(selectedSymbol, timeframe)
+      .then((patterns) => { if (active) setHarmonicPatterns(patterns); })
+      .catch((error) => {
+        console.error('Failed to load BWTS harmonics:', error);
+        if (active) setHarmonicPatterns([]);
+      });
+    return () => { active = false; };
+  }, [fetchBwtsHarmonics, selectedSymbol, timeframe, showHarmonics]);
 
-    // Clear existing patterns
-    // Note: In a real implementation, you'd track and remove previous drawings
+  // Draw X-A-B-C-D, point labels, and both edges of the PRZ.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    for (const series of harmonicSeriesRefs.current) {
+      try { chart.removeSeries(series); } catch { /* already removed */ }
+    }
+    harmonicSeriesRefs.current = [];
+    if (!showHarmonics) return;
 
-    harmonicPatterns.forEach((pattern, index) => {
-      if (pattern.status === 'completed') {
-        // Draw pattern lines
-        const patternSeries = chartRef.current!.addSeries(LineSeries, {
-          color: pattern.direction === 'bullish' ? '#10b981' : '#ef4444',
+    for (const pattern of harmonicPatterns) {
+      if (pattern.status !== 'completed') continue;
+      const color = pattern.direction === 'bullish' ? '#10b981' : '#ef4444';
+      const patternSeries = chart.addSeries(LineSeries, {
+        color,
+        lineWidth: 3,
+        lineStyle: LineStyle.Dashed,
+        title: `${pattern.direction.toUpperCase()} ${pattern.type}`,
+      });
+      harmonicSeriesRefs.current.push(patternSeries);
+      const labels = ['X', 'A', 'B', 'C', 'D'] as const;
+      const lineData = labels.map((label) => ({
+        time: Math.floor(pattern.points[label].time.getTime() / 1000) as UTCTimestamp,
+        value: pattern.points[label].price,
+      }));
+      patternSeries.setData(lineData);
+      createSeriesMarkers(patternSeries, labels.map((label, index) => ({
+        time: lineData[index].time,
+        position: (index % 2 === 0 ? 'belowBar' : 'aboveBar') as 'belowBar' | 'aboveBar',
+        color,
+        shape: 'circle' as const,
+        text: label,
+      })));
+
+      const dTime = lineData[4].time as number;
+      const endTime = Math.max(Math.floor(Date.now() / 1000), dTime + 60) as UTCTimestamp;
+      for (const [title, value] of [['PRZ Low', pattern.prz.min], ['PRZ High', pattern.prz.max]] as const) {
+        const przSeries = chart.addSeries(LineSeries, {
+          color,
           lineWidth: 2,
-          lineStyle: LineStyle.Dashed,
-          title: `${pattern.type} Pattern`,
+          lineStyle: LineStyle.Dotted,
+          title,
         });
-
-        try {
-          // Create line data for the pattern
-          const lineData = [
-            { time: Math.floor(pattern.points.X.time.getTime() / 1000) as any, value: pattern.points.X.price },
-            { time: Math.floor(pattern.points.A.time.getTime() / 1000) as any, value: pattern.points.A.price },
-            { time: Math.floor(pattern.points.B.time.getTime() / 1000) as any, value: pattern.points.B.price },
-            { time: Math.floor(pattern.points.C.time.getTime() / 1000) as any, value: pattern.points.C.price },
-            { time: Math.floor(pattern.points.D.time.getTime() / 1000) as any, value: pattern.points.D.price },
-          ];
-
-          patternSeries.setData(lineData);
-
-          // Draw PRZ (Potential Reversal Zone)
-          const przSeries = chartRef.current!.addSeries(LineSeries, {
-            color: pattern.direction === 'bullish' ? '#10b98150' : '#ef444450',
-            lineWidth: 2,
-            title: 'PRZ',
-          });
-
-          const przTime = Math.floor(pattern.points.D.time.getTime() / 1000) as any;
-          przSeries.setData([
-            { time: przTime, value: pattern.prz.min },
-            { time: przTime, value: pattern.prz.max },
-          ]);
-        } catch (error) {
-          console.warn('Failed to draw harmonic pattern:', error);
-        }
+        przSeries.setData([
+          { time: lineData[4].time, value },
+          { time: endTime, value },
+        ]);
+        harmonicSeriesRefs.current.push(przSeries);
       }
-    });
+      chart.timeScale().fitContent();
+    }
   }, [harmonicPatterns, showHarmonics]);
 
   // Draw trendlines on chart
@@ -956,6 +1007,24 @@ const TradingView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {showHarmonics && (
+        <div className={`px-4 py-2 border-b text-sm ${
+          harmonicPatterns.length > 0
+            ? 'bg-emerald-950 border-emerald-800 text-emerald-200'
+            : 'bg-gray-900 border-gray-700 text-gray-400'
+        }`}>
+          {harmonicPatterns.length > 0 ? (
+            harmonicPatterns.map((pattern) => (
+              <span key={pattern.id} className="font-medium">
+                {pattern.direction.toUpperCase()} {pattern.type} detected on {selectedSymbol} {timeframe} · PRZ {pattern.prz.min.toFixed(2)}–{pattern.prz.max.toFixed(2)} · X-A-B-C-D drawn below
+              </span>
+            ))
+          ) : (
+            <span>No completed harmonic pattern on {selectedSymbol} {timeframe}. Scanning live candles.</span>
+          )}
+        </div>
+      )}
 
       {/* Chart Area */}
       <div className="flex-1 relative bg-gray-900">
