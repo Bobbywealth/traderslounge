@@ -85,6 +85,7 @@ const TradingView: React.FC = () => {
   const harmonicSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
   const [chartType, setChartType] = useState<ChartType>('candlestick');
   const [showVolume, setShowVolume] = useState(true);
+  const [chartRevision, setChartRevision] = useState(0);
   
   // State management
   const [selectedSymbol, setSelectedSymbol] = useState('BTCUSD');
@@ -452,6 +453,7 @@ const TradingView: React.FC = () => {
     try {
       const candles = await fetchBwtsCandles(symbol, tf);
       candlestickSeriesRef.current.setData(candles);
+      setChartRevision((revision) => revision + 1);
       if (candles.length > 0) {
         setCurrentPrice(candles[candles.length - 1].close);
         setIsConnected(true);
@@ -675,6 +677,135 @@ const TradingView: React.FC = () => {
       chart.timeScale().fitContent();
     }
   }, [harmonicPatterns, showHarmonics]);
+
+  // Prominent filled XABCD geometry, rendered above the chart canvases.
+  useEffect(() => {
+    const chart = chartRef.current;
+    const priceSeries = candlestickSeriesRef.current;
+    const container = chartContainerRef.current;
+    if (!chart || !priceSeries || !container) return;
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const removeOverlay = () => container.querySelector('[data-harmonic-overlay]')?.remove();
+
+    const renderOverlay = () => {
+      removeOverlay();
+      if (!showHarmonics || harmonicPatterns.length === 0) return;
+      const svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('data-harmonic-overlay', 'true');
+      svg.setAttribute('width', String(container.clientWidth));
+      svg.setAttribute('height', String(container.clientHeight));
+      svg.style.position = 'absolute';
+      svg.style.inset = '0';
+      svg.style.zIndex = '10';
+      svg.style.pointerEvents = 'none';
+      svg.style.overflow = 'visible';
+
+      for (const pattern of harmonicPatterns) {
+        const labels = ['X', 'A', 'B', 'C', 'D'] as const;
+        const coords = labels.map((label) => {
+          const point = pattern.points[label];
+          return {
+            label,
+            price: point.price,
+            x: chart.timeScale().timeToCoordinate(
+              Math.floor(point.time.getTime() / 1000) as UTCTimestamp
+            ),
+            y: priceSeries.priceToCoordinate(point.price),
+          };
+        });
+        if (coords.some((point) => point.x == null || point.y == null)) continue;
+        const color = pattern.direction === 'bullish' ? '#22c55e' : '#ef4444';
+        const fill = pattern.direction === 'bullish' ? '#22c55e' : '#ef4444';
+        const xy = (indexes: number[]) => indexes
+          .map((index) => `${coords[index].x},${coords[index].y}`)
+          .join(' ');
+
+        // Two shaded triangles make the harmonic structure impossible to miss.
+        for (const indexes of [[0, 1, 2], [2, 3, 4]]) {
+          const polygon = document.createElementNS(SVG_NS, 'polygon');
+          polygon.setAttribute('points', xy(indexes));
+          polygon.setAttribute('fill', fill);
+          polygon.setAttribute('fill-opacity', '0.22');
+          polygon.setAttribute('stroke', color);
+          polygon.setAttribute('stroke-opacity', '0.55');
+          polygon.setAttribute('stroke-width', '1.5');
+          svg.appendChild(polygon);
+        }
+
+        const zigzag = document.createElementNS(SVG_NS, 'polyline');
+        zigzag.setAttribute('points', xy([0, 1, 2, 3, 4]));
+        zigzag.setAttribute('fill', 'none');
+        zigzag.setAttribute('stroke', color);
+        zigzag.setAttribute('stroke-width', '4');
+        zigzag.setAttribute('stroke-linecap', 'round');
+        zigzag.setAttribute('stroke-linejoin', 'round');
+        svg.appendChild(zigzag);
+
+        for (const point of coords) {
+          const circle = document.createElementNS(SVG_NS, 'circle');
+          circle.setAttribute('cx', String(point.x));
+          circle.setAttribute('cy', String(point.y));
+          circle.setAttribute('r', '6');
+          circle.setAttribute('fill', color);
+          circle.setAttribute('stroke', '#ffffff');
+          circle.setAttribute('stroke-width', '2');
+          svg.appendChild(circle);
+
+          const text = document.createElementNS(SVG_NS, 'text');
+          text.setAttribute('x', String(Number(point.x) + 9));
+          text.setAttribute('y', String(Number(point.y) - 9));
+          text.setAttribute('fill', '#ffffff');
+          text.setAttribute('font-size', '13');
+          text.setAttribute('font-weight', '700');
+          text.setAttribute('paint-order', 'stroke');
+          text.setAttribute('stroke', '#111827');
+          text.setAttribute('stroke-width', '4');
+          text.setAttribute('stroke-linejoin', 'round');
+          text.textContent = `${point.label} (${point.price.toFixed(2)})`;
+          svg.appendChild(text);
+        }
+
+        const d = coords[4];
+        const yLow = priceSeries.priceToCoordinate(pattern.prz.min);
+        const yHigh = priceSeries.priceToCoordinate(pattern.prz.max);
+        if (yLow != null && yHigh != null && d.x != null) {
+          const top = Math.min(yLow, yHigh);
+          const height = Math.max(8, Math.abs(yLow - yHigh));
+          const prz = document.createElementNS(SVG_NS, 'rect');
+          prz.setAttribute('x', String(d.x));
+          prz.setAttribute('y', String(top));
+          prz.setAttribute('width', String(Math.max(80, container.clientWidth - Number(d.x))));
+          prz.setAttribute('height', String(height));
+          prz.setAttribute('fill', color);
+          prz.setAttribute('fill-opacity', '0.18');
+          prz.setAttribute('stroke', color);
+          prz.setAttribute('stroke-width', '2');
+          prz.setAttribute('stroke-dasharray', '7 5');
+          svg.appendChild(prz);
+
+          const przLabel = document.createElementNS(SVG_NS, 'text');
+          przLabel.setAttribute('x', String(Number(d.x) + 10));
+          przLabel.setAttribute('y', String(top - 7));
+          przLabel.setAttribute('fill', color);
+          przLabel.setAttribute('font-size', '13');
+          przLabel.setAttribute('font-weight', '800');
+          przLabel.textContent = `${pattern.type} PRZ ${pattern.prz.min.toFixed(2)}–${pattern.prz.max.toFixed(2)}`;
+          svg.appendChild(przLabel);
+        }
+      }
+      container.appendChild(svg);
+    };
+
+    const deferredRender = () => requestAnimationFrame(renderOverlay);
+    deferredRender();
+    chart.timeScale().subscribeVisibleTimeRangeChange(deferredRender);
+    window.addEventListener('resize', deferredRender);
+    return () => {
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(deferredRender);
+      window.removeEventListener('resize', deferredRender);
+      removeOverlay();
+    };
+  }, [chartRevision, harmonicPatterns, showHarmonics]);
 
   // Draw trendlines on chart
   useEffect(() => {
