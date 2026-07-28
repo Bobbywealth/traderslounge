@@ -59,6 +59,29 @@ export interface CalendarGateStatus {
   reason_code: string;
 }
 
+export interface CryptoTradePlan {
+  version: string;
+  status: 'STRONG' | 'VALID' | 'WATCHLIST' | 'WAIT' | 'BLOCKED';
+  eligible: boolean;
+  direction: 'BUY' | 'SELL' | 'NEUTRAL';
+  score: number;
+  entry: number | null;
+  invalidation: number | null;
+  stop: number | null;
+  atr: number | null;
+  atr_buffer: number | null;
+  risk_distance: number | null;
+  risk_percent_of_price: number | null;
+  expected_movement: number | null;
+  expected_move_percent: number | null;
+  available_rr: number;
+  minimum_rr: number;
+  targets: { label: string; price: number; r_multiple: number; reachable: boolean }[];
+  account_risk_percent: number;
+  calendar_status: string;
+  reasons: string[];
+}
+
 export interface CryptoAnalysis {
   version: string;
   asset_class: 'crypto';
@@ -73,6 +96,7 @@ export interface CryptoAnalysis {
   risk: { atr_stop: number | null; atr_multiple: number; warning: string };
   monitoring: string[];
   economic_calendar?: CalendarGateStatus;
+  trade_plan?: CryptoTradePlan;
 }
 
 export interface AiSignalAnalysis {

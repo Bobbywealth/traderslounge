@@ -309,10 +309,18 @@ def analyze_crypto(snapshot, benchmark_candles=None):
         if leg:
             low, high, leg_dir = leg
             retrace = retracement_pct(price, low, high, leg_dir)
-            fibs = {"0.382": high-(high-low)*.382 if leg_dir == "up" else low+(high-low)*.382,
-                    "0.618": high-(high-low)*.618 if leg_dir == "up" else low+(high-low)*.618,
-                    "0.786": high-(high-low)*.786 if leg_dir == "up" else low+(high-low)*.786}
-            zones["fibonacci"] = {"leg": leg_dir, "retracement": retrace, "levels": fibs}
+            span = high - low
+            retracement_ratios = (.236, .382, .5, .618, .786)
+            extension_ratios = (1.272, 1.618, 2.618)
+            fibs = {
+                f"{ratio:g}": high - span*ratio if leg_dir == "up" else low + span*ratio
+                for ratio in retracement_ratios
+            }
+            fibs.update({
+                f"{ratio:g}": low + span*ratio if leg_dir == "up" else high - span*ratio
+                for ratio in extension_ratios
+            })
+            zones["fibonacci"] = {"leg": leg_dir, "swing_low": low, "swing_high": high, "retracement": retrace, "levels": fibs}
             fib_ok = .382 <= retrace <= .786 and ((leg_dir == "up") == (sign > 0))
             scores["fibonacci"] = 10 if fib_ok else 3 if sign and ((leg_dir == "up") == (sign > 0)) else 0
 

@@ -27,6 +27,7 @@ from .kill_switch import KillSwitch
 from .minimax_client import analyze as minimax_analyze, configured as minimax_configured
 from .news_filter import NewsFilter
 from .persistence import SignalRepository
+from .trade_planner import build_trade_plan
 from .trade_repo import ClosedTradeRepository, PositionRepository
 
 log = logging.getLogger(__name__)
@@ -231,6 +232,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 "scenarios": raw_analysis.get("scenarios"),
                 "risk": raw_analysis.get("risk"),
                 "monitoring": raw_analysis.get("monitoring"),
+                "trade_plan": raw_analysis.get("trade_plan"),
             }
         if not minimax_configured():
             status = calendar.get("status", "UNAVAILABLE")
@@ -265,8 +267,9 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 except Exception:
                     benchmark = None
             analysis = analyze_crypto(snapshot, benchmark)
-            if _STATE.news_filter is not None:
-                analysis["economic_calendar"] = _STATE.news_filter.evaluate(pair)
+            calendar = _STATE.news_filter.evaluate(pair) if _STATE.news_filter is not None else {"status": "UNAVAILABLE"}
+            analysis["economic_calendar"] = calendar
+            analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar)
         except Exception as exc:
             return self._error(502, f"analysis unavailable: {exc}")
         self._json(200, analysis)

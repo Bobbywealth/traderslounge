@@ -102,6 +102,7 @@ const TradingView: React.FC = () => {
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const harmonicSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
   const adrSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
+  const v2LevelSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
   const candleCacheRef = useRef<Record<string, CandlestickData[]>>({});
   const loadedChartKeyRef = useRef('');
   const candleRequestRef = useRef(0);
@@ -131,7 +132,8 @@ const TradingView: React.FC = () => {
   const [fibonacciLevels, setFibonacciLevels] = useState<FibonacciLevel[]>([]);
   const [showHarmonics, setShowHarmonics] = useState(true);
   const [showTrendLines, setShowTrendLines] = useState(true);
-  const [showFibonacci, setShowFibonacci] = useState(false);
+  const [showFibonacci, setShowFibonacci] = useState(true);
+  const [showSupportResistance, setShowSupportResistance] = useState(true);
   const [cryptoAnalysis, setCryptoAnalysis] = useState<CryptoAnalysis | null>(null);
 
   useEffect(() => {
@@ -939,33 +941,37 @@ const TradingView: React.FC = () => {
     });
   }, [trendLines, showTrendLines]);
 
-  // Draw fibonacci levels
+  // Draw V2 Fibonacci plus support/resistance from the same analysis used by the dashboard.
   useEffect(() => {
-    if (!chartRef.current || !showFibonacci) return;
+    const chart = chartRef.current;
+    if (!chart) return;
+    for (const series of v2LevelSeriesRefs.current) {
+      try { chart.removeSeries(series); } catch { /* chart was rebuilt */ }
+    }
+    v2LevelSeriesRefs.current = [];
+    if (!cryptoAnalysis) return;
 
-    fibonacciLevels.forEach((level) => {
-      const fibSeries = chartRef.current!.addSeries(LineSeries, {
-        color: level.strength === 'strong' ? '#8b5cf6' : 
-               level.strength === 'medium' ? '#a78bfa' : '#c4b5fd',
-        lineWidth: 1,
-        lineStyle: LineStyle.Dotted,
-        title: `Fib ${(level.level * 100).toFixed(1)}%`,
-      });
+    const visible = chart.timeScale().getVisibleRange();
+    const now = Math.floor(Date.now() / 1000);
+    const start = (typeof visible?.from === 'number' ? visible.from : now - 7 * 86400) as any;
+    const end = (typeof visible?.to === 'number' ? visible.to : now + 86400) as any;
+    const levels: { title: string; value: number; color: string; style: LineStyle }[] = [];
 
-      try {
-        const now = new Date();
-        const startTime = Math.floor((now.getTime() - 24 * 60 * 60 * 1000) / 1000) as any;
-        const endTime = Math.floor(now.getTime() / 1000) as any;
-        
-        fibSeries.setData([
-          { time: startTime, value: level.price },
-          { time: endTime, value: level.price },
-        ]);
-      } catch (error) {
-        console.warn('Failed to draw fibonacci level:', error);
-      }
+    if (showSupportResistance) {
+      (cryptoAnalysis.zones.support || []).slice(-3).forEach((value: number, index: number) => levels.push({ title: `S${index + 1}`, value, color: '#22c55e', style: LineStyle.Dashed }));
+      (cryptoAnalysis.zones.resistance || []).slice(-3).forEach((value: number, index: number) => levels.push({ title: `R${index + 1}`, value, color: '#f43f5e', style: LineStyle.Dashed }));
+    }
+    if (showFibonacci) {
+      const fib = cryptoAnalysis.zones.fibonacci?.levels || {};
+      Object.entries(fib).forEach(([ratio, value]) => levels.push({ title: `Fib ${ratio}`, value: Number(value), color: ['0.5', '0.618', '0.786'].includes(ratio) ? '#a78bfa' : '#6366f1', style: LineStyle.Dotted }));
+    }
+
+    levels.filter((level) => Number.isFinite(level.value)).forEach((level) => {
+      const series = chart.addSeries(LineSeries, { color: level.color, lineWidth: 1, lineStyle: level.style, title: level.title, lastValueVisible: true, priceLineVisible: false });
+      series.setData([{ time: start, value: level.value }, { time: end, value: level.value }]);
+      v2LevelSeriesRefs.current.push(series);
     });
-  }, [fibonacciLevels, showFibonacci]);
+  }, [cryptoAnalysis, showFibonacci, showSupportResistance, chartRevision]);
 
   // Native-feeling live candles: REST loads history once, then the global
   // public Binance market-data stream updates the active candle trade-by-trade.
@@ -1287,6 +1293,16 @@ const TradingView: React.FC = () => {
                   {trendLines.length}
                 </span>
               )}
+            </label>
+
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={showSupportResistance}
+                onChange={(e) => setShowSupportResistance(e.target.checked)}
+                className="rounded border-gray-600 text-cyan-500 focus:ring-cyan-500"
+              />
+              <span className="text-sm text-white">Support / Resistance</span>
             </label>
 
             <label className="flex items-center space-x-2">
