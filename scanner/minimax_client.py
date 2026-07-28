@@ -8,7 +8,7 @@ import urllib.request
 from typing import Any
 
 ENDPOINT = os.environ.get("MINIMAX_API_URL", "https://api.minimax.io/v1/chat/completions")
-MODEL = os.environ.get("MINIMAX_MODEL", "MiniMax-M2.1")
+MODEL = os.environ.get("MINIMAX_MODEL", "MiniMax-M3")
 
 SYSTEM_PROMPT = """You are ConfluenceX AI, a concise trading-analysis explainer.
 Use only the structured scanner and economic-calendar facts supplied. Never invent prices or events.
