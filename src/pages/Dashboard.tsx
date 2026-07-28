@@ -1,227 +1,170 @@
-import React from 'react';
-import { TrendingUp, TrendingDown, DollarSign, Target, Sparkles, LucideIcon, Wallet, Activity } from 'lucide-react';
-import MetricCard from '../components/MetricCard';
-import PerformanceChart from '../components/PerformanceChart';
-import TradingChart from '../components/TradingChart';
-import RecentTrades from '../components/RecentTrades';
-import QuickActions from '../components/QuickActions';
-import BwtsStatusBar from '../components/BwtsStatusBar';
-import { useBroker } from '../contexts/BrokerContext';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import {
+  Activity, ArrowRight, BarChart3, Clock3, Crosshair, Gauge,
+  Layers3, RefreshCw, Radar, ShieldCheck, Sparkles, TrendingDown,
+  TrendingUp, Zap
+} from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { bwtsApi, type BwtsConfig, type BwtsHealth, type BwtsSignal } from '../services/bwtsApi';
 
-interface MetricData {
-  title: string;
-  value: string;
-  change: string;
-  trend: 'up' | 'down';
-  icon: LucideIcon;
-}
+const tierStyles: Record<string, string> = {
+  STRONG: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
+  GOOD: 'border-cyan-400/30 bg-cyan-400/10 text-cyan-300',
+  WATCHLIST: 'border-amber-400/30 bg-amber-400/10 text-amber-300',
+  NO_TRADE: 'border-slate-500/30 bg-slate-500/10 text-slate-400',
+};
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
-  const { accounts, trades } = useBroker();
-  
-  // Calculate metrics from real broker data if available
-  const totalPnL = trades.reduce((sum, trade) => sum + trade.profit, 0);
-  const openTrades = trades.filter(trade => trade.status === 'open').length;
-  const closedTrades = trades.filter(trade => trade.status === 'closed');
-  const winRate = closedTrades.length > 0 
-    ? (closedTrades.filter(trade => trade.profit > 0).length / closedTrades.length) * 100 
-    : 73.5;
-  const dailyPnL = trades
-    .filter(trade => {
-      const today = new Date();
-      const tradeDate = new Date(trade.openTime);
-      return tradeDate.toDateString() === today.toDateString();
-    })
-    .reduce((sum, trade) => sum + trade.profit, 0);
+  const [health, setHealth] = useState<BwtsHealth | null>(null);
+  const [config, setConfig] = useState<BwtsConfig | null>(null);
+  const [signals, setSignals] = useState<BwtsSignal[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
-  const metrics: MetricData[] = [
-    {
-      title: 'Total P&L',
-      value: accounts.length > 0 && totalPnL !== 0 ? `$${totalPnL.toFixed(2)}` : '$0.00',
-      change: accounts.length > 0 && totalPnL !== 0 ? `${totalPnL > 0 ? '+' : ''}${((totalPnL / Math.abs(totalPnL)) * 100).toFixed(1)}%` : '0.0%',
-      trend: (totalPnL >= 0 ? 'up' : 'down') as 'up' | 'down',
-      icon: DollarSign,
-    },
-    {
-      title: 'Win Rate',
-      value: `${winRate.toFixed(1)}%`,
-      change: closedTrades.length > 0 ? '+0.0%' : '0.0%',
-      trend: 'up' as const,
-      icon: Target,
-    },
-    {
-      title: 'Active Positions',
-      value: openTrades.toString(),
-      change: openTrades > 0 ? `+${openTrades}` : '0',
-      trend: (openTrades > 0 ? 'up' : 'down') as 'up' | 'down',
-      icon: TrendingUp,
-    },
-    {
-      title: 'Daily P&L',
-      value: accounts.length > 0 && dailyPnL !== 0 ? `$${dailyPnL.toFixed(2)}` : '$0.00',
-      change: accounts.length > 0 && dailyPnL !== 0 ? `${dailyPnL > 0 ? '+' : ''}${((dailyPnL / Math.abs(dailyPnL)) * 100).toFixed(1)}%` : '0.0%',
-      trend: (dailyPnL >= 0 ? 'up' : 'down') as 'up' | 'down',
-      icon: TrendingDown,
-    },
-  ];
+  const load = useCallback(async (manual = false) => {
+    if (manual) setRefreshing(true);
+    try {
+      const [healthData, configData, signalData] = await Promise.all([
+        bwtsApi.health(), bwtsApi.config(), bwtsApi.signals({ limit: 50 }),
+      ]);
+      setHealth(healthData);
+      setConfig(configData);
+      setSignals(signalData.signals);
+      setUpdatedAt(new Date());
+      setError(null);
+    } catch (loadError: any) {
+      setError(loadError?.message || 'Market intelligence feed is unavailable');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
-  const formatCurrency = (value: number, currency = 'USD') =>
-    new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: 2,
-    }).format(value);
+  useEffect(() => {
+    load();
+    const interval = setInterval(() => load(), 30_000);
+    return () => clearInterval(interval);
+  }, [load]);
+
+  const latestByPair = useMemo(() => {
+    const seen = new Set<string>();
+    return signals.filter((signal) => {
+      if (seen.has(signal.pair)) return false;
+      seen.add(signal.pair);
+      return true;
+    });
+  }, [signals]);
+
+  const actionable = latestByPair.filter((signal) => signal.tier === 'STRONG' || signal.tier === 'GOOD');
+  const strong = latestByPair.filter((signal) => signal.tier === 'STRONG').length;
+  const bullish = latestByPair.filter((signal) => signal.direction === 'BUY').length;
+  const bearish = latestByPair.filter((signal) => signal.direction === 'SELL').length;
+  const averageScore = latestByPair.length
+    ? Math.round(latestByPair.reduce((total, signal) => total + signal.confidence_score, 0) / latestByPair.length)
+    : 0;
+  const bestSignal = [...latestByPair].sort((a, b) => b.confidence_score - a.confidence_score)[0];
+
+  const formatTime = (value: number | string) => {
+    const date = typeof value === 'number'
+      ? new Date(value < 10_000_000_000 ? value * 1000 : value)
+      : new Date(value);
+    return Number.isNaN(date.getTime()) ? 'recently' : date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  };
 
   return (
-    <div className="space-y-6">
-      {/* Welcome Section - Enhanced with gradient and glow */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-cyan-500 via-violet-600 to-fuchsia-600 p-8 shadow-xl shadow-violet-950/30">
-        {/* Decorative glow orbs */}
-        <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-3xl"></div>
-        <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-teal-400/20 rounded-full blur-2xl"></div>
-        
-        {/* Content */}
-        <div className="relative z-10">
-          <div className="flex items-center gap-2 mb-2">
-            <Sparkles className="w-5 h-5 text-emerald-200 animate-pulse-subtle" />
-            <span className="text-sm font-semibold text-cyan-100 uppercase tracking-[0.18em]">ConfluenceX · Market Intelligence</span>
+    <div className="space-y-6 pb-8 text-slate-100">
+      <section className="relative overflow-hidden rounded-[28px] border border-white/[0.08] bg-[#080d1a] p-6 shadow-2xl shadow-black/20 sm:p-8">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_0%,rgba(34,211,238,0.14),transparent_30%),radial-gradient(circle_at_90%_30%,rgba(139,92,246,0.18),transparent_34%)]" />
+        <div className="absolute -right-20 -top-24 h-72 w-72 rounded-full border border-violet-400/10" />
+        <div className="relative z-10 flex flex-col justify-between gap-7 xl:flex-row xl:items-end">
+          <div>
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/[0.07] px-3 py-1.5 text-[10px] font-black tracking-[0.2em] text-cyan-300">
+              <span className="relative flex h-2 w-2"><span className="absolute h-full w-full animate-ping rounded-full bg-cyan-400"/><span className="relative h-2 w-2 rounded-full bg-cyan-300"/></span>
+              INTELLIGENCE FEED {health?.status === 'ok' ? 'ONLINE' : 'CONNECTING'}
+            </div>
+            <h1 className="text-3xl font-black tracking-[-0.04em] sm:text-5xl">Your edge, <span className="bg-gradient-to-r from-cyan-300 via-violet-400 to-fuchsia-400 bg-clip-text text-transparent">in one view.</span></h1>
+            <p className="mt-3 max-w-2xl text-slate-400">Welcome back, {user?.name || 'Trader'}. Start with the strongest confluence, validate the structure, then build the plan.</p>
           </div>
-          <h1 className="text-3xl font-bold mb-2 text-white drop-shadow-sm">
-            Good morning, {user?.name || 'Trader'}!
-          </h1>
-          {accounts.length > 0 ? (
-            <p className="text-emerald-100/90 text-lg">
-              Connected to {accounts.length} broker account{accounts.length !== 1 ? 's' : ''}. 
-              {totalPnL > 0 && ` You're up $${totalPnL.toFixed(2)} today!`}
-            </p>
-          ) : (
-            <p className="text-emerald-100/90 text-lg">
-              Welcome to your professional trading dashboard. Connect your brokers to get started!
-            </p>
-          )}
+          <div className="flex flex-wrap gap-3">
+            <button onClick={() => load(true)} disabled={refreshing} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold text-slate-300 transition hover:bg-white/[0.08] disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`}/> Refresh</button>
+            <Link to="/scanner" className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-5 py-3 text-sm font-black text-[#05070d] shadow-[0_0_26px_rgba(34,211,238,0.16)] transition hover:-translate-y-0.5"><Radar className="h-4 w-4"/> Open live scanner</Link>
+          </div>
         </div>
-      </div>
-
-      {/* BWTS Scanner status — live data from the Python API */}
-      <BwtsStatusBar />
-
-      {/* Metrics Grid - Enhanced cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-        {metrics.map((metric, index) => (
-          <MetricCard key={index} {...metric} />
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Performance Chart */}
-        <div className="lg:col-span-2 dashboard-card p-5 card-hover">
-          <PerformanceChart />
+        <div className="relative z-10 mt-7 flex flex-wrap gap-x-6 gap-y-2 border-t border-white/[0.07] pt-5 text-xs text-slate-500">
+          <span className="flex items-center gap-2"><Clock3 className="h-3.5 w-3.5 text-cyan-400"/>{updatedAt ? `Updated ${updatedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : 'Loading market state'}</span>
+          <span>{config ? `${config.scan_interval_seconds}s scan cycle` : 'Scanner configuration loading'}</span>
+          <span>{health ? `${health.pairs.length} markets tracked` : 'Connecting to markets'}</span>
         </div>
+      </section>
 
-        {/* Quick Actions */}
-        <div className="dashboard-card p-5 card-hover">
-          <QuickActions />
-        </div>
-      </div>
+      {error && <div className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.06] px-5 py-4 text-sm text-amber-200">Live scanner connection: {error}</div>}
 
-      {/* Additional Charts - Enhanced with glass effect */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <div className="dashboard-card p-5 card-hover overflow-hidden">
-          <TradingChart 
-            symbol="GBPUSD" 
-            timeframe="4H" 
-            height={350}
-            showVolume={false}
-            chartType="line"
-          />
-        </div>
-        <div className="dashboard-card p-5 card-hover overflow-hidden">
-          <TradingChart 
-            symbol="XAUUSD" 
-            timeframe="1D" 
-            height={350}
-            showVolume={true}
-            chartType="area"
-          />
-        </div>
-      </div>
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <IntelCard icon={Radar} label="Markets tracked" value={loading ? '—' : String(health?.pairs.length ?? 0)} detail="Continuous scanner coverage" color="cyan" />
+        <IntelCard icon={Zap} label="Actionable now" value={loading ? '—' : String(actionable.length)} detail={`${strong} strong signal${strong === 1 ? '' : 's'}`} color="violet" />
+        <IntelCard icon={Gauge} label="Average score" value={loading ? '—' : `${averageScore}/80`} detail="Across latest pair scans" color="fuchsia" />
+        <IntelCard icon={Activity} label="Market bias" value={loading ? '—' : bullish === bearish ? 'Balanced' : bullish > bearish ? 'Bullish' : 'Bearish'} detail={`${bullish} buy · ${bearish} sell`} color="cyan" />
+      </section>
 
-      {/* Recent Trades */}
-      <div className="dashboard-card p-5 card-hover">
-        <RecentTrades />
-      </div>
-
-      {/* TradeLocker account overview */}
-      <div className="dashboard-card p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">TradeLocker Accounts</h2>
-          <Wallet className="w-5 h-5 text-emerald-500" />
-        </div>
-
-        {accounts.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Connect and sync your TradeLocker account to view balances, equity, and open positions here.
-          </p>
-        ) : (
-          <div className="space-y-4">
-            {accounts.map((account) => {
-              const accountOpenPositions = trades.filter(
-                (trade) => trade.status === 'open' && trade.id.startsWith(`trade_${account.id.replace('account_', '')}_`)
-              );
-              const accountPositionPnL = accountOpenPositions.reduce((sum, trade) => sum + trade.profit, 0);
-
-              return (
-                <div
-                  key={account.id}
-                  className="rounded-xl border border-gray-200/80 dark:border-gray-700 bg-white/60 dark:bg-gray-800/40 p-4"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-                    <div>
-                      <h3 className="font-semibold text-gray-900 dark:text-white">{account.brokerName}</h3>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        #{account.accountNumber} • {account.accountType.toUpperCase()} • {account.isConnected ? 'Connected' : 'Disconnected'}
-                      </p>
-                    </div>
-                    <div className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-                      <Activity className="w-3.5 h-3.5" />
-                      {accountOpenPositions.length} Open Position{accountOpenPositions.length !== 1 ? 's' : ''}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-sm">
-                    <div className="rounded-lg bg-gray-50 dark:bg-gray-700/40 p-3">
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Balance</p>
-                      <p className="font-semibold text-gray-900 dark:text-white">{formatCurrency(account.balance, account.currency)}</p>
-                    </div>
-                    <div className="rounded-lg bg-gray-50 dark:bg-gray-700/40 p-3">
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Equity</p>
-                      <p className="font-semibold text-gray-900 dark:text-white">{formatCurrency(account.equity, account.currency)}</p>
-                    </div>
-                    <div className="rounded-lg bg-gray-50 dark:bg-gray-700/40 p-3">
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Margin Used</p>
-                      <p className="font-semibold text-gray-900 dark:text-white">{formatCurrency(account.margin, account.currency)}</p>
-                    </div>
-                    <div className="rounded-lg bg-gray-50 dark:bg-gray-700/40 p-3">
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Free Margin</p>
-                      <p className="font-semibold text-gray-900 dark:text-white">{formatCurrency(account.freeMargin, account.currency)}</p>
-                    </div>
-                    <div className="rounded-lg bg-gray-50 dark:bg-gray-700/40 p-3">
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Open P&L</p>
-                      <p className={`font-semibold ${accountPositionPnL >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-                        {formatCurrency(accountPositionPnL, account.currency)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              );
+      <section className="grid gap-6 xl:grid-cols-[1.55fr_.85fr]">
+        <div className="rounded-[24px] border border-white/[0.08] bg-[#090d18] p-5 sm:p-6">
+          <div className="mb-5 flex items-center justify-between gap-4">
+            <div><div className="text-[10px] font-black tracking-[0.2em] text-cyan-300">PRIORITY QUEUE</div><h2 className="mt-1 text-xl font-black">Strongest live setups</h2></div>
+            <Link to="/signals" className="flex items-center gap-1 text-xs font-bold text-slate-400 transition hover:text-cyan-300">All signals <ArrowRight className="h-3.5 w-3.5"/></Link>
+          </div>
+          <div className="space-y-3">
+            {(latestByPair.length ? latestByPair.slice(0, 5) : []).map((signal, index) => {
+              const DirectionIcon = signal.direction === 'BUY' ? TrendingUp : signal.direction === 'SELL' ? TrendingDown : Activity;
+              return <div key={signal.id} className="group grid items-center gap-4 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition hover:border-cyan-400/20 hover:bg-white/[0.045] sm:grid-cols-[36px_1fr_auto_auto]">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.05] text-xs font-black text-slate-500">0{index + 1}</div>
+                <div><div className="flex items-center gap-2"><span className="font-black">{signal.pair}</span><span className={`rounded-md border px-2 py-0.5 text-[9px] font-black ${tierStyles[signal.tier]}`}>{signal.tier}</span></div><div className="mt-1 max-w-md truncate text-xs text-slate-500">{signal.pattern || signal.reasons?.[0] || 'Confluence scan complete'}</div></div>
+                <div className={`flex items-center gap-1.5 text-xs font-black ${signal.direction === 'BUY' ? 'text-emerald-300' : signal.direction === 'SELL' ? 'text-rose-300' : 'text-slate-400'}`}><DirectionIcon className="h-4 w-4"/>{signal.direction}</div>
+                <div className="text-right"><div className="text-xl font-black text-white">{signal.confidence_score}<span className="text-xs text-slate-600">/80</span></div><div className="text-[9px] text-slate-600">{formatTime(signal.created_at)}</div></div>
+              </div>;
             })}
+            {!loading && latestByPair.length === 0 && <div className="rounded-2xl border border-dashed border-white/10 py-14 text-center"><Radar className="mx-auto h-8 w-8 text-slate-700"/><p className="mt-3 text-sm text-slate-500">The scanner is online. New setups will appear here when the evidence aligns.</p></div>}
+            {loading && [1,2,3].map(item => <div key={item} className="h-20 animate-pulse rounded-2xl bg-white/[0.035]"/>)}
           </div>
-        )}
-      </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="relative overflow-hidden rounded-[24px] border border-violet-400/15 bg-gradient-to-br from-violet-500/10 to-cyan-500/[0.04] p-6">
+            <Sparkles className="absolute -right-2 -top-2 h-24 w-24 text-violet-400/[0.06]"/>
+            <div className="text-[10px] font-black tracking-[0.2em] text-violet-300">TOP CONFLUENCE</div>
+            {bestSignal ? <><div className="mt-5 flex items-start justify-between"><div><div className="text-3xl font-black">{bestSignal.pair}</div><div className="mt-1 text-sm text-slate-400">{bestSignal.pattern || 'Multi-factor setup'}</div></div><div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-3 text-center"><div className="text-2xl font-black text-cyan-300">{bestSignal.confidence_score}</div><div className="text-[8px] font-bold tracking-widest text-cyan-500">SCORE</div></div></div><div className="mt-6 grid grid-cols-3 gap-2 text-center text-xs"><DataPoint label="ENTRY" value={bestSignal.entry}/><DataPoint label="STOP" value={bestSignal.stop_loss}/><DataPoint label="TARGET" value={bestSignal.tp1}/></div><Link to="/tradingview" className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] py-3 text-sm font-black transition hover:bg-white/[0.09]">Validate on chart <Crosshair className="h-4 w-4"/></Link></> : <div className="py-12 text-center text-sm text-slate-500">Waiting for the next confirmed setup.</div>}
+          </div>
+
+          <div className="rounded-[24px] border border-white/[0.08] bg-[#090d18] p-6"><div className="flex items-center justify-between"><div><div className="text-[10px] font-black tracking-[0.2em] text-slate-500">SYSTEM STATE</div><h3 className="mt-1 font-black">Confluence pipeline</h3></div><ShieldCheck className="h-5 w-5 text-emerald-300"/></div><div className="mt-5 space-y-4">{[['01','Scan markets',health?.status === 'ok'],['02','Rank confluence',signals.length > 0],['03','Validate structure',Boolean(bestSignal)],['04','Build the plan',false]].map(([number,label,complete]) => <div key={String(number)} className="flex items-center gap-3"><div className={`flex h-8 w-8 items-center justify-center rounded-lg text-[10px] font-black ${complete ? 'bg-cyan-400/10 text-cyan-300' : 'bg-white/[0.04] text-slate-600'}`}>{number}</div><div className={`flex-1 text-sm ${complete ? 'text-slate-200' : 'text-slate-500'}`}>{String(label)}</div><div className={`h-2 w-2 rounded-full ${complete ? 'bg-cyan-300 shadow-[0_0_10px_#22d3ee]' : 'bg-slate-700'}`}/></div>)}</div></div>
+        </div>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-3">
+        <WorkflowLink to="/scanner" icon={Radar} eyebrow="DISCOVER" title="Scan the market" copy="See every tracked pair and its latest confidence tier." />
+        <WorkflowLink to="/tradingview" icon={BarChart3} eyebrow="CONFIRM" title="Open the chart" copy="Validate harmonics, ADR, structure, and live price action." />
+        <WorkflowLink to="/journal" icon={Layers3} eyebrow="IMPROVE" title="Review the process" copy="Capture decisions and turn repetition into an edge." />
+      </section>
     </div>
   );
 };
+
+const cardColors: Record<string, string> = {
+  cyan: 'bg-cyan-400/10 text-cyan-300',
+  violet: 'bg-violet-400/10 text-violet-300',
+  fuchsia: 'bg-fuchsia-400/10 text-fuchsia-300',
+};
+
+const IntelCard: React.FC<{icon: React.ElementType; label: string; value: string; detail: string; color: string}> = ({ icon: Icon, label, value, detail, color }) => (
+  <div className="group rounded-2xl border border-white/[0.08] bg-[#090d18] p-5 transition hover:-translate-y-1 hover:border-cyan-400/20">
+    <div className="flex items-center justify-between"><div className={`flex h-10 w-10 items-center justify-center rounded-xl ${cardColors[color] || cardColors.cyan}`}><Icon className="h-5 w-5"/></div><Activity className="h-3.5 w-3.5 text-slate-700"/></div><div className="mt-5 text-3xl font-black tracking-tight">{value}</div><div className="mt-1 text-sm font-bold text-slate-300">{label}</div><div className="mt-1 text-xs text-slate-600">{detail}</div>
+  </div>
+);
+
+const DataPoint: React.FC<{label: string; value: number}> = ({ label, value }) => <div className="rounded-lg bg-white/[0.04] p-2"><div className="text-[8px] font-bold tracking-wider text-slate-600">{label}</div><div className="mt-1 truncate font-mono text-[11px] text-slate-300">{Number.isFinite(value) ? value.toFixed(2) : '—'}</div></div>;
+
+const WorkflowLink: React.FC<{to: string; icon: React.ElementType; eyebrow: string; title: string; copy: string}> = ({to, icon: Icon, eyebrow, title, copy}) => <Link to={to} className="group rounded-2xl border border-white/[0.08] bg-[#090d18] p-5 transition hover:-translate-y-1 hover:border-violet-400/25"><div className="flex items-start justify-between"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-400/10 to-violet-400/10 text-cyan-300"><Icon className="h-5 w-5"/></div><ArrowRight className="h-4 w-4 text-slate-700 transition group-hover:translate-x-1 group-hover:text-cyan-300"/></div><div className="mt-5 text-[9px] font-black tracking-[0.2em] text-slate-600">{eyebrow}</div><h3 className="mt-1 text-lg font-black">{title}</h3><p className="mt-2 text-sm leading-relaxed text-slate-500">{copy}</p></Link>;
 
 export default Dashboard;
