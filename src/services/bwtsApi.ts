@@ -62,6 +62,29 @@ export interface BwtsConfig {
 }
 
 export type CalendarRiskStatus = 'CLEAR' | 'CAUTION' | 'BLOCKED' | 'POST_NEWS' | 'UNAVAILABLE';
+
+export interface Trigger {
+  type: 'candle_close_above' | 'candle_close_below' | 'price_enters_zone' |
+        'score_crosses_above' | 'coverage_crosses_above' | 'news_blackout_ends' |
+        'direction_conflict_resolves' | 'adr_resets' | 'spread_below_threshold';
+  symbol: string;
+  timeframe?: string;
+  price?: number;
+  priceLow?: number;
+  priceHigh?: number;
+  threshold?: number;
+  requiredCandleState?: string;
+  currentValue?: number;
+  completed: boolean;
+  humanReadable: string;
+}
+
+export interface BlockingReason {
+  code: string;
+  message: string;
+  severity: 'low' | 'medium' | 'high';
+}
+
 export interface CalendarGateStatus {
   version: number;
   status: CalendarRiskStatus;
@@ -101,6 +124,8 @@ export interface CryptoTradePlan {
   timing_status?: string;
   timing?: CryptoAnalysis['trade_timing'];
   reasons: string[];
+  triggers: Trigger[];
+  blocking_reasons: BlockingReason[];
 }
 
 export type ConfidenceTier = 'high' | 'qualified' | 'developing' | 'watch';
@@ -148,6 +173,7 @@ export interface CryptoAnalysis {
   scenarios: { primary: string; invalidation: string; confidence: string };
   risk: { atr_stop: number | null; atr_multiple: number; warning: string };
   monitoring: string[];
+  triggers: Trigger[];
   economic_calendar?: CalendarGateStatus;
   trade_plan?: CryptoTradePlan;
   confluence_score?: number;

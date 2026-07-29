@@ -24,6 +24,64 @@ CAPS = {
 }
 
 
+def _generate_triggers(analysis_result) -> list:
+    triggers = []
+    score = analysis_result.get('total_score', 0)
+    coverage = analysis_result.get('data_quality', {}).get('coverage', 1.0)
+    pair = analysis_result.get('pair', '')
+    adr_percent = analysis_result.get('adr_percent_used', 0)
+    entry_zone = analysis_result.get('entry_zone')
+    current_price = analysis_result.get('current_price')
+
+    if score < 70:
+        triggers.append({
+            'type': 'score_crosses_above',
+            'symbol': pair,
+            'threshold': 70,
+            'current_value': score,
+            'completed': score >= 70,
+            'human_readable': f"Score rises above 70 (currently {score})"
+        })
+
+    if coverage < 0.75:
+        triggers.append({
+            'type': 'coverage_crosses_above',
+            'symbol': pair,
+            'threshold': 0.75,
+            'current_value': coverage,
+            'completed': coverage >= 0.75,
+            'human_readable': f"Coverage improves above 75% (currently {coverage*100:.0f}%)"
+        })
+
+    if adr_percent > 80:
+        triggers.append({
+            'type': 'adr_resets',
+            'symbol': pair,
+            'current_value': adr_percent,
+            'completed': adr_percent < 50,
+            'human_readable': "ADR utilization falls below 50%"
+        })
+
+    if entry_zone:
+        triggers.append({
+            'type': 'price_enters_zone',
+            'symbol': pair,
+            'price_low': entry_zone['low'],
+            'price_high': entry_zone['high'],
+            'current_price': current_price,
+            'completed': _is_price_in_zone(entry_zone, current_price),
+            'human_readable': f"Price enters {entry_zone['low']}-{entry_zone['high']}"
+        })
+
+    return triggers
+
+
+def _is_price_in_zone(zone, current_price):
+    if not current_price or not zone:
+        return False
+    return zone['low'] <= current_price <= zone['high']
+
+
 def _clamp(value, low, high):
     return max(low, min(high, value))
 
@@ -613,11 +671,12 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
     if bars and price:
         a = indicators.get("atr") or (price*.02)
         stop = price-sign*2*a if sign else None
-    return {"version": VERSION, "asset_class": "crypto", "pair": getattr(snapshot, "pair", None), "direction": direction,
+    analysis_result = {"version": VERSION, "asset_class": "crypto", "pair": getattr(snapshot, "pair", None), "direction": direction,
             "total_score": int(_clamp(total, 0, 100)), "category_breakdown": scores, "data_quality": quality,
             "indicators": indicators, "zones": zones, "market_context": market_context, "trade_timing": trade_timing,
             "scenarios": {"primary": scenario, "invalidation": "close beyond ATR stop or opposing structure break", "confidence": "high" if total >= 70 else "moderate" if total >= 45 else "low"},
             "risk": {"atr_stop": stop, "atr_multiple": 2, "warning": "Crypto can gap and liquidity can thin; use position sizing and hard stops."},
+<<<<<<< HEAD
             "monitoring": ["primary timeframe close", "volume relative to 20-bar average", "VWAP reclaim/loss", "structure break", "ATR volatility regime"],
             "confluence_score": int(_clamp(total, 0, 100)),
             "coverage": coverage,
@@ -627,6 +686,8 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
             "missing_categories": missing_categories,
             "stale_categories": stale_categories,
             "data_freshness_seconds": data_freshness_seconds}
+    analysis_result["triggers"] = _generate_triggers(analysis_result)
+    return analysis_result
 
 
 # Short conventional alias for integrations that expect an analysis callable.

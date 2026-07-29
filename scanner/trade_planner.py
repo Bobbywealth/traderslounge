@@ -18,6 +18,96 @@ from .reason_codes import (
 )
 
 
+def _generate_plan_triggers(snapshot: MarketSnapshot, analysis: dict, entry: float, direction: str) -> list:
+    triggers = []
+    score = int(analysis.get("total_score", 0))
+    timing = analysis.get("trade_timing") or {}
+    market_context = analysis.get("market_context") or {}
+    bars = list(snapshot.m15 or []) if hasattr(snapshot, 'm15') else []
+
+    if score < 70:
+        triggers.append({
+            "type": "score_crosses_above",
+            "symbol": getattr(snapshot, "pair", ""),
+            "threshold": 70,
+            "current_value": score,
+            "completed": score >= 70,
+            "human_readable": f"Confluence score rises above 70 (currently {score})"
+        })
+
+    if bars and entry > 0:
+        last_bar = bars[-1] if bars else None
+        if last_bar:
+            price = float(getattr(last_bar, 'close', 0))
+            triggers.append({
+                "type": "candle_close_above",
+                "symbol": getattr(snapshot, "pair", ""),
+                "timeframe": "M15",
+                "price": entry,
+                "required_candle_state": "bullish engulfing",
+                "current_progress": 0,
+                "completed": price > entry,
+                "human_readable": f"M15 candle closes above {entry:.2f} with bullish engulfing pattern"
+            })
+
+    opposing = market_context.get("opposing_frames", [])
+    if opposing and direction in ("BUY", "SELL"):
+        triggers.append({
+            "type": "direction_conflict_resolves",
+            "symbol": getattr(snapshot, "pair", ""),
+            "current_value": len(opposing),
+            "completed": len(opposing) == 0,
+            "human_readable": f"Direction conflict resolves ({', '.join(opposing)} timeframe conflict)"
+        })
+
+    adr_percent = timing.get("adr_percent_used", 0)
+    if adr_percent is None or adr_percent == 0:
+        adr_percent = timing.get("regime", {}).get("adr_percent_used", 0)
+    if adr_percent and adr_percent > 80:
+        triggers.append({
+            "type": "adr_resets",
+            "symbol": getattr(snapshot, "pair", ""),
+            "current_value": adr_percent,
+            "completed": adr_percent < 50,
+            "human_readable": "ADR utilization falls below 50%"
+        })
+
+    return triggers
+
+
+def _generate_blocking_reasons(analysis: dict, direction: str, timing_status: str) -> list:
+    blocking = []
+    market_context = analysis.get("market_context") or {}
+    timing = analysis.get("trade_timing") or {}
+    regime = timing.get("regime") or {}
+
+    opposing = market_context.get("opposing_frames", [])
+    if opposing and direction in ("BUY", "SELL"):
+        blocking.append({
+            "code": "DIRECTION_CONFLICT",
+            "message": f"{', '.join(opposing)} bullish but M15 momentum bearish",
+            "severity": "medium"
+        })
+
+    if regime.get("monthly_weekly_conflict"):
+        blocking.append({
+            "code": "HTF_CONFLICT",
+            "message": "Monthly and weekly trend disagree",
+            "severity": "medium"
+        })
+
+    if timing_status == "AVOID":
+        avoid_reasons = timing.get("avoid_reasons") or []
+        for reason in avoid_reasons:
+            blocking.append({
+                "code": "TIMING_AVOID",
+                "message": str(reason).replace("_", " ").title(),
+                "severity": "high"
+            })
+
+    return blocking
+
+
 def _levels(values, side, entry):
     clean = []
     for value in values or []:
@@ -184,6 +274,10 @@ def build_trade_plan(
     risk_percent = 0.0 if not eligible else 1.0 if status == "STRONG" else 0.5 if status == "VALID" else 0.25
     if (timing.get("regime") or {}).get("monthly_weekly_conflict") or not (timing.get("session") or {}).get("preferred", False):
         risk_percent = min(risk_percent, 0.25)
+
+    triggers = _generate_plan_triggers(snapshot, analysis, entry, direction) if eligible else []
+    blocking_reasons = _generate_blocking_reasons(analysis, direction, timing_status)
+
     return {
         "version": "1.0.0",
         "status": status,
@@ -212,6 +306,8 @@ def build_trade_plan(
         "timing_status": timing_status,
         "timing": timing,
         "reasons": reasons,
+        "triggers": triggers,
+        "blocking_reasons": blocking_reasons,
         "position_size_formula": "account_equity * account_risk_percent / 100 / risk_distance",
     }
 
@@ -228,5 +324,6 @@ def _empty_plan(direction, score, calendar_status, reasons):
         "minimum_rr": 2.0, "targets": [], "daily_range": {},
         "structural_targets": [], "account_risk_percent": 0,
         "calendar_status": calendar_status, "timing_status": "WAIT", "timing": {}, "reasons": reasons,
+        "triggers": [], "blocking_reasons": [],
         "position_size_formula": "account_equity * account_risk_percent / 100 / risk_distance",
     }
