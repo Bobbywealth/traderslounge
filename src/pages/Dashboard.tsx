@@ -69,6 +69,7 @@ const Dashboard: React.FC = () => {
     if (loadInFlight.current) return;
     loadInFlight.current = true; if (manual) setRefreshing(true);
     try {
+      // Try unified dashboard snapshot endpoint first
       const snapshot = await bwtsApi.dashboardSnapshot();
       setHealth(snapshot.scanner_health);
       setConfig(snapshot.config);
@@ -82,7 +83,30 @@ const Dashboard: React.FC = () => {
       setUpdatedAt(new Date());
       setError(null);
     } catch (loadError: any) {
-      setError(loadError?.message || 'Market intelligence feed is unavailable');
+      // Fallback to legacy N+1 pattern if snapshot endpoint unavailable
+      if (loadError?.message?.includes('unknown route') || loadError?.message?.includes('404')) {
+        try {
+          const [healthData, configData, signalData] = await Promise.all([
+            bwtsApi.health(), bwtsApi.config(), bwtsApi.signals({ limit: 50 }),
+          ]);
+          setHealth(healthData);
+          setConfig(configData);
+          setSignals(signalData.signals);
+          const pairs = Array.from(new Set(signalData.signals.map((signal) => signal.pair)));
+          const analyses = await Promise.allSettled(pairs.map((pair) => bwtsApi.cryptoAnalysis(pair)));
+          const nextAnalysis: Record<string, CryptoAnalysis> = {};
+          analyses.forEach((result, index) => {
+            if (result.status === 'fulfilled') nextAnalysis[pairs[index]] = result.value;
+          });
+          setAnalysisByPair(nextAnalysis);
+          setUpdatedAt(new Date());
+          setError(null);
+        } catch (fallbackError: any) {
+          setError(fallbackError?.message || 'Market intelligence feed is unavailable');
+        }
+      } else {
+        setError(loadError?.message || 'Market intelligence feed is unavailable');
+      }
     } finally {
       loadInFlight.current = false;
       setLoading(false);
