@@ -108,6 +108,40 @@ def _generate_blocking_reasons(analysis: dict, direction: str, timing_status: st
     return blocking
 
 
+TRANSACTION_COSTS_BPS = {
+    'forex': 12,
+    'forex_jpy': 15,
+    'metals': 20,
+    'cryptocurrency': 25,
+    'indices': 15,
+}
+
+
+def calculate_net_rr(entry: float, stop: float, target: float, direction: int, asset_class: str, entry_type: str = 'market') -> dict:
+    risk_distance = abs(entry - stop)
+    reward_distance = abs(target - entry)
+
+    gross_rr = reward_distance / risk_distance if risk_distance > 0 else 0
+
+    cost_bps = TRANSACTION_COSTS_BPS.get(asset_class, 12)
+
+    if entry_type == 'limit':
+        cost_bps = cost_bps * 0.8
+
+    cost_r = (entry * (cost_bps / 10000)) / risk_distance if risk_distance > 0 else float('inf')
+
+    net_rr = gross_rr - cost_r
+
+    return {
+        'gross_rr': round(gross_rr, 2),
+        'net_rr': round(net_rr, 2),
+        'cost_bps': cost_bps,
+        'cost_r': round(cost_r, 3),
+        'asset_class': asset_class,
+        'entry_type': entry_type,
+    }
+
+
 def _levels(values, side, entry):
     clean = []
     for value in values or []:
@@ -148,7 +182,8 @@ def build_trade_plan(
     minimum_score: int = 60,
     minimum_rr: float = 2.0,
     primary_candles=None,
-    estimated_round_trip_cost_bps: float = 24.0,
+    asset_class: str = 'cryptocurrency',
+    entry_type: str = 'market',
 ) -> dict[str, Any]:
     direction = str(analysis.get("direction") or "NEUTRAL")
     score = int(analysis.get("total_score") or 0)
@@ -244,7 +279,15 @@ def build_trade_plan(
         candidates.append(remaining_adr)
     expected_movement = min(candidates)
     available_rr = expected_movement / risk_distance
-    estimated_cost = entry*(estimated_round_trip_cost_bps/10000.0)
+
+    cost_bps = TRANSACTION_COSTS_BPS.get(asset_class, 12)
+    if entry_type == 'limit':
+        cost_bps = cost_bps * 0.8
+    slippage_bps = 5
+    spread_bps = cost_bps - slippage_bps if cost_bps > slippage_bps else cost_bps
+    total_cost_bps = cost_bps
+
+    estimated_cost = entry*(total_cost_bps/10000.0)
     cost_r = estimated_cost/risk_distance
     net_available_rr = max(0.0, available_rr-cost_r)
 
@@ -256,10 +299,18 @@ def build_trade_plan(
         ))
 
     targets = []
-    for multiple in (1.0, 2.0, 3.0):
-        raw = entry + movement_direction * risk_distance * multiple
+    for i, multiple in enumerate((1.0, 2.0, 3.0)):
+        target_price = entry + movement_direction * risk_distance * multiple
         reachable = multiple <= available_rr + 1e-9
-        targets.append({"label": f"TP{int(multiple)}", "price": raw, "r_multiple": multiple, "reachable": reachable})
+        rr_result = calculate_net_rr(entry, stop, target_price, movement_direction, asset_class, entry_type)
+        targets.append({
+            "label": f"TP{int(multiple)}",
+            "price": target_price,
+            "r_multiple": multiple,
+            "reachable": reachable,
+            "gross_rr": rr_result['gross_rr'],
+            "net_rr": rr_result['net_rr'],
+        })
 
     eligible = not reasons
     if eligible and score >= 70 and net_available_rr >= 3:
@@ -296,9 +347,18 @@ def build_trade_plan(
         "available_rr": available_rr,
         "net_available_rr": net_available_rr,
         "estimated_cost_r": cost_r,
-        "estimated_round_trip_cost_bps": estimated_round_trip_cost_bps,
+        "total_transaction_cost_bps": total_cost_bps,
+        "spread_assumption_bps": spread_bps,
+        "slippage_assumption_bps": slippage_bps,
         "minimum_rr": minimum_rr,
         "targets": targets,
+        "tp1": targets[0]["price"] if len(targets) > 0 else None,
+        "tp2": targets[1]["price"] if len(targets) > 1 else None,
+        "tp3": targets[2]["price"] if len(targets) > 2 else None,
+        "gross_rr": targets[0]["gross_rr"] if len(targets) > 0 else None,
+        "net_rr": targets[0]["net_rr"] if len(targets) > 0 else None,
+        "asset_class": asset_class,
+        "entry_type": entry_type,
         "daily_range": daily,
         "structural_targets": structural_targets[:5],
         "account_risk_percent": risk_percent,
@@ -320,7 +380,10 @@ def _empty_plan(direction, score, calendar_status, reasons):
         "atr_buffer": None, "risk_distance": None,
         "risk_percent_of_price": None, "expected_movement": None,
         "expected_move_percent": None, "available_rr": 0,
-        "net_available_rr": 0, "estimated_cost_r": None, "estimated_round_trip_cost_bps": 24.0,
+        "net_available_rr": 0, "estimated_cost_r": None,
+        "total_transaction_cost_bps": 12,
+        "spread_assumption_bps": 10,
+        "slippage_assumption_bps": 5,
         "minimum_rr": 2.0, "targets": [], "daily_range": {},
         "structural_targets": [], "account_risk_percent": 0,
         "calendar_status": calendar_status, "timing_status": "WAIT", "timing": {}, "reasons": reasons,
