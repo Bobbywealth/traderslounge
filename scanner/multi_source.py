@@ -16,6 +16,21 @@ from .data_types import MarketSnapshot
 log = logging.getLogger(__name__)
 
 
+def get_asset_class(pair: str) -> str:
+    CRYPTO_PAIRS = {'BTCUSD', 'ETHUSD', 'XRPUSD', 'LTCUSD'}
+    JPY_PAIRS = {'USDJPY', 'GBPJPY', 'EURJPY'}
+    METALS = {'XAUUSD', 'XAGUSD'}
+
+    if pair in CRYPTO_PAIRS:
+        return 'cryptocurrency'
+    elif pair in JPY_PAIRS:
+        return 'forex_jpy'
+    elif pair in METALS:
+        return 'metals'
+    else:
+        return 'forex'
+
+
 @dataclass
 class MultiSourceClient:
     fx: TwelveDataClient

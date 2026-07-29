@@ -69,6 +69,41 @@ def price_distance_to_pips(pair: str, distance: float) -> float:
     return abs(distance) / pip_size_for(pair)
 
 
+ASSET_PARAMS = {
+    'forex': {
+        'pip_size': 0.0001,
+        'pip_value_per_lot': 10.0,
+        'min_lot': 0.01,
+        'max_lot': 100.0
+    },
+    'forex_jpy': {
+        'pip_size': 0.01,
+        'pip_value_per_lot': 9.0,
+        'min_lot': 0.01,
+        'max_lot': 100.0
+    },
+    'metals': {
+        'point_size': 0.01,
+        'point_value_per_lot': 10.0,
+        'min_lot': 0.01,
+        'max_lot': 50.0
+    },
+    'cryptocurrency': {
+        'tick_size': 0.01,
+        'tick_value_per_lot': 1.0,
+        'min_lot': 0.001,
+        'max_lot': 100.0
+    }
+}
+
+
+def symbol_pip_size(symbol: str) -> float:
+    JPY_PAIRS = {'USDJPY', 'GBPJPY', 'EURJPY'}
+    if symbol in JPY_PAIRS:
+        return 0.01
+    return 0.0001
+
+
 @dataclass
 class TradePlan:
     pair: str
@@ -83,11 +118,27 @@ class TradePlan:
     sl_pips: float
     rr_to_tp1: float
     rr_to_tp2: float
+    asset_class: str = 'forex'
 
 
 @dataclass
 class TradeRejection:
     reason: str
+
+
+def _get_asset_class(pair: str) -> str:
+    CRYPTO_PAIRS = {'BTCUSD', 'ETHUSD', 'XRPUSD', 'LTCUSD'}
+    JPY_PAIRS = {'USDJPY', 'GBPJPY', 'EURJPY'}
+    METALS = {'XAUUSD', 'XAGUSD'}
+
+    if pair in CRYPTO_PAIRS:
+        return 'cryptocurrency'
+    elif pair in JPY_PAIRS:
+        return 'forex_jpy'
+    elif pair in METALS:
+        return 'metals'
+    else:
+        return 'forex'
 
 
 class RiskManager:
@@ -105,6 +156,62 @@ class RiskManager:
         self.max_lot = max_lot_size
         self.min_sl_pips = min_sl_pips
 
+    def calculate_position_size(
+        self,
+        account_balance_usd: float,
+        entry: float,
+        stop: float,
+        symbol: str,
+        direction: str,
+        asset_class: str = 'forex'
+    ) -> dict:
+        params = ASSET_PARAMS.get(asset_class, ASSET_PARAMS['forex'])
+        stop_distance = abs(entry - stop)
+
+        if asset_class == 'forex':
+            sl_pips = stop_distance / symbol_pip_size(symbol)
+            pip_value = params['pip_value_per_lot']
+            risk_amount = account_balance_usd * self.risk_pct
+            raw_lots = risk_amount / (sl_pips * pip_value)
+            stop_distance_pips = sl_pips
+
+        elif asset_class == 'forex_jpy':
+            sl_pips = stop_distance / symbol_pip_size(symbol)
+            pip_value = params['pip_value_per_lot']
+            risk_amount = account_balance_usd * self.risk_pct
+            raw_lots = risk_amount / (sl_pips * pip_value)
+            stop_distance_pips = sl_pips
+
+        elif asset_class == 'metals':
+            sl_points = stop_distance / params['point_size']
+            risk_amount = account_balance_usd * self.risk_pct
+            raw_lots = risk_amount / (sl_points * params['point_value_per_lot'])
+            stop_distance_pips = sl_points
+
+        elif asset_class == 'cryptocurrency':
+            sl_ticks = stop_distance / params['tick_size']
+            risk_amount = account_balance_usd * self.risk_pct
+            raw_lots = risk_amount / (sl_ticks * params['tick_value_per_lot'])
+            stop_distance_pips = sl_ticks
+
+        else:
+            sl_pips = stop_distance / symbol_pip_size(symbol)
+            pip_value = params['pip_value_per_lot']
+            risk_amount = account_balance_usd * self.risk_pct
+            raw_lots = risk_amount / (sl_pips * pip_value)
+            stop_distance_pips = sl_pips
+
+        lot_size = math.floor(raw_lots * 100) / 100
+
+        return {
+            'lot_size': lot_size,
+            'risk_amount_usd': risk_amount,
+            'stop_distance': stop_distance,
+            'stop_distance_pips': stop_distance_pips,
+            'pip_value_per_lot': pip_value if asset_class in ('forex', 'forex_jpy') else params.get('point_value_per_lot', params.get('tick_value_per_lot', 10.0)),
+            'asset_class': asset_class
+        }
+
     def plan_trade(
         self,
         sig: Signal,
@@ -119,7 +226,17 @@ class RiskManager:
         if sl_distance == 0:
             return TradeRejection("Entry equals stop loss")
 
-        sl_pips = price_distance_to_pips(sig.pair, sl_distance)
+        asset_class = _get_asset_class(sig.pair)
+        position = self.calculate_position_size(
+            account_balance_usd=account_balance_usd,
+            entry=sig.entry,
+            stop=sig.stop_loss,
+            symbol=sig.pair,
+            direction=sig.direction.value,
+            asset_class=asset_class
+        )
+
+        sl_pips = position['stop_distance_pips']
         if sl_pips < self.min_sl_pips:
             return TradeRejection(
                 f"SL distance {sl_pips:.1f} pips below minimum {self.min_sl_pips}"
@@ -129,26 +246,16 @@ class RiskManager:
         tp2_distance = abs(sig.tp2 - sig.entry)
         rr_tp1 = tp1_distance / sl_distance
         rr_tp2 = tp2_distance / sl_distance
-        # Spec §6: minimum 1:2 R:R. We measure on TP2 since TP1 is the
-        # partial-close target and isn't required to clear 2R alone.
         if rr_tp2 < self.min_rr:
             return TradeRejection(
                 f"R:R {rr_tp2:.2f} below minimum {self.min_rr:.1f}:1 (TP2 vs SL)"
             )
 
-        pip_value = PIP_VALUE_PER_LOT_USD.get(sig.pair)
-        if pip_value is None:
-            return TradeRejection(f"No pip value table entry for {sig.pair}")
-
-        risk_usd = account_balance_usd * self.risk_pct
-        raw_lots = risk_usd / (sl_pips * pip_value)
-        # Round down to 2 decimals (most brokers accept 0.01 lots). Add a
-        # tiny epsilon to dodge float artifacts (0.01 * 100 = 0.9999...).
-        lot_size = math.floor(raw_lots * 100 + 1e-9) / 100
+        lot_size = position['lot_size']
         if lot_size <= 0:
             return TradeRejection(
-                f"Computed lot size rounds to 0 (risk ${risk_usd:.2f}, "
-                f"SL {sl_pips:.1f}p, pip ${pip_value})"
+                f"Computed lot size rounds to 0 (risk ${position['risk_amount_usd']:.2f}, "
+                f"SL {sl_pips:.1f}p, pip ${position['pip_value_per_lot']})"
             )
         if lot_size > self.max_lot:
             lot_size = self.max_lot
@@ -162,8 +269,9 @@ class RiskManager:
             tp2=sig.tp2,
             tp3=sig.tp3,
             lot_size=lot_size,
-            risk_usd=risk_usd,
+            risk_usd=position['risk_amount_usd'],
             sl_pips=sl_pips,
             rr_to_tp1=rr_tp1,
             rr_to_tp2=rr_tp2,
+            asset_class=asset_class,
         )
