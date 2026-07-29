@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import secrets
 import threading
 import time
 import uuid
@@ -30,6 +31,7 @@ from .config import Config
 from .crypto_analysis import analyze_crypto
 from .lifecycle_manager import stabilize_direction, map_legacy_state
 from .kill_switch import KillSwitch
+from .metrics import metrics
 from .minimax_client import analyze as minimax_analyze, configured as minimax_configured
 from .news_filter import NewsFilter
 from .persistence import SignalRepository
@@ -174,55 +176,77 @@ class _ApiHandler(BaseHTTPRequestHandler):
     # --- routing --------------------------------------------------------
 
     def _route(self, path: str, query: dict) -> None:
-        if path == "/api/health":
+        start_time = time.time()
+        
+        # Observability endpoints (no timing)
+        if path == "/health":
             return self._health()
-        if path == "/api/pairs":
-            return self._json(200, {"pairs": list(_STATE.config.pairs)})
-        if path == "/api/config":
-            return self._public_config()
-        if path == "/api/dashboard-snapshot":
-            return self._dashboard_snapshot()
-        if path == "/api/calendar/events":
-            return self._calendar_events(query)
-        if path == "/api/calendar/status":
-            return self._calendar_status(query)
-        if path == "/api/ai/status":
-            return self._json(200, {"configured": minimax_configured()})
-        if path == "/api/analysis":
-            return self._analysis(query)
-        if path == "/api/backtest/v2":
-            return self._backtest_v2(query)
-        if path == "/api/candles":
-            return self._candles(query)
-        if path == "/api/harmonics":
-            return self._harmonics(query)
-        if path == "/api/adr":
-            return self._adr(query)
-        if path == "/api/auth/me":
-            return self._auth_me(self.headers)
-        protected_paths = ['/api/signals', '/api/positions', '/api/journal', '/api/alerts']
-        if path in protected_paths or path.startswith("/api/signals/"):
-            result = self._require_auth(self.headers)
-            if isinstance(result, tuple):
-                return self._error(result[1], result[2])
-            user = result
-        if path == "/api/signals":
-            return self._list_signals(query)
-        if path.startswith("/api/signals/"):
-            try:
-                sig_id = int(path.rsplit("/", 1)[1])
-            except ValueError:
-                return self._error(400, "invalid signal id")
-            return self._get_signal(sig_id)
-        if path == "/api/positions":
-            return self._list_positions()
-        if path == "/api/journal":
-            return self._list_journal(query)
-        if path == "/api/journal/stats":
-            return self._journal_stats()
-        if path == "/api/kill-switch":
-            return self._kill_status()
-        return self._error(404, f"unknown route: {path}")
+        if path == "/ready":
+            return self._ready()
+        if path == "/metrics":
+            return self._metrics()
+        
+        try:
+            # Auth endpoints
+            if path == "/api/auth/me":
+                return self._auth_me(self.headers)
+            
+            # Protected paths check
+            protected_paths = ['/api/signals', '/api/positions', '/api/journal', '/api/alerts']
+            if path in protected_paths or path.startswith("/api/signals/"):
+                result = self._require_auth(self.headers)
+                if isinstance(result, tuple):
+                    return self._error(result[1], result[2])
+            
+            # API routes
+            if path == "/api/health":
+                return self._health()
+            if path == "/api/pairs":
+                return self._json(200, {"pairs": list(_STATE.config.pairs)})
+            if path == "/api/config":
+                return self._public_config()
+            if path == "/api/dashboard-snapshot":
+                return self._dashboard_snapshot()
+            if path == "/api/calendar/events":
+                return self._calendar_events(query)
+            if path == "/api/calendar/status":
+                return self._calendar_status(query)
+            if path == "/api/ai/status":
+                return self._json(200, {"configured": minimax_configured()})
+            if path == "/api/analysis":
+                return self._analysis(query)
+            if path == "/api/backtest/v2":
+                return self._backtest_v2(query)
+            if path == "/api/candles":
+                return self._candles(query)
+            if path == "/api/harmonics":
+                return self._harmonics(query)
+            if path == "/api/adr":
+                return self._adr(query)
+            if path == "/api/signals":
+                return self._list_signals(query)
+            if path.startswith("/api/signals/"):
+                try:
+                    sig_id = int(path.rsplit("/", 1)[1])
+                except ValueError:
+                    return self._error(400, "invalid signal id")
+                return self._get_signal(sig_id)
+            if path == "/api/positions":
+                return self._list_positions()
+            if path == "/api/journal":
+                return self._list_journal(query)
+            if path == "/api/journal/stats":
+                return self._journal_stats()
+            if path == "/api/kill-switch":
+                return self._kill_status()
+            return self._error(404, f"unknown route: {path}")
+        finally:
+            duration_ms = (time.time() - start_time) * 1000
+            metrics.timing('api.request.duration_ms', duration_ms, {
+                'path': path,
+                'method': 'GET'
+            })
+            metrics.increment('api.requests', labels={'path': path})
 
     def _route_post(self, path: str, body: dict) -> None:
         if path == "/api/auth/register":
@@ -244,6 +268,42 @@ class _ApiHandler(BaseHTTPRequestHandler):
     # --- handlers -------------------------------------------------------
 
     def _health(self) -> None:
+        return self._json(200, {
+            'status': 'ok',
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        })
+
+    def _ready(self) -> None:
+        checks = {
+            'database': self._check_db(),
+            'cache': len(_STATE.response_cache) >= 0,
+            'market_data': _STATE.market_client is not None,
+        }
+        all_ok = all(checks.values())
+        return self._json(200 if all_ok else 503, {
+            'status': 'ok' if all_ok else 'degraded',
+            'checks': checks,
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        })
+
+    def _metrics(self) -> None:
+        metrics_data = metrics.get_prometheus_metrics()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        payload = metrics_data.encode("utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _check_db(self) -> bool:
+        try:
+            _count(_STATE.repository)
+            return True
+        except Exception:
+            return False
+
+    def _legacy_health(self) -> None:
         try:
             n = _count(_STATE.repository)
         except Exception as exc:  # pragma: no cover
