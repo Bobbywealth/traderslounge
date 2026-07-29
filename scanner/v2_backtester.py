@@ -7,7 +7,7 @@ from typing import Any
 
 from .crypto_analysis import analyze_crypto
 from .data_types import Candle, MarketSnapshot
-from .direction_stability import stabilize_direction
+from .lifecycle_manager import stabilize_direction
 from .trade_planner import build_trade_plan
 
 

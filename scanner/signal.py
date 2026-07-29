@@ -2,9 +2,30 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import List, Optional
 
 from .data_types import Direction, Tier
+
+
+class LifecycleState(Enum):
+    OBSERVING = "observing"
+    DEVELOPING = "developing"
+    NEAR_TRIGGER = "near_trigger"
+    READY = "ready"
+    ACTIVE = "active"
+    TP1_REACHED = "tp1_reached"
+    TP2_REACHED = "tp2_reached"
+    TP3_REACHED = "tp3_reached"
+    BREAK_EVEN = "break_even"
+    STOPPED = "stopped"
+    EXPIRED = "expired"
+    INVALIDATED = "invalidated"
+    BLOCKED_BY_NEWS = "blocked_by_news"
+    BLOCKED_BY_DATA = "blocked_by_data"
+    BLOCKED_BY_SPREAD = "blocked_by_spread"
+    BLOCKED_BY_RISK = "blocked_by_risk"
+    CLOSED = "closed"
 
 
 @dataclass

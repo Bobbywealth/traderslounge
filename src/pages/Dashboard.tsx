@@ -6,7 +6,7 @@ import {
   TrendingUp, Zap
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { bwtsApi, type AiSignalAnalysis, type BwtsConfig, type BwtsHealth, type BwtsSignal, type CalendarGateStatus, type CryptoAnalysis } from '../services/bwtsApi';
+import { bwtsApi, type AiSignalAnalysis, type BwtsConfig, type BwtsHealth, type BwtsSignal, type CalendarGateStatus, type CryptoAnalysis, type LifecycleState } from '../services/bwtsApi';
 
 const tierStyles: Record<string, string> = {
   STRONG: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
@@ -16,6 +16,32 @@ const tierStyles: Record<string, string> = {
   VALID: 'border-cyan-400/30 bg-cyan-400/10 text-cyan-300',
   WAIT: 'border-amber-400/30 bg-amber-400/10 text-amber-300',
   BLOCKED: 'border-rose-400/30 bg-rose-400/10 text-rose-300',
+};
+
+const lifecycleDisplay: Record<LifecycleState, { label: string; icon: string; color: string }> = {
+  observing: { label: 'Observing', icon: '👁', color: 'text-slate-400' },
+  developing: { label: 'Developing', icon: '⏳', color: 'text-amber-300' },
+  near_trigger: { label: 'Near Trigger', icon: '🎯', color: 'text-orange-300' },
+  ready: { label: 'Ready', icon: '✅', color: 'text-emerald-300' },
+  active: { label: 'Active', icon: '🚀', color: 'text-cyan-300' },
+  tp1_reached: { label: 'TP1 Reached', icon: '🎯', color: 'text-emerald-300' },
+  tp2_reached: { label: 'TP2 Reached', icon: '🎯', color: 'text-emerald-300' },
+  tp3_reached: { label: 'TP3 Reached', icon: '🎯', color: 'text-emerald-300' },
+  break_even: { label: 'Break Even', icon: '⚖', color: 'text-cyan-300' },
+  stopped: { label: 'Stopped', icon: '🛑', color: 'text-rose-300' },
+  expired: { label: 'Expired', icon: '⏰', color: 'text-slate-400' },
+  invalidated: { label: 'Invalidated', icon: '❌', color: 'text-rose-300' },
+  blocked_by_news: { label: 'News Blocked', icon: '📰', color: 'text-amber-300' },
+  blocked_by_data: { label: 'Data Blocked', icon: '📊', color: 'text-amber-300' },
+  blocked_by_spread: { label: 'Spread Blocked', icon: '📉', color: 'text-amber-300' },
+  blocked_by_risk: { label: 'Risk Blocked', icon: '⚠', color: 'text-amber-300' },
+  closed: { label: 'Closed', icon: '✓', color: 'text-slate-400' },
+};
+
+const getLifecycleDisplay = (state: LifecycleState | string | undefined) => {
+  if (!state) return null;
+  const normalized = state.toLowerCase() as LifecycleState;
+  return lifecycleDisplay[normalized] || null;
 };
 
 const v2Tier = (analysis?: CryptoAnalysis) => analysis?.trade_plan?.status || (analysis && analysis.total_score >= 40 ? 'WATCHLIST' : 'NO_TRADE');
@@ -175,10 +201,11 @@ const Dashboard: React.FC = () => {
               const tier = v2Tier(analysis);
               const conflict = signal.direction !== 'NEUTRAL' && direction !== 'NEUTRAL' && signal.direction !== direction;
               const DirectionIcon = direction === 'BUY' ? TrendingUp : direction === 'SELL' ? TrendingDown : Activity;
+              const lifecycleInfo = getLifecycleDisplay(analysis?.lifecycle_state);
               return <div key={signal.id} className="group grid items-center gap-4 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition hover:border-cyan-400/20 hover:bg-white/[0.045] sm:grid-cols-[36px_1fr_auto_auto]">
                 <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.05] text-xs font-black text-slate-500">0{index + 1}</div>
-                <div><div className="flex items-center gap-2"><span className="font-black">{signal.pair}</span><span className={`rounded-md border px-2 py-0.5 text-[9px] font-black ${tierStyles[tier]}`}>{tier}</span>{conflict && <span className="rounded-md bg-amber-400/10 px-2 py-0.5 text-[9px] font-black text-amber-300">CONFLICT</span>}</div><div className="mt-1 max-w-md truncate text-xs text-slate-500">{analysis?.scenarios.primary || 'Full-spectrum analysis loading'}</div></div>
-                <div className={`flex items-center gap-1.5 text-xs font-black ${direction === 'BUY' ? 'text-emerald-300' : direction === 'SELL' ? 'text-rose-300' : 'text-slate-400'}`}><DirectionIcon className="h-4 w-4"/>{conflict ? 'WAIT' : direction}</div>
+                <div><div className="flex items-center gap-2"><span className="font-black">{signal.pair}</span><span className={`rounded-md border px-2 py-0.5 text-[9px] font-black ${tierStyles[tier]}`}>{tier}</span>{conflict && <span className="rounded-md bg-amber-400/10 px-2 py-0.5 text-[9px] font-black text-amber-300">CONFLICT</span>}</div><div className="mt-1 max-w-md truncate text-xs text-slate-500">{lifecycleInfo ? `${lifecycleInfo.icon} ${lifecycleInfo.label}` : (analysis?.scenarios.primary || 'Full-spectrum analysis loading')}</div></div>
+                <div className={`flex items-center gap-1.5 text-xs font-black ${lifecycleInfo?.color || (direction === 'BUY' ? 'text-emerald-300' : direction === 'SELL' ? 'text-rose-300' : 'text-slate-400')}`}><DirectionIcon className="h-4 w-4"/>{conflict ? (lifecycleInfo ? lifecycleInfo.label : 'WAIT') : direction}</div>
                 <div className="text-right"><div className="text-xl font-black text-white">{analysis?.total_score ?? '—'}<span className="text-xs text-slate-600">/100</span></div><div className="text-[9px] text-slate-600">{formatTime(signal.created_at)}</div></div>
               </div>;
             })}
@@ -192,7 +219,7 @@ const Dashboard: React.FC = () => {
             <Sparkles className="absolute -right-2 -top-2 h-24 w-24 text-violet-400/[0.06]"/>
             <div className="text-[10px] font-black tracking-[0.2em] text-violet-300">TOP CONFLUENCE</div>
             {bestSignal && cryptoAnalysis ? <>
-              <div className="mt-5 flex items-start justify-between"><div><div className="flex items-center gap-2"><div className="text-3xl font-black">{bestSignal.pair}</div><span className={`rounded-md px-2 py-1 text-[9px] font-black ${cryptoAnalysis.direction === 'BUY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 text-slate-400'}`}>{planReady ? cryptoAnalysis.direction : tradePlan?.status || 'WAIT'}</span>{cryptoAnalysis.direction_stability && <span title={cryptoAnalysis.direction_stability.reason} className="rounded-md bg-white/[0.05] px-2 py-1 text-[9px] font-black text-slate-300">{cryptoAnalysis.direction_stability.lifecycle}</span>}</div><div className="mt-1 text-sm capitalize text-slate-400">{cryptoAnalysis.scenarios.primary}</div></div><div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-3 text-center"><div className="text-2xl font-black text-cyan-300">{cryptoAnalysis.total_score}</div><div className="text-[8px] font-bold tracking-widest text-cyan-500">V2 / 100</div></div></div>
+              <div className="mt-5 flex items-start justify-between"><div><div className="flex items-center gap-2"><div className="text-3xl font-black">{bestSignal.pair}</div><span className={`rounded-md px-2 py-1 text-[9px] font-black ${cryptoAnalysis.direction === 'BUY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 text-slate-400'}`}>{planReady ? cryptoAnalysis.direction : tradePlan?.status || 'WAIT'}</span>{cryptoAnalysis.direction_stability && (() => { const info = getLifecycleDisplay(cryptoAnalysis.lifecycle_state || cryptoAnalysis.direction_stability.lifecycle); return info ? <span title={cryptoAnalysis.direction_stability.reason} className={`rounded-md bg-white/[0.05] px-2 py-1 text-[9px] font-black ${info.color}`}>{info.icon} {info.label}</span> : <span title={cryptoAnalysis.direction_stability.reason} className="rounded-md bg-white/[0.05] px-2 py-1 text-[9px] font-black text-slate-300">{cryptoAnalysis.direction_stability.lifecycle}</span>; })()}</div><div className="mt-1 text-sm capitalize text-slate-400">{cryptoAnalysis.scenarios.primary}</div></div><div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-3 text-center"><div className="text-2xl font-black text-cyan-300">{cryptoAnalysis.total_score}</div><div className="text-[8px] font-bold tracking-widest text-cyan-500">V2 / 100</div></div></div>
               <div className="mt-4 flex items-center justify-between rounded-xl border border-white/[0.07] bg-black/20 px-3 py-2.5"><div className="flex items-center gap-2 text-xs text-slate-400"><CalendarClock className="h-4 w-4 text-amber-300"/>Economic calendar</div><span className={`rounded-md px-2 py-1 text-[9px] font-black ${calendarRisk?.status === 'CLEAR' ? 'bg-emerald-400/10 text-emerald-300' : calendarRisk?.status === 'CAUTION' ? 'bg-amber-400/10 text-amber-300' : calendarRisk?.status === 'BLOCKED' || calendarRisk?.status === 'POST_NEWS' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 text-slate-400'}`}>{calendarRisk?.status || 'LOADING'}</span></div>
               {calendarRisk?.next_event && <div className="mt-2 text-[10px] text-slate-500">{calendarRisk.next_event.title} ({calendarRisk.next_event.currency}) {calendarRisk.minutes_to_event !== null ? `in ${calendarRisk.minutes_to_event}m` : ''}</div>}
               {cryptoAnalysis.market_context && <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[9px] font-bold uppercase tracking-wider"><div className="rounded-lg bg-black/20 p-2 text-slate-500">Month <span className="block mt-1 text-slate-200">{cryptoAnalysis.market_context.timeframes.mn1?.trend || 'neutral'}</span></div><div className="rounded-lg bg-black/20 p-2 text-slate-500">Week <span className="block mt-1 text-slate-200">{cryptoAnalysis.market_context.timeframes.w1?.trend || 'neutral'}</span></div><div className="rounded-lg bg-black/20 p-2 text-slate-500">Timing <span className={`block mt-1 ${cryptoAnalysis.trade_timing?.status === 'READY' ? 'text-emerald-300' : cryptoAnalysis.trade_timing?.status === 'AVOID' ? 'text-rose-300' : 'text-amber-300'}`}>{cryptoAnalysis.trade_timing?.status || 'WAIT'}</span></div></div>}

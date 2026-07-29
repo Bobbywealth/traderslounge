@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from .config import Config
 from .crypto_analysis import analyze_crypto
-from .direction_stability import stabilize_direction
+from .lifecycle_manager import stabilize_direction, map_legacy_state
 from .kill_switch import KillSwitch
 from .minimax_client import analyze as minimax_analyze, configured as minimax_configured
 from .news_filter import NewsFilter
@@ -331,6 +331,28 @@ class _ApiHandler(BaseHTTPRequestHandler):
             analysis["raw_direction"] = raw_direction
             analysis["direction_stability"] = stability
             analysis["direction"] = stability["confirmed_direction"]
+            lifecycle_state = stability.get("lifecycle_state", map_legacy_state(stability.get("lifecycle", "FORMING")))
+            previous_lifecycle = _STATE.direction_states.get(state_key, {}).get("_last_lifecycle_state")
+            if previous_lifecycle and previous_lifecycle != lifecycle_state:
+                import uuid
+                repo = _STATE.repository
+                if hasattr(repo, "save_lifecycle_event"):
+                    event = {
+                        "id": str(uuid.uuid4()),
+                        "setup_id": state_key,
+                        "from_state": previous_lifecycle,
+                        "to_state": lifecycle_state,
+                        "reason_code": "STATE_CHANGE",
+                        "human_readable": f"Lifecycle transition: {previous_lifecycle} -> {lifecycle_state}",
+                        "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
+                    }
+                    repo.save_lifecycle_event(event)
+                if hasattr(repo, "lifecycle_events_for"):
+                    recent = repo.lifecycle_events_for(state_key, limit=10)
+                    analysis["recent_transitions"] = recent
+            if previous_lifecycle != lifecycle_state:
+                if state_key in _STATE.direction_states:
+                    _STATE.direction_states[state_key]["_last_lifecycle_state"] = lifecycle_state
             if analysis["direction"] == "NEUTRAL":
                 analysis["scenarios"]["primary"] = "forming directional confirmation"
             elif analysis["direction"] != raw_direction:
@@ -354,6 +376,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
             analysis["trade_timing"] = timing
             if timing.get("status") == "READY" and signal_stable:
                 analysis["direction_stability"]["lifecycle"] = "READY"
+                lifecycle_state = "ready"
+            analysis["lifecycle_state"] = lifecycle_state
             analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar, primary_candles=selected_candles)
         except Exception as exc:
             stale = self._cache_get(cache_key, allow_stale=True)

@@ -50,6 +50,19 @@ CREATE TABLE IF NOT EXISTS signals (
 );
 CREATE INDEX IF NOT EXISTS idx_signals_pair_created ON signals(pair, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_signals_tier_created ON signals(tier, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS lifecycle_events (
+    id TEXT PRIMARY KEY,
+    setup_id TEXT NOT NULL,
+    from_state TEXT,
+    to_state TEXT NOT NULL,
+    reason_code TEXT,
+    human_readable TEXT,
+    timestamp TEXT NOT NULL,
+    snapshot_id TEXT,
+    model_version TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_lifecycle_setup ON lifecycle_events(setup_id, timestamp DESC);
 """
 
 
@@ -117,6 +130,34 @@ class SQLiteRepository:
 
     def count(self) -> int:
         return int(self.conn.execute("SELECT COUNT(*) FROM signals").fetchone()[0])
+
+    def save_lifecycle_event(self, event: dict) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO lifecycle_events (
+                id, setup_id, from_state, to_state, reason_code,
+                human_readable, timestamp, snapshot_id, model_version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event.get("id"),
+                event.get("setup_id"),
+                event.get("from_state"),
+                event.get("to_state"),
+                event.get("reason_code"),
+                event.get("human_readable"),
+                event.get("timestamp"),
+                event.get("snapshot_id"),
+                event.get("model_version"),
+            ),
+        )
+
+    def lifecycle_events_for(self, setup_id: str, limit: int = 50) -> List[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM lifecycle_events WHERE setup_id = ? ORDER BY timestamp DESC LIMIT ?",
+            (setup_id, limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     def close(self) -> None:
         self.conn.close()

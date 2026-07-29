@@ -12,6 +12,22 @@ const BASE =
 export type SignalTier = 'STRONG' | 'GOOD' | 'WATCHLIST' | 'NO_TRADE';
 export type SignalDirection = 'BUY' | 'SELL' | 'NEUTRAL';
 
+export type LifecycleState =
+  | 'observing' | 'developing' | 'near_trigger' | 'ready'
+  | 'active' | 'tp1_reached' | 'tp2_reached' | 'tp3_reached'
+  | 'break_even' | 'stopped' | 'expired' | 'invalidated'
+  | 'blocked_by_news' | 'blocked_by_data' | 'blocked_by_spread'
+  | 'blocked_by_risk' | 'closed';
+
+export interface LifecycleTransition {
+  id: string;
+  fromState: LifecycleState | null;
+  toState: LifecycleState;
+  reasonCode: string;
+  humanReadable: string;
+  timestamp: string;
+}
+
 export interface BwtsSignal {
   id: number;
   created_at: number | string;
@@ -106,6 +122,8 @@ export interface CryptoAnalysis {
   direction: 'BUY' | 'SELL' | 'NEUTRAL';
   raw_direction?: 'BUY' | 'SELL' | 'NEUTRAL';
   direction_stability?: { lifecycle: 'FORMING' | 'CONFIRMED' | 'READY' | 'WEAKENING' | 'INVALIDATED'; confirmed_direction: 'BUY' | 'SELL' | 'NEUTRAL'; raw_direction: 'BUY' | 'SELL' | 'NEUTRAL'; candidate_direction: 'BUY' | 'SELL' | 'NEUTRAL'; candidate_closes: number; required_closes: number; cooldown_bars: number; bars_since_change: number; reversal_margin: number; reason: string; last_closed_bar_time: number | null; last_change_time: number | null };
+  lifecycle_state?: LifecycleState;
+  recent_transitions?: LifecycleTransition[];
   total_score: number;
   category_breakdown: Record<string, number>;
   data_quality: { status: string; issues: string[]; primary_timeframe: string; bars: number; closed_bar_time?: number | null; timeframes_available: string[] };

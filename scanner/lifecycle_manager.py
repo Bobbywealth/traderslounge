@@ -1,5 +1,48 @@
-"""Stateful confirmation and hysteresis for V2 market direction."""
+"""Stateful lifecycle management for signals with formal state transitions."""
 from __future__ import annotations
+
+from typing import Optional
+
+
+LIFECYCLE_STATE_MAP = {
+    "FORMING": "developing",
+    "CONFIRMED": "ready",
+    "WEAKENING": "near_trigger",
+    "INVALIDATED": "invalidated",
+}
+
+VALID_TRANSITIONS = {
+    "observing": {"developing", "invalidated", "expired", "blocked_by_news", "blocked_by_data", "blocked_by_spread", "blocked_by_risk"},
+    "developing": {"near_trigger", "ready", "invalidated", "observing", "expired", "blocked_by_news", "blocked_by_data", "blocked_by_spread", "blocked_by_risk"},
+    "near_trigger": {"ready", "developing", "invalidated", "expired", "blocked_by_news", "blocked_by_data", "blocked_by_spread", "blocked_by_risk"},
+    "ready": {"active", "invalidated", "expired", "blocked_by_news", "blocked_by_data", "blocked_by_spread", "blocked_by_risk"},
+    "active": {"tp1_reached", "stopped", "invalidated", "break_even"},
+    "tp1_reached": {"tp2_reached", "tp3_reached", "break_even", "stopped", "invalidated"},
+    "tp2_reached": {"tp3_reached", "break_even", "stopped", "invalidated"},
+    "tp3_reached": {"break_even", "stopped", "closed"},
+    "break_even": {"stopped", "closed", "tp1_reached", "tp2_reached", "tp3_reached"},
+    "stopped": {"closed"},
+    "expired": {"observing"},
+    "invalidated": {"observing"},
+    "blocked_by_news": {"observing", "developing", "near_trigger", "ready"},
+    "blocked_by_data": {"observing", "developing", "near_trigger", "ready"},
+    "blocked_by_spread": {"observing", "developing", "near_trigger", "ready"},
+    "blocked_by_risk": {"observing", "developing", "near_trigger", "ready"},
+    "closed": set(),
+}
+
+
+def is_valid_transition(from_state: Optional[str], to_state: str) -> bool:
+    if from_state is None:
+        return True
+    from_state = from_state.lower()
+    to_state = to_state.lower()
+    valid_next = VALID_TRANSITIONS.get(from_state, set())
+    return to_state in valid_next
+
+
+def map_legacy_state(legacy: str) -> str:
+    return LIFECYCLE_STATE_MAP.get(legacy.upper(), legacy.lower())
 
 
 def stabilize_direction(analysis, state_store, key, required_closes=2, cooldown_bars=3, reversal_margin=12):
@@ -63,7 +106,10 @@ def _confirm(state, direction, score, bar_time):
 
 
 def _result(state, raw_direction, score, strength, required_closes, cooldown_bars, reversal_margin, structural_reversal, reason):
+    legacy_lifecycle = state["lifecycle"]
+    mapped_lifecycle = map_legacy_state(legacy_lifecycle)
     return {"raw_direction": raw_direction, "confirmed_direction": state["confirmed_direction"], "lifecycle": state["lifecycle"],
+            "lifecycle_state": mapped_lifecycle,
             "candidate_direction": state["candidate_direction"], "candidate_closes": state["candidate_closes"],
             "required_closes": required_closes, "cooldown_bars": cooldown_bars, "bars_since_change": state["bars_since_change"],
             "reversal_margin": reversal_margin, "raw_score": score, "confirmed_score": state["confirmed_score"],
