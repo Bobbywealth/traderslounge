@@ -240,9 +240,10 @@ class _ApiHandler(BaseHTTPRequestHandler):
         if news is None:
             return self._error(503, "economic calendar is not configured")
         pair = str(query.get("pair") or query.get("symbol") or "").upper()
-        if not pair:
-            return self._error(400, "pair is required")
-        self._json(200, news.evaluate(pair))
+        if pair:
+            self._json(200, news.evaluate(pair))
+        else:
+            self._json(200, news.evaluate_global())
 
     def _ai_analyze(self, body: dict) -> None:
         pair = str(body.get("pair") or body.get("symbol") or "").upper()[:20]

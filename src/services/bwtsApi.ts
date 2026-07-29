@@ -98,6 +98,29 @@ export interface CalendarGateStatus {
   reason_code: string;
 }
 
+export interface CalendarGlobalStatus {
+  status: CalendarRiskStatus;
+  event_title: string | null;
+  currency: string | null;
+  impact: string | null;
+  time_until_event_minutes: number | null;
+  blackout_start: string | null;
+  blackout_end: string | null;
+  affected_symbols: string[];
+  next_eligible_time: string | null;
+  existing_trades_affected: boolean;
+  source: string;
+  source_health: string;
+  source_fetched_at: string | null;
+  event: { id: string; title: string; currency: string; impact: string; scheduled_at: string; source: string } | null;
+  next_event: { id: string; title: string; currency: string; impact: string; scheduled_at: string; source: string } | null;
+  window: {
+    caution_before_minutes: number;
+    block_before_minutes: number;
+    post_news_minutes: number;
+  };
+}
+
 export interface CryptoTradePlan {
   version: string;
   status: 'STRONG' | 'VALID' | 'WATCHLIST' | 'WAIT' | 'BLOCKED';
@@ -348,6 +371,7 @@ export const bwtsApi = {
 
   requestScan: () => post<{ queued: boolean }>('/api/scans/refresh', {}),
   calendarStatus: (pair: string) => getCached<CalendarGateStatus>('/api/calendar/status', { pair }, 30_000),
+  calendarGlobalStatus: () => getCached<CalendarGlobalStatus>('/api/calendar/status', {}, 30_000),
   calendarEvents: (pair?: string) => get<{ source: string; source_health: string; events: any[]; count: number }>('/api/calendar/events', pair ? { pair } : undefined),
   aiStatus: () => get<{ configured: boolean }>('/api/ai/status'),
   cryptoAnalysis: (pair: string, timeframe?: string) => getCached<CryptoAnalysis>('/api/analysis', timeframe ? { pair, timeframe } : { pair }, 20_000),

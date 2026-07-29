@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { bwtsApi, type AiSignalAnalysis, type BwtsConfig, type BwtsHealth, type BwtsSignal, type CalendarGateStatus, type CryptoAnalysis, type LifecycleState } from '../services/bwtsApi';
 import TriggerDisplay from '../components/TriggerDisplay';
+import EconomicRiskBanner from '../components/EconomicRiskBanner';
 
 const tierStyles: Record<string, string> = {
   STRONG: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
@@ -181,6 +182,8 @@ const Dashboard: React.FC = () => {
       </section>
 
       {error && <div className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.06] px-5 py-4 text-sm text-amber-200">Live scanner connection: {error}</div>}
+
+      <EconomicRiskBanner />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <IntelCard icon={Radar} label="Markets tracked" value={loading ? '—' : String(health?.pairs.length ?? 0)} detail="Continuous scanner coverage" color="cyan" />
