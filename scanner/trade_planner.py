@@ -142,7 +142,8 @@ def calculate_net_rr(entry: float, stop: float, target: float, direction: int, a
         'asset_class': asset_class,
         'entry_type': entry_type,
     }
-=======
+
+
 from .multi_source import get_asset_class
 from .risk_manager import RiskManager
 
@@ -353,7 +354,6 @@ class TradePlanner:
             },
             "asset_class": "forex",
         }
->>>>>>> 18b231a (feat(position-sizing): add asset-class-aware calculations)
 
 
 def _levels(values, side, entry):
