@@ -11,6 +11,11 @@ from typing import Any, Optional
 
 from .data_types import MarketSnapshot
 from .indicators import atr
+from .reason_codes import (
+    ReasonCode,
+    build_blocking_reason,
+    build_wait_reason,
+)
 
 
 def _levels(values, side, entry):
@@ -67,19 +72,42 @@ def build_trade_plan(
     reasons = []
 
     if not bars or entry <= 0:
-        reasons.append("No usable entry-timeframe candles")
+        reasons.append(build_blocking_reason(
+            ReasonCode.NO_USABLE_CANDLES,
+            data={"entry": entry, "bars_available": len(bars) if bars else 0}
+        ))
     if direction == "NEUTRAL":
-        reasons.append("V2 has no confirmed direction")
+        reasons.append(build_blocking_reason(
+            ReasonCode.NO_CONFIRMED_DIRECTION,
+            data={"detected_direction": direction}
+        ))
     if score < minimum_score:
-        reasons.append(f"V2 score {score}/100 is below the {minimum_score} setup threshold")
+        reasons.append(build_blocking_reason(
+            ReasonCode.SCORE_BELOW_THRESHOLD,
+            custom_message=f"Score {score}/100 is below minimum {minimum_score}",
+            data={"score": score, "minimum": minimum_score}
+        ))
     if timing_status != "READY":
         timing_reasons = timing.get("avoid_reasons") if timing_status == "AVOID" else timing.get("wait_for")
         missing = ", ".join(str(item).replace("_", " ") for item in (timing_reasons or [])[:3])
-        reasons.append(f"Trade timing is {timing_status}{': waiting for ' + missing if missing else ''}")
+        reason_code = ReasonCode.TRADE_TIMING_AVOID if timing_status == "AVOID" else ReasonCode.AWAITING_TRIGGER
+        reasons.append(build_blocking_reason(
+            reason_code,
+            custom_message=f"Trade timing is {timing_status}{': waiting for ' + missing if missing else ''}",
+            data={"timing_status": timing_status, "reasons": timing_reasons or []}
+        ))
     if quality not in ("good", "limited"):
-        reasons.append(f"Data quality is {quality}")
+        reasons.append(build_blocking_reason(
+            ReasonCode.DATA_QUALITY_POOR,
+            custom_message=f"Data quality is {quality}",
+            data={"quality": quality}
+        ))
     if calendar_status in ("BLOCKED", "POST_NEWS", "UNAVAILABLE"):
-        reasons.append(f"Economic calendar status is {calendar_status}")
+        reasons.append(build_blocking_reason(
+            ReasonCode.CALENDAR_BLOCKED,
+            custom_message=f"Economic calendar status is {calendar_status}",
+            data={"calendar_status": calendar_status}
+        ))
 
     if not atr_value or not entry:
         return _empty_plan(direction, score, calendar_status, reasons)
@@ -111,7 +139,10 @@ def build_trade_plan(
 
     risk_distance = abs(entry - stop)
     if risk_distance <= 0:
-        reasons.append("Could not calculate a valid structural stop")
+        reasons.append(build_blocking_reason(
+            ReasonCode.INVALID_STRUCTURAL_STOP,
+            data={"entry": entry, "stop": stop, "atr_value": atr_value}
+        ))
         return _empty_plan(direction, score, calendar_status, reasons)
 
     daily = _daily_range(snapshot, entry)
@@ -128,7 +159,11 @@ def build_trade_plan(
     net_available_rr = max(0.0, available_rr-cost_r)
 
     if net_available_rr < minimum_rr:
-        reasons.append(f"Only {net_available_rr:.2f}R remains after estimated costs; minimum is {minimum_rr:.1f}R")
+        reasons.append(build_blocking_reason(
+            ReasonCode.RR_BELOW_MINIMUM,
+            custom_message=f"Only {net_available_rr:.2f}R remains after estimated costs; minimum is {minimum_rr:.1f}R",
+            data={"net_available_rr": net_available_rr, "minimum_rr": minimum_rr, "available_rr": available_rr, "cost_r": cost_r}
+        ))
 
     targets = []
     for multiple in (1.0, 2.0, 3.0):

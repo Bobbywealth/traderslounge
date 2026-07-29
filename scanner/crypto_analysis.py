@@ -14,6 +14,7 @@ from statistics import mean, pstdev
 from .indicators import atr, detect_swings, ema, label_swings, rsi
 from .modules.fibonacci import latest_leg, retracement_pct
 from .modules.harmonic import detect as detect_harmonic
+from .reason_codes import ReasonCode, build_blocking_reason
 
 VERSION = "1.0.0"
 CAPS = {
@@ -567,8 +568,36 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         "adr_available": not adr_exhausted, "not_chasing": not chasing, "data_quality": quality["status"] == "good",
     }
     technical_ready = all(technical_checks.values())
+
+    _LABEL_TO_REASON = {
+        "higher_timeframe_conflict": ReasonCode.DIRECTION_CONFLICT,
+        "unstable_volatility": ReasonCode.VOLATILITY_TOO_HIGH,
+        "adr_exhausted": ReasonCode.ADR_EXHAUSTED,
+        "score_60": ReasonCode.SCORE_BELOW_THRESHOLD,
+        "weekly_or_monthly_alignment": ReasonCode.DIRECTION_CONFLICT,
+        "selected_timeframe_confirmation": ReasonCode.STRUCTURE_NOT_CONFIRMED,
+        "quality_location": ReasonCode.LIQUIDITY_NOT_CONFIRMED,
+        "completed_candle_confirmation": ReasonCode.STRUCTURE_NOT_CONFIRMED,
+        "sufficient_volume": ReasonCode.INSUFFICIENT_VOLUME_DATA,
+        "stable_volatility": ReasonCode.VOLATILITY_TOO_HIGH,
+        "adr_available": ReasonCode.ADR_EXHAUSTED,
+        "not_chasing": ReasonCode.ENTRY_TOO_EXTENDED,
+        "data_quality": ReasonCode.DATA_QUALITY_POOR,
+    }
+
     avoid_reasons = [label for label, triggered in {"higher_timeframe_conflict": bool(sign and not macro_aligned), "unstable_volatility": unstable_volatility, "adr_exhausted": adr_exhausted}.items() if triggered]
     avoid = bool(avoid_reasons)
+
+    blocking_reasons = []
+    for label in avoid_reasons:
+        reason_code = _LABEL_TO_REASON.get(label, ReasonCode.TRADE_TIMING_AVOID)
+        blocking_reasons.append(build_blocking_reason(reason_code, data={"source": label}))
+
+    wait_for_labels = [label for label, passed in technical_checks.items() if not passed]
+    for label in wait_for_labels:
+        reason_code = _LABEL_TO_REASON.get(label, ReasonCode.GATHERING_EVIDENCE)
+        blocking_reasons.append(build_blocking_reason(reason_code, data={"source": label, "waiting": True}))
+
     trade_timing = {
         "status": "AVOID" if avoid else "READY" if technical_ready else "WAIT", "checks": technical_checks,
         "location_ready": bool(location_signals), "location_signals": location_signals, "confirmation_signals": confirmation_signals,
@@ -576,7 +605,8 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         "session": {"name": "London/New York liquidity" if preferred_session else "off-peak or weekend", "preferred": preferred_session, "utc_hour": moment.hour if moment else None},
         "regime": {"low_volume": low_volume, "unstable_volatility": unstable_volatility, "adr_exhausted": adr_exhausted, "ema20_distance_atr": ema20_distance, "chasing": chasing, "monthly_weekly_conflict": macro_conflict},
         "avoid_reasons": avoid_reasons,
-        "wait_for": [label for label, passed in technical_checks.items() if not passed],
+        "wait_for": wait_for_labels,
+        "blocking_reasons": blocking_reasons,
     }
     scenario = "bullish continuation" if direction == "BUY" else "bearish continuation" if direction == "SELL" else "wait for directional confirmation"
     stop = None
