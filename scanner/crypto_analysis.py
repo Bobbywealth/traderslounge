@@ -676,7 +676,6 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
             "indicators": indicators, "zones": zones, "market_context": market_context, "trade_timing": trade_timing,
             "scenarios": {"primary": scenario, "invalidation": "close beyond ATR stop or opposing structure break", "confidence": "high" if total >= 70 else "moderate" if total >= 45 else "low"},
             "risk": {"atr_stop": stop, "atr_multiple": 2, "warning": "Crypto can gap and liquidity can thin; use position sizing and hard stops."},
-<<<<<<< HEAD
             "monitoring": ["primary timeframe close", "volume relative to 20-bar average", "VWAP reclaim/loss", "structure break", "ATR volatility regime"],
             "confluence_score": int(_clamp(total, 0, 100)),
             "coverage": coverage,
