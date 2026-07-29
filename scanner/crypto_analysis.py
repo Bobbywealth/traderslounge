@@ -7,6 +7,7 @@ requires candle-like objects with open/high/low/close/volume attributes.
 from __future__ import annotations
 
 import math
+import time
 from datetime import datetime, timezone
 from statistics import mean, pstdev
 
@@ -466,6 +467,48 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
     scores = {key: int(_clamp(_num(value), 0, CAPS[key])) for key, value in scores.items()}
     total = sum(scores.values())
     quality = {"primary_timeframe": primary_name, "bars": len(bars), "closed_bar_time": getattr(bars[-1], "time", None) if bars else None, "timeframes_available": [x for x, v in frames.items() if v], "issues": issues, "status": "good" if not issues else "limited" if bars else "insufficient"}
+
+    available_categories = []
+    missing_categories = []
+    stale_categories = []
+    now_ts = time.time() if bars else 0
+    bars_ts = bars[-1].time if bars else 0
+    freshness_threshold = 3600
+    if bars:
+        for cat in CAPS:
+            if scores.get(cat, 0) > 0:
+                available_categories.append(cat)
+            else:
+                if cat == "structure" and not trends:
+                    missing_categories.append(cat)
+                elif cat == "liquidity" and not sr_zones:
+                    missing_categories.append(cat)
+                elif cat == "volume" and not any(_num(getattr(c, "volume", 0)) > 0 for c in bars):
+                    missing_categories.append(cat)
+                elif cat == "momentum" and not rsis:
+                    missing_categories.append(cat)
+                elif cat == "moving_averages" and not (ema_values.get(20) or sma_values.get(50)):
+                    missing_categories.append(cat)
+                elif cat == "fibonacci" and not zones.get("fibonacci"):
+                    missing_categories.append(cat)
+                elif cat == "patterns" and not candle_patterns and not harmonic:
+                    missing_categories.append(cat)
+                elif cat == "volatility" and not atr_value:
+                    missing_categories.append(cat)
+                elif cat == "relative_strength" and not benchmark:
+                    missing_categories.append(cat)
+                else:
+                    missing_categories.append(cat)
+            if bars_ts and now_ts and (now_ts - bars_ts) > freshness_threshold:
+                if cat in available_categories:
+                    stale_categories.append(cat)
+    else:
+        for cat in CAPS:
+            missing_categories.append(cat)
+
+    coverage = len(available_categories) / 9
+    confidence_tier = "high" if coverage >= 0.9 else "qualified" if coverage >= 0.75 else "developing" if coverage >= 0.5 else "watch"
+    data_freshness_seconds = int(now_ts - bars_ts) if bars_ts and bars_ts > 0 else 0
     bias = {name: trends.get(name, {"trend": "neutral", "labels": []}) for name in ("mn1", "w1", "d1", "h4", "h1")}
     bias["selected"] = trends.get("selected" if selected else primary_name, {"trend": "neutral", "labels": []})
     weights = {"mn1": 3, "w1": 2, "d1": 1, "h4": 1}
@@ -545,7 +588,15 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
             "indicators": indicators, "zones": zones, "market_context": market_context, "trade_timing": trade_timing,
             "scenarios": {"primary": scenario, "invalidation": "close beyond ATR stop or opposing structure break", "confidence": "high" if total >= 70 else "moderate" if total >= 45 else "low"},
             "risk": {"atr_stop": stop, "atr_multiple": 2, "warning": "Crypto can gap and liquidity can thin; use position sizing and hard stops."},
-            "monitoring": ["primary timeframe close", "volume relative to 20-bar average", "VWAP reclaim/loss", "structure break", "ATR volatility regime"]}
+            "monitoring": ["primary timeframe close", "volume relative to 20-bar average", "VWAP reclaim/loss", "structure break", "ATR volatility regime"],
+            "confluence_score": int(_clamp(total, 0, 100)),
+            "coverage": coverage,
+            "confidence_tier": confidence_tier,
+            "categories_available": len(available_categories),
+            "categories_total": 9,
+            "missing_categories": missing_categories,
+            "stale_categories": stale_categories,
+            "data_freshness_seconds": data_freshness_seconds}
 
 
 # Short conventional alias for integrations that expect an analysis callable.

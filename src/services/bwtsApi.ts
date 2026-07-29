@@ -87,6 +87,18 @@ export interface CryptoTradePlan {
   reasons: string[];
 }
 
+export type ConfidenceTier = 'high' | 'qualified' | 'developing' | 'watch';
+
+export interface CoverageInfo {
+  coverage: number;
+  confidenceTier: ConfidenceTier;
+  categoriesAvailable: number;
+  categoriesTotal: number;
+  missingCategories: string[];
+  staleCategories: string[];
+  dataFreshnessSeconds: number;
+}
+
 export interface CryptoAnalysis {
   version: string;
   asset_class: string;
@@ -120,6 +132,14 @@ export interface CryptoAnalysis {
   monitoring: string[];
   economic_calendar?: CalendarGateStatus;
   trade_plan?: CryptoTradePlan;
+  confluence_score?: number;
+  coverage?: number;
+  confidence_tier?: ConfidenceTier;
+  categories_available?: number;
+  categories_total?: number;
+  missing_categories?: string[];
+  stale_categories?: string[];
+  data_freshness_seconds?: number;
 }
 
 export interface V2BacktestReport {

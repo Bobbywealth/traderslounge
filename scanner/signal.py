@@ -24,6 +24,9 @@ class Signal:
     adr_status: str = ""
     htf_bias: str = "Neutral"
     pattern: str = ""
+    coverage: float = 0.0  # 0-1
+    confidence_tier: str = "watch"  # high / qualified / developing / watch
+    missing_categories: List[str] = field(default_factory=list)
 
     def telegram_card(self) -> str:
         return (
