@@ -22,7 +22,7 @@ from .kill_switch import KillSwitch
 from .multi_source import MultiSourceClient
 from .news_feed import ForexFactoryClient, refresh_filter
 from .news_filter import NewsFilter
-from .persistence import SQLiteRepository
+from .persistence import SQLiteRepository, SQLiteUserRepository
 from .postgres_repo import PostgresRepository, is_available as pg_available
 from .trade_repo import SQLiteClosedTradeRepository, SQLitePositionRepository
 
@@ -52,6 +52,7 @@ def main() -> int:
     # these (added with the Postgres adapter in a follow-up).
     position_repo = SQLitePositionRepository(db_path_for_aux)
     closed_trade_repo = SQLiteClosedTradeRepository(db_path_for_aux)
+    user_repo = SQLiteUserRepository(db_path_for_aux)
     kill_switch = KillSwitch()
     scan_request_path = os.environ.get("SCAN_REQUEST_PATH", "/tmp/bwts.scan_request")
     news = NewsFilter(blackout_minutes=cfg.news_blackout_minutes)
@@ -74,6 +75,7 @@ def main() -> int:
         repository=repo, config=cfg,
         position_repo=position_repo,
         closed_trade_repo=closed_trade_repo,
+        user_repo=user_repo,
         kill_switch=kill_switch,
         scan_request_path=scan_request_path,
         news_filter=news,

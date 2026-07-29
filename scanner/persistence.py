@@ -63,6 +63,17 @@ CREATE TABLE IF NOT EXISTS lifecycle_events (
     model_version TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_lifecycle_setup ON lifecycle_events(setup_id, timestamp DESC);
+
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    name TEXT NOT NULL,
+    role TEXT DEFAULT 'user',
+    plan TEXT DEFAULT 'free',
+    created_at TEXT NOT NULL,
+    last_login TEXT
+);
 """
 
 
@@ -158,6 +169,54 @@ class SQLiteRepository:
             (setup_id, limit),
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def close(self) -> None:
+        self.conn.close()
+
+
+class SQLiteUserRepository:
+    def __init__(self, db_path: str | Path = "scanner.db"):
+        self.path = str(db_path)
+        self.conn = sqlite3.connect(self.path, isolation_level=None,
+                                   check_same_thread=False)
+        self.conn.row_factory = sqlite3.Row
+
+    def get_by_email(self, email: str) -> Optional[dict]:
+        row = self.conn.execute(
+            "SELECT * FROM users WHERE email = ?", (email,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_by_id(self, user_id: int) -> Optional[dict]:
+        row = self.conn.execute(
+            "SELECT * FROM users WHERE id = ?", (user_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def create(self, email: str, password_hash: str, name: str) -> dict:
+        from datetime import datetime, timezone
+        created_at = datetime.now(timezone.utc).isoformat()
+        cur = self.conn.execute(
+            "INSERT INTO users (email, password_hash, name, created_at) VALUES (?, ?, ?, ?)",
+            (email, password_hash, name, created_at),
+        )
+        user_id = int(cur.lastrowid)
+        return {
+            "id": user_id,
+            "email": email,
+            "name": name,
+            "role": "user",
+            "plan": "free",
+            "created_at": created_at,
+        }
+
+    def update_last_login(self, user_id: int) -> None:
+        from datetime import datetime, timezone
+        last_login = datetime.now(timezone.utc).isoformat()
+        self.conn.execute(
+            "UPDATE users SET last_login = ? WHERE id = ?",
+            (last_login, user_id),
+        )
 
     def close(self) -> None:
         self.conn.close()

@@ -23,7 +23,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 from urllib.parse import parse_qs, urlsplit
 
 from .config import Config
@@ -36,6 +36,10 @@ from .persistence import SignalRepository
 from .trade_planner import build_trade_plan
 from .v2_backtester import run_v2_backtest
 from .trade_repo import ClosedTradeRepository, PositionRepository
+from .auth import (
+    hash_password, verify_password, create_access_token,
+    create_refresh_token, decode_token, get_current_user, User
+)
 
 log = logging.getLogger(__name__)
 
@@ -48,13 +52,14 @@ class ApiState:
     position_repo: Optional[PositionRepository] = None
     closed_trade_repo: Optional[ClosedTradeRepository] = None
     kill_switch: Optional[KillSwitch] = None
-    scan_request_path: Optional[str] = None  # path to scan trigger file
-    market_client: Optional[Any] = None  # fetch_candles(pair, timeframe)
+    scan_request_path: Optional[str] = None
+    market_client: Optional[Any] = None
     news_filter: Optional[NewsFilter] = None
     response_cache: dict = field(default_factory=dict)
     direction_states: dict = field(default_factory=dict)
     cache_lock: Any = field(default_factory=threading.RLock)
     started_at: float = field(default_factory=time.time)
+    user_repo: Optional[Any] = None
 
 
 # Module-level state pointer — http.server's handler API doesn't make
@@ -77,9 +82,11 @@ class _ApiHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        origin = self.headers.get("Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", origin)
+        self.send_header("Access-Control-Allow-Credentials", "true")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.end_headers()
         self.wfile.write(payload)
 
@@ -109,13 +116,25 @@ class _ApiHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # noqa: N802
         log.info("%s - %s", self.address_string(), fmt % args)
 
+    def _authenticate(self, request_headers: dict) -> Optional[User]:
+        auth_header = request_headers.get("Authorization", "")
+        return get_current_user(auth_header)
+
+    def _require_auth(self, request_headers: dict) -> Tuple[None, int, str] | User:
+        user = self._authenticate(request_headers)
+        if not user:
+            return None, 401, "Unauthorized"
+        return user
+
     # --- HTTP verbs -----------------------------------------------------
 
     def do_OPTIONS(self):  # noqa: N802 — required name
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        origin = self.headers.get("Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", origin)
+        self.send_header("Access-Control-Allow-Credentials", "true")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.end_headers()
 
     def do_POST(self):  # noqa: N802
@@ -179,6 +198,14 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._harmonics(query)
         if path == "/api/adr":
             return self._adr(query)
+        if path == "/api/auth/me":
+            return self._auth_me(self.headers)
+        protected_paths = ['/api/signals', '/api/positions', '/api/journal', '/api/alerts']
+        if path in protected_paths or path.startswith("/api/signals/"):
+            result = self._require_auth(self.headers)
+            if isinstance(result, tuple):
+                return self._error(result[1], result[2])
+            user = result
         if path == "/api/signals":
             return self._list_signals(query)
         if path.startswith("/api/signals/"):
@@ -198,6 +225,14 @@ class _ApiHandler(BaseHTTPRequestHandler):
         return self._error(404, f"unknown route: {path}")
 
     def _route_post(self, path: str, body: dict) -> None:
+        if path == "/api/auth/register":
+            return self._auth_register(body)
+        if path == "/api/auth/login":
+            return self._auth_login(body)
+        if path == "/api/auth/refresh":
+            return self._auth_refresh(body)
+        if path == "/api/auth/logout":
+            return self._auth_logout(body)
         if path == "/api/kill-switch":
             return self._kill_set(body)
         if path == "/api/scans/refresh":
@@ -224,6 +259,103 @@ class _ApiHandler(BaseHTTPRequestHandler):
             "dependencies": {"market_data": "configured" if _STATE.market_client else "unconfigured", "calendar": calendar_health, "minimax": "configured" if minimax_configured() else "unconfigured"},
             "cache": {"entries": len(_STATE.response_cache), "analysis_ttl_seconds": 20},
             "engine": {"minimum_score": 60, "minimum_rr": 2.0, "actionable_status": "READY"},
+        })
+
+    def _auth_register(self, body: dict) -> None:
+        email = str(body.get("email") or "").strip().lower()
+        password = str(body.get("password") or "")
+        name = str(body.get("name") or "").strip()
+        if not email or not password:
+            return self._error(400, "email and password are required")
+        if len(password) < 8:
+            return self._error(400, "password must be at least 8 characters")
+        user_repo = getattr(_STATE, "user_repo", None)
+        if user_repo is None:
+            return self._error(503, "user_repo not configured")
+        existing = user_repo.get_by_email(email) if hasattr(user_repo, "get_by_email") else None
+        if existing:
+            return self._error(409, "email already registered")
+        password_hash = hash_password(password)
+        user = user_repo.create(email=email, password_hash=password_hash, name=name)
+        access_token = create_access_token(user)
+        refresh_token = create_refresh_token(user)
+        self._json(201, {
+            "user": {"id": user.id, "email": user.email, "name": user.name, "role": user.role, "plan": user.plan},
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+        })
+
+    def _auth_login(self, body: dict) -> None:
+        email = str(body.get("email") or "").strip().lower()
+        password = str(body.get("password") or "")
+        if not email or not password:
+            return self._error(400, "email and password are required")
+        user_repo = getattr(_STATE, "user_repo", None)
+        if user_repo is None:
+            return self._error(503, "user_repo not configured")
+        user_data = user_repo.get_by_email(email) if hasattr(user_repo, "get_by_email") else None
+        if not user_data:
+            return self._error(401, "invalid credentials")
+        stored_hash = user_data.get("password_hash") if isinstance(user_data, dict) else getattr(user_data, "password_hash", "")
+        if not verify_password(password, stored_hash):
+            return self._error(401, "invalid credentials")
+        user = User(
+            id=user_data.get("id") if isinstance(user_data, dict) else getattr(user_data, "id", 0),
+            email=user_data.get("email") if isinstance(user_data, dict) else getattr(user_data, "email", ""),
+            name=user_data.get("name") if isinstance(user_data, dict) else getattr(user_data, "name", ""),
+            role=user_data.get("role") if isinstance(user_data, dict) else getattr(user_data, "role", "user"),
+            plan=user_data.get("plan") if isinstance(user_data, dict) else getattr(user_data, "plan", "free"),
+            created_at=user_data.get("created_at") if isinstance(user_data, dict) else getattr(user_data, "created_at", ""),
+        )
+        access_token = create_access_token(user)
+        refresh_token = create_refresh_token(user)
+        if hasattr(user_repo, "update_last_login"):
+            user_repo.update_last_login(user.id)
+        self._json(200, {
+            "user": {"id": user.id, "email": user.email, "name": user.name, "role": user.role, "plan": user.plan},
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+        })
+
+    def _auth_refresh(self, body: dict) -> None:
+        refresh_token = str(body.get("refresh_token") or "")
+        if not refresh_token:
+            return self._error(400, "refresh_token is required")
+        payload = decode_token(refresh_token)
+        if not payload or payload.get("type") != "refresh":
+            return self._error(401, "invalid refresh token")
+        user_repo = getattr(_STATE, "user_repo", None)
+        if user_repo is None:
+            return self._error(503, "user_repo not configured")
+        user_id = int(payload["sub"])
+        user_data = user_repo.get_by_id(user_id) if hasattr(user_repo, "get_by_id") else None
+        if not user_data:
+            return self._error(401, "user not found")
+        user = User(
+            id=user_data.get("id") if isinstance(user_data, dict) else getattr(user_data, "id", 0),
+            email=user_data.get("email") if isinstance(user_data, dict) else getattr(user_data, "email", ""),
+            name=user_data.get("name") if isinstance(user_data, dict) else getattr(user_data, "name", ""),
+            role=user_data.get("role") if isinstance(user_data, dict) else getattr(user_data, "role", "user"),
+            plan=user_data.get("plan") if isinstance(user_data, dict) else getattr(user_data, "plan", "free"),
+            created_at=user_data.get("created_at") if isinstance(user_data, dict) else getattr(user_data, "created_at", ""),
+        )
+        access_token = create_access_token(user)
+        new_refresh_token = create_refresh_token(user)
+        self._json(200, {
+            "access_token": access_token,
+            "refresh_token": new_refresh_token,
+        })
+
+    def _auth_logout(self, body: dict) -> None:
+        self._json(200, {"message": "logged out"})
+
+    def _auth_me(self, headers: dict) -> None:
+        result = self._require_auth(headers)
+        if result[0] is None:
+            return self._error(result[1], result[2])
+        user = result
+        self._json(200, {
+            "user": {"id": user.id, "email": user.email, "name": user.name, "role": user.role, "plan": user.plan},
         })
 
     def _calendar_events(self, query: dict) -> None:
