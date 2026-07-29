@@ -90,8 +90,11 @@ const LandingPage: React.FC = () => {
               </h1>
               <p className="mx-auto mt-7 max-w-2xl text-lg leading-relaxed text-slate-400 sm:text-xl">ConfluenceX turns live price action, harmonic structure, ADR, and multi-factor signals into one decisive trading workspace.</p>
               <div className="mt-9 flex flex-col items-center justify-center gap-4 sm:flex-row">
-                <button onClick={() => openAuth('signup')} className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-400 via-cyan-500 to-violet-500 px-7 py-4 font-black text-[#05070d] shadow-[0_0_40px_rgba(34,211,238,0.22)] transition hover:-translate-y-1 hover:shadow-[0_0_60px_rgba(139,92,246,0.3)] sm:w-auto">Open the workspace <ArrowRight className="h-5 w-5 transition group-hover:translate-x-1" /></button>
-                <a href="#platform" className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/[0.04] px-7 py-4 font-bold text-slate-200 backdrop-blur transition hover:-translate-y-1 hover:border-white/30 hover:bg-white/[0.08] sm:w-auto"><Play className="h-4 w-4 fill-white" /> Explore the platform</a>
+                <button onClick={() => openAuth('signup')} className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-400 via-cyan-500 to-violet-500 px-7 py-4 font-black text-[#05070d] shadow-[0_0_40px_rgba(34,211,238,0.22)] transition hover:-translate-y-1 hover:shadow-[0_0_60px_rgba(139,92,246,0.3)] sm:w-auto">Open Live Workspace <ArrowRight className="h-5 w-5 transition group-hover:translate-x-1" /></button>
+                <div className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-7 py-4 font-semibold text-slate-500 backdrop-blur sm:w-auto">
+                  <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-50" /><span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" /></span>
+                  Forward-testing in progress
+                </div>
               </div>
             </div>
 
