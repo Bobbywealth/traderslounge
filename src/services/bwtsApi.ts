@@ -89,7 +89,7 @@ export interface CryptoTradePlan {
 
 export interface CryptoAnalysis {
   version: string;
-  asset_class: 'crypto';
+  asset_class: string;
   pair: string;
   direction: 'BUY' | 'SELL' | 'NEUTRAL';
   raw_direction?: 'BUY' | 'SELL' | 'NEUTRAL';

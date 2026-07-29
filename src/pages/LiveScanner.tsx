@@ -29,7 +29,7 @@ const LiveScanner: React.FC = () => {
     } catch (error: any) { setGlobalError(error?.message || 'Failed to load tracked markets'); } finally { refreshInFlight.current = false; setRefreshing(false); }
   };
   useEffect(() => { refresh(); const id = setInterval(refresh, 60_000); return () => clearInterval(id); }, []);
-  const runValidation = async () => { setValidating(true); try { setValidation(await bwtsApi.v2Backtest('BTCUSD', validationTimeframe, validationDepth)); } catch (error: any) { setGlobalError(error?.message || 'Validation replay failed'); } finally { setValidating(false); } };
+  const runValidation = async () => { setValidating(true); try { setValidation(await bwtsApi.v2Backtest('EURUSD', validationTimeframe, validationDepth)); } catch (error: any) { setGlobalError(error?.message || 'Validation replay failed'); } finally { setValidating(false); } };
   const loaded = useMemo(() => rows.filter((row) => row.analysis), [rows]);
   const eligible = loaded.filter((row) => row.analysis?.trade_plan?.eligible).length;
   const average = loaded.length ? Math.round(loaded.reduce((sum, row) => sum + (row.analysis?.total_score || 0), 0) / loaded.length) : 0;

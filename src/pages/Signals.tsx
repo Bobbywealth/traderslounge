@@ -71,8 +71,6 @@ const Signals: React.FC = () => {
       const refreshResponse = await signalsApi.refreshSignals([
         'XAUUSD', 'GBPUSD', 'EURUSD', 'USDJPY', 'GBPJPY',
         'NAS100', 'US30',
-        'BTCUSD', 'ETHUSD', 'XRPUSD', 'LTCUSD',
-        'DOTUSD', 'XLMUSD', 'BATUSD', 'NEOUSD',
       ]);
       if (refreshResponse.nextAllowedRefreshAt) {
         setNextAllowedRefreshAt(new Date(refreshResponse.nextAllowedRefreshAt));
