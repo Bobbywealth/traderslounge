@@ -332,6 +332,70 @@ export interface BwtsKillStatus {
   path?: string;
 }
 
+export interface ScoreHistory {
+  scores: number[];
+  count: number;
+}
+
+export interface LifecycleTransition {
+  from: string;
+  to: string;
+  timestamp: string;
+}
+
+export interface LifecycleState {
+  state: string;
+  since?: string;
+}
+
+export interface MarketInfo {
+  status: string;
+  current_price?: number;
+  bid?: number;
+  ask?: number;
+  volume_24h?: number;
+}
+
+export interface ProviderHealth {
+  market_data: string;
+  calendar: string;
+  minimax: string;
+}
+
+export interface EconomicRisk {
+  level: string;
+  active_events: number;
+  high_impact_count?: number;
+}
+
+export interface PerformanceSummary {
+  trades: number;
+  win_rate: number;
+  avg_r: number;
+}
+
+export interface MarketSnapshot {
+  signal: BwtsSignal;
+  analysis: CryptoAnalysis;
+  market_info: MarketInfo;
+  lifecycle_state: LifecycleState;
+  recent_transitions: LifecycleTransition[];
+  score_history: ScoreHistory;
+}
+
+export interface DashboardSnapshot {
+  snapshot_id: string;
+  generated_at: string;
+  market_data_timestamp: string;
+  scanner_health: BwtsHealth;
+  config: BwtsConfig;
+  provider_health: Record<string, ProviderHealth>;
+  economic_event_risk: EconomicRisk;
+  markets: MarketSnapshot[];
+  performance_summary: PerformanceSummary;
+  model_version: string;
+}
+
 async function post<T>(path: string, body: any): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
@@ -356,6 +420,7 @@ export const bwtsApi = {
   health: () => get<BwtsHealth>('/api/health'),
   pairs: () => get<{ pairs: string[] }>('/api/pairs'),
   config: () => get<BwtsConfig>('/api/config'),
+  dashboardSnapshot: () => get<DashboardSnapshot>('/api/dashboard-snapshot'),
   signals: (opts?: { pair?: string; tier?: SignalTier; limit?: number }) =>
     getCached<{ signals: BwtsSignal[]; count: number }>('/api/signals', opts as any, 10_000),
   signal: (id: number) => get<{ signal: BwtsSignal }>(`/api/signals/${id}`),

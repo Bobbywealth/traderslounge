@@ -19,7 +19,9 @@ import logging
 import math
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlsplit
@@ -159,6 +161,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._json(200, {"pairs": list(_STATE.config.pairs)})
         if path == "/api/config":
             return self._public_config()
+        if path == "/api/dashboard-snapshot":
+            return self._dashboard_snapshot()
         if path == "/api/calendar/events":
             return self._calendar_events(query)
         if path == "/api/calendar/status":
@@ -608,6 +612,228 @@ class _ApiHandler(BaseHTTPRequestHandler):
             "scan_interval_seconds": cfg.scan_interval_seconds,
             "news_blackout_minutes": cfg.news_blackout_minutes,
         })
+
+    def _dashboard_snapshot(self) -> None:
+        snapshot_id = str(uuid.uuid4())
+        generated_at = datetime.now(timezone.utc).isoformat()
+
+        health = self._get_health_data()
+        config = self._get_config_data()
+        signals = _STATE.repository.recent(limit=50)
+
+        client = _STATE.market_client
+        market_data_timestamp = None
+        if client is not None and hasattr(client, '_last_fetch'):
+            market_data_timestamp = client._last_fetch
+        elif client is not None:
+            try:
+                client.fetch_candles(list(_STATE.config.pairs)[0] if _STATE.config.pairs else "BTCUSD", "H1", limit=1)
+                market_data_timestamp = datetime.now(timezone.utc).isoformat()
+            except Exception:
+                market_data_timestamp = generated_at
+        else:
+            market_data_timestamp = generated_at
+
+        snapshots = []
+        for sig in signals:
+            pair = sig.get("pair", "")
+            if not pair:
+                continue
+            analysis = self._compute_analysis(pair)
+            snapshots.append({
+                "signal": sig,
+                "analysis": analysis,
+                "market_info": self._get_market_info(pair),
+                "lifecycle_state": self._get_lifecycle_state(sig.get("id")),
+                "recent_transitions": self._get_recent_transitions(sig.get("id")),
+                "score_history": self._get_score_history(pair),
+            })
+
+        self._json(200, {
+            "snapshot_id": snapshot_id,
+            "generated_at": generated_at,
+            "market_data_timestamp": market_data_timestamp,
+            "scanner_health": health,
+            "config": config,
+            "provider_health": self._get_provider_health(),
+            "economic_event_risk": self._get_economic_risk(),
+            "markets": snapshots,
+            "performance_summary": self._get_performance_summary(),
+            "model_version": "v2.1.0",
+        })
+
+    def _get_health_data(self) -> dict:
+        try:
+            n = _count(_STATE.repository)
+        except Exception:
+            n = 0
+        calendar_health = getattr(_STATE.news_filter, "source_health", "unconfigured") if _STATE.news_filter else "unconfigured"
+        ready = _STATE.market_client is not None and calendar_health not in ("unavailable", "unconfigured")
+        return {
+            "status": "ok" if ready else "degraded",
+            "ready": ready,
+            "db_signals": n,
+            "pairs": list(_STATE.config.pairs),
+            "uptime_seconds": int(time.time() - _STATE.started_at),
+            "dependencies": {
+                "market_data": "configured" if _STATE.market_client else "unconfigured",
+                "calendar": calendar_health,
+                "minimax": "configured" if minimax_configured() else "unconfigured",
+            },
+            "cache": {"entries": len(_STATE.response_cache), "analysis_ttl_seconds": 20},
+            "engine": {"minimum_score": 60, "minimum_rr": 2.0, "actionable_status": "READY"},
+        }
+
+    def _get_config_data(self) -> dict:
+        cfg = _STATE.config
+        return {
+            "pairs": list(cfg.pairs),
+            "thresholds": {
+                "strong": cfg.strong_threshold,
+                "good": cfg.good_threshold,
+                "watchlist": cfg.watchlist_threshold,
+            },
+            "scan_interval_seconds": cfg.scan_interval_seconds,
+            "news_blackout_minutes": cfg.news_blackout_minutes,
+        }
+
+    def _compute_analysis(self, pair: str) -> dict:
+        client = _STATE.market_client
+        if client is None:
+            return {"error": "market data client not configured"}
+        try:
+            snapshot_key = f"snapshot:{pair}"
+            snapshot = self._cache_get(snapshot_key)
+            if snapshot is None:
+                snapshot = client.fetch_snapshot(pair)
+                self._cache_set(snapshot_key, snapshot, ttl=15, stale_ttl=60)
+            selected_candles = client.fetch_candles(pair, "H1", limit=250)
+            benchmark = None
+            if pair != "BTCUSD":
+                try:
+                    benchmark = self._cache_get("snapshot:BTCUSD")
+                    if benchmark is None:
+                        benchmark = client.fetch_snapshot("BTCUSD")
+                        self._cache_set("snapshot:BTCUSD", benchmark, ttl=15, stale_ttl=60)
+                except Exception:
+                    benchmark = None
+            analysis = analyze_crypto(snapshot, benchmark, selected_candles, "1h")
+            state_key = f"{pair}:{analysis.get('data_quality', {}).get('primary_timeframe', 'H1')}"
+            with _STATE.cache_lock:
+                stability = stabilize_direction(analysis, _STATE.direction_states, state_key)
+            raw_direction = analysis.get("direction", "NEUTRAL")
+            analysis["raw_direction"] = raw_direction
+            analysis["direction_stability"] = stability
+            analysis["direction"] = stability["confirmed_direction"]
+            if analysis["direction"] == "NEUTRAL":
+                analysis["scenarios"]["primary"] = "forming directional confirmation"
+            elif analysis["direction"] != raw_direction:
+                analysis["scenarios"]["primary"] = f"confirmed {analysis['direction'].lower()} bias is {stability['lifecycle'].lower()}"
+            timing = analysis.get("trade_timing") or {}
+            signal_stable = stability["confirmed_direction"] != "NEUTRAL" and stability["confirmed_direction"] == raw_direction and stability["lifecycle"] == "CONFIRMED"
+            timing.setdefault("checks", {})["signal_stability"] = signal_stable
+            if not signal_stable:
+                timing["status"] = "WAIT"
+                timing.setdefault("wait_for", []).append("signal stability")
+            analysis["trade_timing"] = timing
+            calendar = _STATE.news_filter.evaluate(pair) if _STATE.news_filter is not None else {"status": "UNAVAILABLE"}
+            analysis["economic_calendar"] = calendar
+            timing = analysis.get("trade_timing") or {}
+            if calendar.get("status") in ("BLOCKED", "POST_NEWS"):
+                timing["status"] = "AVOID"
+                timing.setdefault("wait_for", []).append(f"calendar {calendar.get('status')}")
+            elif calendar.get("status") != "CLEAR":
+                timing["status"] = "WAIT"
+                timing.setdefault("wait_for", []).append(f"calendar {calendar.get('status', 'UNAVAILABLE')}")
+            analysis["trade_timing"] = timing
+            if timing.get("status") == "READY" and signal_stable:
+                analysis["direction_stability"]["lifecycle"] = "READY"
+            analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar, primary_candles=selected_candles)
+            return analysis
+        except Exception as exc:
+            stale = self._cache_get(f"analysis:{pair}:default", allow_stale=True)
+            if stale is not None:
+                stale = dict(stale)
+                stale["cache"] = {"stale": True, "reason": str(exc)}
+                return stale
+            return {"error": f"analysis unavailable: {exc}"}
+
+    def _get_market_info(self, pair: str) -> dict:
+        client = _STATE.market_client
+        if client is None:
+            return {"status": "unconfigured"}
+        try:
+            snapshot = client.fetch_snapshot(pair)
+            return {
+                "status": "ok",
+                "current_price": getattr(snapshot, "price", None),
+                "bid": getattr(snapshot, "bid", None),
+                "ask": getattr(snapshot, "ask", None),
+                "volume_24h": getattr(snapshot, "volume", None),
+            }
+        except Exception:
+            return {"status": "error"}
+
+    def _get_lifecycle_state(self, signal_id: int) -> dict:
+        if signal_id is None:
+            return {"state": "unknown"}
+        state_key = f"lifecycle:{signal_id}"
+        cached = self._cache_get(state_key)
+        if cached is not None:
+            return cached
+        return {"state": "active", "since": datetime.now(timezone.utc).isoformat()}
+
+    def _get_recent_transitions(self, signal_id: int) -> list:
+        if signal_id is None:
+            return []
+        transitions_key = f"transitions:{signal_id}"
+        cached = self._cache_get(transitions_key)
+        if cached is not None:
+            return cached
+        return []
+
+    def _get_score_history(self, pair: str) -> dict:
+        score_key = f"score_history:{pair}"
+        cached = self._cache_get(score_key)
+        if cached is not None:
+            return cached
+        return {"scores": [], "count": 0}
+
+    def _get_provider_health(self) -> dict:
+        calendar_health = getattr(_STATE.news_filter, "source_health", "unconfigured") if _STATE.news_filter else "unconfigured"
+        return {
+            "market_data": "ok" if _STATE.market_client else "unconfigured",
+            "calendar": calendar_health,
+            "minimax": "ok" if minimax_configured() else "unconfigured",
+        }
+
+    def _get_economic_risk(self) -> dict:
+        try:
+            if _STATE.news_filter is None:
+                return {"level": "unknown", "active_events": 0}
+            events = _STATE.news_filter.events
+            high_impact = [e for e in events if getattr(e, "impact", "") == "high"]
+            return {
+                "level": "elevated" if high_impact else "normal",
+                "active_events": len(events),
+                "high_impact_count": len(high_impact),
+            }
+        except Exception:
+            return {"level": "unknown", "active_events": 0}
+
+    def _get_performance_summary(self) -> dict:
+        try:
+            repo = _STATE.closed_trade_repo
+            if repo is None:
+                return {"trades": 0, "win_rate": 0, "avg_r": 0}
+            stats = repo.stats()
+            return {
+                "trades": stats.get("trades", 0),
+                "win_rate": stats.get("win_rate", 0),
+                "avg_r": stats.get("avg_r", 0),
+            }
+        except Exception:
+            return {"trades": 0, "win_rate": 0, "avg_r": 0}
 
 
 def _timeframe_alias(value: str) -> Optional[str]:

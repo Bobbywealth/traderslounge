@@ -6,7 +6,7 @@ import {
   TrendingUp, Zap
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { bwtsApi, type AiSignalAnalysis, type BwtsConfig, type BwtsHealth, type BwtsSignal, type CalendarGateStatus, type CryptoAnalysis, type LifecycleState } from '../services/bwtsApi';
+import { bwtsApi, type AiSignalAnalysis, type BwtsConfig, type BwtsHealth, type BwtsSignal, type CalendarGateStatus, type CryptoAnalysis, type LifecycleState, type DashboardSnapshot } from '../services/bwtsApi';
 import TriggerDisplay from '../components/TriggerDisplay';
 import EconomicRiskBanner from '../components/EconomicRiskBanner';
 
@@ -69,17 +69,14 @@ const Dashboard: React.FC = () => {
     if (loadInFlight.current) return;
     loadInFlight.current = true; if (manual) setRefreshing(true);
     try {
-      const [healthData, configData, signalData] = await Promise.all([
-        bwtsApi.health(), bwtsApi.config(), bwtsApi.signals({ limit: 50 }),
-      ]);
-      setHealth(healthData);
-      setConfig(configData);
-      setSignals(signalData.signals);
-      const pairs = Array.from(new Set(signalData.signals.map((signal) => signal.pair)));
-      const analyses = await Promise.allSettled(pairs.map((pair) => bwtsApi.cryptoAnalysis(pair)));
+      const snapshot = await bwtsApi.dashboardSnapshot();
+      setHealth(snapshot.scanner_health);
+      setConfig(snapshot.config);
+      const signals = snapshot.markets.map((m) => m.signal);
+      setSignals(signals);
       const nextAnalysis: Record<string, CryptoAnalysis> = {};
-      analyses.forEach((result, index) => {
-        if (result.status === 'fulfilled') nextAnalysis[pairs[index]] = result.value;
+      snapshot.markets.forEach((m) => {
+        nextAnalysis[m.signal.pair] = m.analysis;
       });
       setAnalysisByPair(nextAnalysis);
       setUpdatedAt(new Date());
