@@ -239,6 +239,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 return self._journal_stats()
             if path == "/api/kill-switch":
                 return self._kill_status()
+            if path == "/api/performance/stats":
+                return self._performance_stats(query)
             return self._error(404, f"unknown route: {path}")
         finally:
             duration_ms = (time.time() - start_time) * 1000
@@ -247,6 +249,46 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 'method': 'GET'
             })
             metrics.increment('api.requests', labels={'path': path})
+            return self._json(200, {"pairs": list(_STATE.config.pairs)})
+        if path == "/api/config":
+            return self._public_config()
+        if path == "/api/dashboard-snapshot":
+            return self._dashboard_snapshot()
+        if path == "/api/calendar/events":
+            return self._calendar_events(query)
+        if path == "/api/calendar/status":
+            return self._calendar_status(query)
+        if path == "/api/ai/status":
+            return self._json(200, {"configured": minimax_configured()})
+        if path == "/api/analysis":
+            return self._analysis(query)
+        if path == "/api/backtest/v2":
+            return self._backtest_v2(query)
+        if path == "/api/candles":
+            return self._candles(query)
+        if path == "/api/harmonics":
+            return self._harmonics(query)
+        if path == "/api/adr":
+            return self._adr(query)
+        if path == "/api/signals":
+            return self._list_signals(query)
+        if path.startswith("/api/signals/"):
+            try:
+                sig_id = int(path.rsplit("/", 1)[1])
+            except ValueError:
+                return self._error(400, "invalid signal id")
+            return self._get_signal(sig_id)
+        if path == "/api/positions":
+            return self._list_positions()
+        if path == "/api/journal":
+            return self._list_journal(query)
+        if path == "/api/journal/stats":
+            return self._journal_stats()
+        if path == "/api/kill-switch":
+            return self._kill_status()
+        if path == "/api/performance/stats":
+            return self._performance_stats(query)
+        return self._error(404, f"unknown route: {path}")
 
     def _route_post(self, path: str, body: dict) -> None:
         if path == "/api/auth/register":
@@ -750,6 +792,139 @@ class _ApiHandler(BaseHTTPRequestHandler):
         if repo is None:
             return self._json(200, {"trades": 0})
         self._json(200, repo.stats())
+
+    def _performance_stats(self, query: dict) -> None:
+        repo = _STATE.closed_trade_repo
+        if repo is None:
+            return self._json(200, {
+                "source": "backtested",
+                "sampleSize": 0,
+                "dateRange": "N/A",
+                "lastUpdated": datetime.now(timezone.utc).isoformat(),
+                "winRate": 0,
+                "tp1HitRate": 0,
+                "tp2HitRate": 0,
+                "tp3HitRate": 0,
+                "stopLossRate": 0,
+                "breakEvenRate": 0,
+                "expirationRate": 0,
+                "avgR": 0,
+                "medianR": 0,
+                "expectancy": 0,
+                "profitFactor": 0,
+                "maxDrawdown": 0,
+                "maxConsecutiveLosses": 0,
+                "mfe": 0,
+                "mae": 0,
+                "avgHoldingBars": 0,
+                "avgTimeToTP1": 0,
+                "avgTimeToStop": 0,
+                "note": "closed_trade_repo not configured"
+            })
+        try:
+            stats = repo.stats()
+            trades = repo.recent(limit=10000)
+            if not trades:
+                return self._json(200, {
+                    "source": "user_journal",
+                    "sampleSize": 0,
+                    "dateRange": "No data",
+                    "lastUpdated": datetime.now(timezone.utc).isoformat(),
+                    "winRate": 0,
+                    "tp1HitRate": 0,
+                    "tp2HitRate": 0,
+                    "tp3HitRate": 0,
+                    "stopLossRate": 0,
+                    "breakEvenRate": 0,
+                    "expirationRate": 0,
+                    "avgR": 0,
+                    "medianR": 0,
+                    "expectancy": 0,
+                    "profitFactor": 0,
+                    "maxDrawdown": 0,
+                    "maxConsecutiveLosses": 0,
+                    "mfe": 0,
+                    "mae": 0,
+                    "avgHoldingBars": 0,
+                    "avgTimeToTP1": 0,
+                    "avgTimeToStop": 0,
+                })
+            wins = [t for t in trades if t.get('r_multiple', 0) > 0]
+            losses = [t for t in trades if t.get('r_multiple', 0) < 0]
+            tp1_hits = len([t for t in trades if t.get('outcome', '').endswith('tp1')])
+            tp2_hits = len([t for t in trades if t.get('outcome', '').endswith('tp2')])
+            tp3_hits = len([t for t in trades if t.get('outcome', '').endswith('tp3')])
+            stop_hits = len([t for t in trades if t.get('outcome', '') == 'stopped'])
+            be_hits = len([t for t in trades if t.get('outcome', '') == 'break_even'])
+            expired = len([t for t in trades if t.get('outcome', '') == 'expired'])
+            total = len(trades)
+            r_values = [t.get('r_multiple', 0) for t in trades]
+            avg_r = sum(r_values) / total if total > 0 else 0
+            median_r = sorted(r_values)[total // 2] if total > 0 else 0
+            expectancy = avg_r
+            profit_factor = (sum(t.get('r_multiple', 0) for t in wins) / abs(sum(t.get('r_multiple', 0) for t in losses))) if losses else 0
+            max_dd = 0
+            cumulative = 0
+            peak = 0
+            for r in r_values:
+                cumulative += r
+                if cumulative > peak:
+                    peak = cumulative
+                dd = peak - cumulative
+                if dd > max_dd:
+                    max_dd = dd
+            max_consecutive = 0
+            current_streak = 0
+            for r in r_values:
+                if r < 0:
+                    current_streak += 1
+                    if current_streak > max_consecutive:
+                        max_consecutive = current_streak
+                else:
+                    current_streak = 0
+            holding_bars = [t.get('holding_bars', 0) for t in trades if t.get('holding_bars')]
+            avg_holding = sum(holding_bars) / len(holding_bars) if holding_bars else 0
+            times_to_tp1 = [t.get('bars_to_tp1', 0) for t in trades if t.get('bars_to_tp1')]
+            avg_tp1 = sum(times_to_tp1) / len(times_to_tp1) if times_to_tp1 else 0
+            times_to_stop = [t.get('bars_to_stop', 0) for t in trades if t.get('bars_to_stop')]
+            avg_stop = sum(times_to_stop) / len(times_to_stop) if times_to_stop else 0
+            mfe = max(r_values) if r_values else 0
+            mae = min(r_values) if r_values else 0
+            dates = [t.get('closed_at') for t in trades if t.get('closed_at')]
+            date_range = "All time"
+            if dates:
+                try:
+                    dmin = datetime.fromtimestamp(min(dates), tz=timezone.utc).strftime('%Y-%m-%d')
+                    dmax = datetime.fromtimestamp(max(dates), tz=timezone.utc).strftime('%Y-%m-%d')
+                    date_range = f"{dmin} to {dmax}"
+                except Exception:
+                    pass
+            self._json(200, {
+                "source": "user_journal",
+                "sampleSize": total,
+                "dateRange": date_range,
+                "lastUpdated": datetime.now(timezone.utc).isoformat(),
+                "winRate": (len(wins) / total * 100) if total > 0 else 0,
+                "tp1HitRate": (tp1_hits / total * 100) if total > 0 else 0,
+                "tp2HitRate": (tp2_hits / total * 100) if total > 0 else 0,
+                "tp3HitRate": (tp3_hits / total * 100) if total > 0 else 0,
+                "stopLossRate": (stop_hits / total * 100) if total > 0 else 0,
+                "breakEvenRate": (be_hits / total * 100) if total > 0 else 0,
+                "expirationRate": (expired / total * 100) if total > 0 else 0,
+                "avgR": avg_r,
+                "medianR": median_r,
+                "expectancy": expectancy,
+                "profitFactor": profit_factor,
+                "maxDrawdown": max_dd,
+                "maxConsecutiveLosses": max_consecutive,
+                "mfe": mfe,
+                "mae": mae,
+                "avgHoldingBars": avg_holding,
+                "avgTimeToTP1": avg_tp1,
+                "avgTimeToStop": avg_stop,
+            })
+        except Exception as exc:
+            return self._error(500, f"performance stats unavailable: {exc}")
 
     def _kill_status(self) -> None:
         ks = _STATE.kill_switch

@@ -374,6 +374,31 @@ export interface PerformanceSummary {
   avg_r: number;
 }
 
+export interface PerformanceStats {
+  source: 'backtested' | 'forward_tested' | 'paper_traded' | 'user_journal' | 'live_broker';
+  sampleSize: number;
+  dateRange: string;
+  lastUpdated: string;
+  winRate: number;
+  tp1HitRate: number;
+  tp2HitRate: number;
+  tp3HitRate: number;
+  stopLossRate: number;
+  breakEvenRate: number;
+  expirationRate: number;
+  avgR: number;
+  medianR: number;
+  expectancy: number;
+  profitFactor: number;
+  maxDrawdown: number;
+  maxConsecutiveLosses: number;
+  mfe: number;
+  mae: number;
+  avgHoldingBars: number;
+  avgTimeToTP1: number;
+  avgTimeToStop: number;
+}
+
 export interface MarketSnapshot {
   signal: BwtsSignal;
   analysis: CryptoAnalysis;
@@ -442,6 +467,9 @@ export const bwtsApi = {
   cryptoAnalysis: (pair: string, timeframe?: string) => getCached<CryptoAnalysis>('/api/analysis', timeframe ? { pair, timeframe } : { pair }, 20_000),
   v2Backtest: (pair: string, timeframe = '1h', limit = 10000) => get<V2BacktestReport>('/api/backtest/v2', { pair, timeframe, limit }),
   analyzeSignal: (pair: string, signal: BwtsSignal, analysis?: CryptoAnalysis) => post<{ configured: boolean; analysis: AiSignalAnalysis; calendar: CalendarGateStatus }>('/api/ai/analyze', { pair, signal, analysis }),
+
+  getPerformanceStats: (filters?: { assetClass?: string; symbol?: string; direction?: string; scoreBand?: string; confidenceTier?: string; dateFrom?: string; dateTo?: string }) =>
+    get<PerformanceStats>('/api/performance/stats', filters as Record<string, string>),
 
   baseUrl: () => BASE,
 };
