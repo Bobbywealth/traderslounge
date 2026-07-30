@@ -9,14 +9,26 @@ Exposes JSON endpoints over the SignalRepository:
   GET  /api/pairs               → { pairs: [...] }
   GET  /api/config              → public-safe config (thresholds, pair list)
 
-Designed so the React dashboard can hit it directly. CORS is permissive
-for now; tighten in Step 5+ once we add auth.
+CORS and authentication policy:
+  * Origins are read from a comma-separated ``ALLOWED_ORIGINS`` env var
+    (default: ``https://traderslounge.onrender.com``). Wildcard reflection
+    is no longer permitted when credentials are sent.
+  * Mutating or expensive endpoints (AI calls, kill-switch, manual scan,
+    dashboard snapshot, backtest) require a valid ``Authorization:
+    Bearer`` token. The same is enforced for the Signals/Positions/Journal
+    routes that were already protected.
+  * Each request body is capped at ``MAX_BODY_BYTES`` (default 256 KB,
+    10 MB only for ``/api/ai/chart-analyze``) and the value of
+    ``Content-Length`` is rejected before reading if it exceeds the cap.
+  * Per-token and per-IP token buckets protect the most expensive routes
+    (AI, backtest, dashboard snapshot, kill-switch, manual scan).
 """
 from __future__ import annotations
 
 import json
 import logging
 import math
+import os
 import secrets
 import threading
 import time
@@ -45,6 +57,106 @@ from .auth import (
     hash_password, verify_password, create_access_token,
     create_refresh_token, decode_token, get_current_user, User
 )
+
+log = logging.getLogger(__name__)
+
+
+# --- CORS / size / rate-limit configuration ----------------------------
+
+# Default to the production frontend origin. Override in the deploy env
+# with a comma-separated list. We never reflect an arbitrary Origin.
+_DEFAULT_ALLOWED_ORIGINS = "https://traderslounge.onrender.com"
+MAX_BODY_BYTES_DEFAULT = 256 * 1024
+MAX_BODY_BYTES_CHART_AI = 10 * 1024 * 1024
+
+# Per-endpoint rate limits: (capacity, refill_per_second). The bucket is
+# keyed first by authenticated user (when present) and falls back to
+# client IP. Capacity is the burst budget; refill is the sustained
+# allowance.
+RATE_LIMITS: dict[str, tuple[int, float]] = {
+    "/api/ai/analyze": (20, 20.0 / 60.0),          # 20 calls / minute
+    "/api/ai/chart-analyze": (10, 10.0 / 60.0),   # 10 calls / minute
+    "/api/backtest/v2": (10, 10.0 / 60.0),
+    "/api/dashboard-snapshot": (30, 30.0 / 60.0),
+    "/api/kill-switch": (10, 10.0 / 60.0),
+    "/api/scans/refresh": (10, 10.0 / 60.0),
+}
+
+# Endpoints that require a valid Authorization: Bearer token, in
+# addition to the historical /api/signals|/positions|/journal protection.
+PROTECTED_ROUTES: frozenset[str] = frozenset({
+    "/api/ai/analyze",
+    "/api/ai/chart-analyze",
+    "/api/dashboard-snapshot",
+    "/api/backtest/v2",
+    "/api/kill-switch",
+    "/api/scans/refresh",
+})
+
+
+def _allowed_origins() -> set[str]:
+    raw = os.environ.get("ALLOWED_ORIGINS", _DEFAULT_ALLOWED_ORIGINS)
+    return {origin.strip().rstrip("/") for origin in raw.split(",") if origin.strip()}
+
+
+def _resolve_cors_origin(request_origin: Optional[str]) -> Optional[str]:
+    """Return an allowed origin to echo back, or ``None`` to deny.
+
+    The Python API does not use cookies for auth, so the response only
+    includes ``Access-Control-Allow-Origin`` when the request origin is
+    on the allowlist. This prevents arbitrary websites from invoking
+    authenticated endpoints on behalf of a logged-in user.
+    """
+    if not request_origin:
+        return None
+    normalised = request_origin.rstrip("/")
+    return normalised if normalised in _allowed_origins() else None
+
+
+@dataclass
+class _TokenBucket:
+    capacity: float
+    refill_per_second: float
+    tokens: float = 0.0
+    last_refill: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.last_refill == 0.0:
+            self.last_refill = time.monotonic()
+        self.tokens = float(self.capacity)
+
+    def take(self, amount: float = 1.0) -> bool:
+        now = time.monotonic()
+        elapsed = now - self.last_refill
+        if elapsed > 0:
+            self.tokens = min(self.capacity, self.tokens + elapsed * self.refill_per_second)
+            self.last_refill = now
+        if self.tokens >= amount:
+            self.tokens -= amount
+            return True
+        return False
+
+
+_rate_lock = threading.Lock()
+_rate_buckets: dict[str, _TokenBucket] = {}
+
+
+def _client_ip(headers) -> str:
+    # Render (and most proxies) supply the real client via X-Forwarded-For.
+    forwarded = headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return headers.get("X-Real-IP") or (headers.get("Host") or "unknown")
+
+
+def _check_rate_limit(bucket_key: str, route: str) -> bool:
+    capacity, refill = RATE_LIMITS.get(route, (60, 60.0 / 60.0))
+    with _rate_lock:
+        bucket = _rate_buckets.get(bucket_key)
+        if bucket is None or bucket.capacity != capacity or bucket.refill_per_second != refill:
+            bucket = _TokenBucket(capacity=capacity, refill_per_second=refill)
+            _rate_buckets[bucket_key] = bucket
+    return bucket.take(1.0)
 
 log = logging.getLogger(__name__)
 
@@ -99,11 +211,17 @@ class _ApiHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
-        origin = self.headers.get("Origin", "*")
-        self.send_header("Access-Control-Allow-Origin", origin)
-        self.send_header("Access-Control-Allow-Credentials", "true")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        # Strict CORS: only echo the Origin when it is on the allowlist.
+        # We no longer reflect arbitrary origins nor use "*" with
+        # credentials — that combination is the most common path to
+        # cross-site authenticated abuse.
+        allowed = _resolve_cors_origin(self.headers.get("Origin"))
+        if allowed is not None:
+            self.send_header("Access-Control-Allow-Origin", allowed)
+            self.send_header("Vary", "Origin")
+            self.send_header("Access-Control-Allow-Credentials", "true")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.end_headers()
         self.wfile.write(payload)
 
@@ -147,11 +265,13 @@ class _ApiHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):  # noqa: N802 — required name
         self.send_response(204)
-        origin = self.headers.get("Origin", "*")
-        self.send_header("Access-Control-Allow-Origin", origin)
-        self.send_header("Access-Control-Allow-Credentials", "true")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        allowed = _resolve_cors_origin(self.headers.get("Origin"))
+        if allowed is not None:
+            self.send_header("Access-Control-Allow-Origin", allowed)
+            self.send_header("Vary", "Origin")
+            self.send_header("Access-Control-Allow-Credentials", "true")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.end_headers()
 
     def do_POST(self):  # noqa: N802
@@ -159,22 +279,31 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._error(503, "API state not initialized")
         url = urlsplit(self.path)
         path = url.path.rstrip("/") or "/"
-        body = self._read_body()
+        max_bytes = MAX_BODY_BYTES_CHART_AI if path == "/api/ai/chart-analyze" else MAX_BODY_BYTES_DEFAULT
+        try:
+            body = self._read_body(max_bytes=max_bytes)
+        except ValueError as exc:
+            return self._error(413, str(exc))
         try:
             return self._route_post(path, body)
         except Exception as exc:
             log.exception("api error (POST)")
             return self._error(500, str(exc))
 
-    def _read_body(self) -> dict:
+    def _read_body(self, max_bytes: int = MAX_BODY_BYTES_DEFAULT) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0:
             return {}
+        # Reject oversized payloads before reading them into memory. The
+        # chart-AI endpoint is the only legitimate exception (it carries
+        # a base64 image) and is capped at 10 MB.
+        if length > max_bytes:
+            raise ValueError(f"request body of {length} bytes exceeds limit of {max_bytes}")
         try:
             raw = self.rfile.read(length).decode("utf-8")
             return json.loads(raw) if raw else {}
-        except (ValueError, json.JSONDecodeError):
-            return {}
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise ValueError(f"invalid request body: {exc}") from exc
 
     def do_GET(self):  # noqa: N802
         if _STATE is None:
@@ -190,9 +319,22 @@ class _ApiHandler(BaseHTTPRequestHandler):
 
     # --- routing --------------------------------------------------------
 
+    def _enforce_route_policy(self, path: str, method: str) -> Optional[Tuple[int, str]]:
+        """Return an ``(status, message)`` tuple if the request must be denied."""
+        if path in PROTECTED_ROUTES:
+            result = self._require_auth(self.headers)
+            if isinstance(result, tuple):
+                return result[1], result[2]
+        if path in RATE_LIMITS:
+            user = get_current_user(self.headers.get("Authorization", ""))
+            bucket_key = f"u:{user.id}" if user else f"ip:{_client_ip(self.headers)}"
+            if not _check_rate_limit(bucket_key, path):
+                return 429, "rate limit exceeded; retry after a short delay"
+        return None
+
     def _route(self, path: str, query: dict) -> None:
         start_time = time.time()
-        
+
         # Observability endpoints (no timing)
         if path == "/health":
             return self._health()
@@ -200,13 +342,18 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._ready()
         if path == "/metrics":
             return self._metrics()
-        
+
         try:
             # Auth endpoints
             if path == "/api/auth/me":
                 return self._auth_me(self.headers)
-            
-            # Protected paths check
+
+            # Protected paths + rate limit gate
+            denied = self._enforce_route_policy(path, "GET")
+            if denied is not None:
+                return self._error(denied[0], denied[1])
+
+            # Legacy protected paths check (signals/positions/journal)
             protected_paths = ['/api/signals', '/api/positions', '/api/journal', '/api/alerts']
             if path in protected_paths or path.startswith("/api/signals/"):
                 result = self._require_auth(self.headers)
@@ -268,6 +415,13 @@ class _ApiHandler(BaseHTTPRequestHandler):
             metrics.increment('api.requests', labels={'path': path})
 
     def _route_post(self, path: str, body: dict) -> None:
+        # Auth + rate-limit gate for protected mutating routes. The
+        # public registration/login routes are intentionally exempt so
+        # new users can still obtain credentials.
+        if path not in {"/api/auth/register", "/api/auth/login", "/api/auth/refresh"}:
+            denied = self._enforce_route_policy(path, "POST")
+            if denied is not None:
+                return self._error(denied[0], denied[1])
         if path == "/api/auth/register":
             return self._auth_register(body)
         if path == "/api/auth/login":
@@ -487,8 +641,9 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._error(400, "pair is required")
         if not isinstance(image_data_url, str) or not image_data_url.startswith("data:image/"):
             return self._error(400, "image_data_url must be a chart image data URL")
-        if len(image_data_url) > 10 * 1024 * 1024:
-            return self._error(413, "chart image exceeds the 10 MB limit")
+        # Size enforcement is now handled at the transport layer
+        # (``_read_body`` with ``MAX_BODY_BYTES_CHART_AI``) so we cannot
+        # allocate a 10 MB+ payload before rejecting it.
 
         news = _STATE.news_filter
         calendar = news.evaluate(pair) if news else {"status": "UNAVAILABLE", "reason_code": "SOURCE_UNAVAILABLE"}
