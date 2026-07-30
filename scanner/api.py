@@ -249,46 +249,6 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 'method': 'GET'
             })
             metrics.increment('api.requests', labels={'path': path})
-            return self._json(200, {"pairs": list(_STATE.config.pairs)})
-        if path == "/api/config":
-            return self._public_config()
-        if path == "/api/dashboard-snapshot":
-            return self._dashboard_snapshot()
-        if path == "/api/calendar/events":
-            return self._calendar_events(query)
-        if path == "/api/calendar/status":
-            return self._calendar_status(query)
-        if path == "/api/ai/status":
-            return self._json(200, {"configured": minimax_configured()})
-        if path == "/api/analysis":
-            return self._analysis(query)
-        if path == "/api/backtest/v2":
-            return self._backtest_v2(query)
-        if path == "/api/candles":
-            return self._candles(query)
-        if path == "/api/harmonics":
-            return self._harmonics(query)
-        if path == "/api/adr":
-            return self._adr(query)
-        if path == "/api/signals":
-            return self._list_signals(query)
-        if path.startswith("/api/signals/"):
-            try:
-                sig_id = int(path.rsplit("/", 1)[1])
-            except ValueError:
-                return self._error(400, "invalid signal id")
-            return self._get_signal(sig_id)
-        if path == "/api/positions":
-            return self._list_positions()
-        if path == "/api/journal":
-            return self._list_journal(query)
-        if path == "/api/journal/stats":
-            return self._journal_stats()
-        if path == "/api/kill-switch":
-            return self._kill_status()
-        if path == "/api/performance/stats":
-            return self._performance_stats(query)
-        return self._error(404, f"unknown route: {path}")
 
     def _route_post(self, path: str, body: dict) -> None:
         if path == "/api/auth/register":
