@@ -167,6 +167,7 @@ const TradingView: React.FC = () => {
   const [showFibonacci, setShowFibonacci] = useState(true);
   const [showSupportResistance, setShowSupportResistance] = useState(true);
   const [showSetups, setShowSetups] = useState(true);
+  const [showSetupGuide, setShowSetupGuide] = useState(true);
   const [cryptoAnalysis, setCryptoAnalysis] = useState<CryptoAnalysis | null>(null);
   const [chartAiAnalysis, setChartAiAnalysis] = useState<ChartAiAnalysis | null>(null);
   const [chartAiConfigured, setChartAiConfigured] = useState<boolean | null>(null);
@@ -1274,7 +1275,7 @@ const TradingView: React.FC = () => {
         const label = document.createElementNS(SVG_NS, 'text');
         label.setAttribute('x', '10'); label.setAttribute('y', String(Math.max(16, Math.min(low, high) - 7))); label.setAttribute('fill', color); label.setAttribute('font-size', '12'); label.setAttribute('font-weight', '900');
         label.setAttribute('paint-order', 'stroke'); label.setAttribute('stroke', '#080d18'); label.setAttribute('stroke-width', '4');
-        label.textContent = `${bullish ? 'BUY WATCH' : 'SELL WATCH'} · ${bullish ? 'SUPPORT' : 'RESISTANCE'} ${Number(zone.low).toFixed(2)}–${Number(zone.high).toFixed(2)}`; svg.appendChild(label);
+        label.textContent = bullish ? 'BUY AREA' : 'SELL AREA'; svg.appendChild(label);
       });
       container.appendChild(svg);
     };
@@ -1453,6 +1454,19 @@ const TradingView: React.FC = () => {
     }
   }, [selectedSymbol, timeframe, currentPrice, harmonicPatterns, adrData, trendLines, fibonacciLevels, drawings, cryptoAnalysis]);
 
+  const setupPlan = cryptoAnalysis?.trade_plan;
+  const setupCalendarStatus = String(setupPlan?.calendar_status || cryptoAnalysis?.economic_calendar?.status || '').toUpperCase();
+  const setupTimingStatus = String(setupPlan?.timing_status || cryptoAnalysis?.trade_timing?.status || 'WAIT').toUpperCase();
+  const setupHardBlocked = ['BLOCKED', 'POST_NEWS', 'UNAVAILABLE'].includes(setupCalendarStatus);
+  const setupReady = Boolean(setupPlan?.eligible) && setupTimingStatus === 'READY' && !setupHardBlocked;
+  const setupZones = (Array.isArray(cryptoAnalysis?.zones?.support_resistance) ? cryptoAnalysis.zones.support_resistance : [])
+    .filter((zone: any) => ['support', 'resistance'].includes(zone.type) && Number.isFinite(Number(zone.low)) && Number.isFinite(Number(zone.high)))
+    .filter((zone: any) => !cryptoAnalysis?.indicators?.atr || Math.abs(Number(zone.level) - currentPrice) <= Number(cryptoAnalysis.indicators.atr) * 2.5)
+    .sort((a: any, b: any) => (Number(a.distance_atr) || 99) - (Number(b.distance_atr) || 99))
+    .filter((zone: any, index: number, zones: any[]) => zones.findIndex((item) => item.type === zone.type) === index)
+    .slice(0, 2);
+  const setupPrice = (value: number | null | undefined) => value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
+
   return (
     <div ref={workspaceRef} className="relative h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 text-white flex flex-col">
       {/* Enhanced Top Controls */}
@@ -1622,7 +1636,7 @@ const TradingView: React.FC = () => {
             </button>
           </div>
         </div>
-        {showSettings && <div className="absolute right-4 top-14 z-50 w-56 rounded-xl border border-white/10 bg-[#0b1020] p-3 shadow-2xl"><div className="mb-2 text-[9px] font-black tracking-widest text-slate-500">OVERLAYS</div>{[[showHarmonics,setShowHarmonics,'Harmonics'],[showSupportResistance,setShowSupportResistance,'Support / resistance'],[showFibonacci,setShowFibonacci,'Fibonacci'],[showSetups,setShowSetups,'Possible setups'],[showManualDrawings,setShowManualDrawings,'Manual drawings']].map(([checked,setChecked,label]) => <label key={String(label)} className="flex items-center justify-between py-1.5 text-xs text-slate-300"><span>{String(label)}</span><input type="checkbox" checked={Boolean(checked)} onChange={(event) => (setChecked as React.Dispatch<React.SetStateAction<boolean>>)(event.target.checked)}/></label>)}</div>}
+        {showSettings && <div className="absolute right-4 top-14 z-50 w-56 rounded-xl border border-white/10 bg-[#0b1020] p-3 shadow-2xl"><div className="mb-2 text-[9px] font-black tracking-widest text-slate-500">OVERLAYS</div>{[[showHarmonics,setShowHarmonics,'Harmonics'],[showSupportResistance,setShowSupportResistance,'Support / resistance'],[showFibonacci,setShowFibonacci,'Fibonacci'],[showSetups,setShowSetups,'Possible setups'],[showSetupGuide,setShowSetupGuide,'Setup guide'],[showManualDrawings,setShowManualDrawings,'Manual drawings']].map(([checked,setChecked,label]) => <label key={String(label)} className="flex items-center justify-between py-1.5 text-xs text-slate-300"><span>{String(label)}</span><input type="checkbox" checked={Boolean(checked)} onChange={(event) => (setChecked as React.Dispatch<React.SetStateAction<boolean>>)(event.target.checked)}/></label>)}</div>}
       </div>
 
       {/* Manual drawing toolbar. Drawings persist independently per symbol and timeframe. */}
@@ -1653,6 +1667,7 @@ const TradingView: React.FC = () => {
         {cryptoAnalysis && <><span className="rounded bg-violet-400/10 px-2 py-1 text-violet-300">V2 {cryptoAnalysis.total_score}/100</span><span className={cryptoAnalysis.direction === 'BUY' ? 'text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.direction}</span><span>{timeframe}</span><span className="text-slate-400">{cryptoAnalysis.trade_timing?.status || 'WAIT'}</span>{cryptoAnalysis.trade_plan && <span className={`rounded px-2 py-1 ${cryptoAnalysis.trade_plan.direction === 'BUY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.trade_plan.direction === 'SELL' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 text-slate-400'}`}>{cryptoAnalysis.trade_plan.direction} SETUP {cryptoAnalysis.trade_plan.eligible ? 'ELIGIBLE' : 'WATCH'}</span>}</>}
         <button onClick={() => setShowTechnicalControls((value) => !value)} className="ml-auto rounded bg-white/[0.06] px-2.5 py-1 text-[9px] text-slate-300 hover:bg-white/[0.1]">{showTechnicalControls ? 'Hide tools' : 'Analysis tools'}</button>
         <button onClick={() => setShowChartContext((value) => !value)} className="rounded bg-cyan-400/10 px-2.5 py-1 text-[9px] text-cyan-300 hover:bg-cyan-400/20">{showChartContext ? 'Hide details' : 'Details'}</button>
+        {!showSetupGuide && <button onClick={() => setShowSetupGuide(true)} className="rounded bg-emerald-400/10 px-2.5 py-1 text-[9px] text-emerald-300 hover:bg-emerald-400/20">Guide</button>}
       </div>
 
       {showTechnicalControls && <div className="shrink-0 overflow-x-auto bg-gray-800 border-b border-gray-700 px-4 py-2">
@@ -1843,6 +1858,24 @@ const TradingView: React.FC = () => {
           ref={chartContainerRef}
           className="w-full h-full min-w-0 min-h-0 overflow-hidden"
         />
+        {showSetupGuide && setupPlan && <div className="absolute right-4 top-4 z-30 w-[min(350px,calc(100%-2rem))] rounded-xl border border-white/10 bg-[#0b1020]/95 p-3 text-xs text-slate-300 shadow-2xl backdrop-blur">
+          <div className="flex items-center justify-between gap-3">
+            <span className="font-black tracking-widest text-cyan-300">SETUP GUIDE</span>
+            <div className="flex items-center gap-2">
+              <span className={`rounded px-2 py-1 text-[9px] font-black ${setupReady ? 'bg-emerald-400/15 text-emerald-300' : setupHardBlocked ? 'bg-rose-400/15 text-rose-300' : 'bg-amber-400/15 text-amber-300'}`}>{setupReady ? `${setupPlan.direction} READY` : setupHardBlocked ? 'BLOCKED' : 'WAIT'}</span>
+              <button onClick={() => setShowSetupGuide(false)} className="rounded px-1.5 py-0.5 text-slate-500 hover:bg-white/[0.08] hover:text-slate-200" aria-label="Hide setup guide">×</button>
+            </div>
+          </div>
+          {setupPlan.direction !== 'NEUTRAL' && setupPlan.entry != null ? <div className="mt-3 space-y-2">
+            <div className="flex justify-between gap-3"><span className="text-slate-500">Possible {setupPlan.direction.toLowerCase()} area</span><b className={setupPlan.direction === 'BUY' ? 'text-emerald-300' : 'text-rose-300'}>{setupPrice(setupPlan.entry)}</b></div>
+            <div className="flex justify-between gap-3"><span className="text-slate-500">Invalid if price reaches</span><b className="text-rose-300">{setupPrice(setupPlan.stop ?? setupPlan.invalidation)}</b></div>
+            <div className="flex justify-between gap-3"><span className="text-slate-500">Targets</span><b className="text-cyan-300">{setupPlan.targets?.slice(0, 3).map((target) => setupPrice(target.price)).join(' · ') || 'Waiting'}</b></div>
+          </div> : <div className="mt-3 space-y-2">
+            <p className="font-semibold text-slate-200">No confirmed buy or sell yet.</p>
+            {setupZones.map((zone: any) => <div key={`${zone.type}-${zone.level}`} className="flex justify-between gap-3"><span className={zone.type === 'support' ? 'text-emerald-300' : 'text-rose-300'}>{zone.type === 'support' ? 'BUY area' : 'SELL area'}</span><b className="text-slate-200">{setupPrice(zone.low)} – {setupPrice(zone.high)}</b></div>)}
+          </div>}
+          <p className="mt-3 border-t border-white/[0.08] pt-2 text-[10px] leading-relaxed text-slate-500">{setupReady ? 'Deterministic gates are clear. Confirm the trigger before acting.' : setupHardBlocked ? 'Calendar gate is blocking this setup.' : `Wait for ${(cryptoAnalysis?.trade_timing?.wait_for || ['confirmation']).slice(0, 2).join(' and ').replace(/_/g, ' ')}.`}</p>
+        </div>}
         {showManualDrawings && <svg data-revision={drawingRevision} className="absolute inset-0 z-20 h-full w-full" style={{ pointerEvents: drawingTool === 'pan' ? 'none' : 'auto', cursor: drawingTool === 'select' ? 'default' : drawingTool === 'pan' ? 'grab' : 'crosshair' }} onPointerDown={handleDrawingPointerDown} onPointerMove={handleDrawingPointerMove} onPointerUp={handleDrawingPointerUp}>
           {[...drawings, ...(draftDrawing ? [draftDrawing] : [])].map((drawing) => {
             const points = drawingCoordinates(drawing); if (!points.length || points.some((point) => point.x == null || point.y == null)) return null;
