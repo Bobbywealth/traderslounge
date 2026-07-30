@@ -11,6 +11,19 @@ from .lifecycle_manager import stabilize_direction
 from .trade_planner import build_trade_plan
 
 
+def _reason_key(reason: Any) -> str:
+    """Return a stable, hashable bucket key for a plan rejection reason.
+
+    ``build_trade_plan`` emits structured reason dicts (e.g. ``{"code": ...,
+    "message": ...}``) via ``scanner.reason_codes``. Older call sites and
+    tests can still produce bare strings. We collapse both to a stable
+    string so the aggregate counter is hashable.
+    """
+    if isinstance(reason, dict):
+        return str(reason.get("code") or reason.get("message") or repr(reason))
+    return str(reason)
+
+
 def _before(candles, timestamp, limit):
     return [c for c in candles if c.time <= timestamp][-limit:]
 
@@ -71,7 +84,7 @@ def run_v2_backtest(pair, d1, h4, h1, m15, stride=4, maximum_holding_bars=96, mi
         analysis["trade_timing"] = timing
         plan = build_trade_plan(snap, analysis, {"status": "CLEAR"}, primary_candles=snap.m15)
         if not plan["eligible"]:
-            for reason in plan.get("reasons", [])[:1]: blocked[reason] += 1
+            for reason in plan.get("reasons", [])[:1]: blocked[_reason_key(reason)] += 1
             index += stride
             continue
         candidates += 1
