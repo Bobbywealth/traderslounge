@@ -3,7 +3,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronDown,
-  CircleAlert,
+  AlertCircle,
   ClipboardList,
   Gauge,
   ShieldAlert,
@@ -49,7 +49,7 @@ const readinessTone = (status?: string) =>
 
 const EvidenceIcon: React.FC<{ status?: DecisionEvidence['status'] }> = ({ status }) => {
   if (status === 'confirmed') return <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 flex-none text-emerald-400" />;
-  if (status === 'conflict') return <CircleAlert className="mt-0.5 h-3.5 w-3.5 flex-none text-rose-400" />;
+  if (status === 'conflict') return <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-none text-rose-400" />;
   return <div className="mt-1.5 h-1.5 w-1.5 flex-none rounded-full bg-violet-400" />;
 };
 
