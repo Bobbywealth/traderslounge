@@ -22,7 +22,10 @@ describe('createChartApiClient', () => {
 
     expect(fetchImpl).toHaveBeenCalledWith(
       'https://example.test/api/candles?pair=BTCUSD&timeframe=1h&limit=2',
-      expect.objectContaining({ signal: undefined }),
+      expect.objectContaining({
+        signal: undefined,
+        headers: { Accept: 'application/json' },
+      }),
     );
     expect(candles).toEqual([
       { time: 1_700_000_000, open: 1.5, high: 3, low: 1, close: 2.5 },
@@ -39,7 +42,10 @@ describe('createChartApiClient', () => {
 
     expect(fetchImpl).toHaveBeenCalledWith(
       '/api/candles?pair=ETHUSD&timeframe=5m',
-      { signal: controller.signal },
+      {
+        signal: controller.signal,
+        headers: { Accept: 'application/json' },
+      },
     );
   });
 
