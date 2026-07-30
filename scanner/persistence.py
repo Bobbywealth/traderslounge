@@ -91,6 +91,43 @@ CREATE TABLE IF NOT EXISTS lifecycle_events (
 );
 CREATE INDEX IF NOT EXISTS idx_lifecycle_setup ON lifecycle_events(setup_id, timestamp DESC);
 
+CREATE TABLE IF NOT EXISTS analysis_forecasts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fingerprint TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    pair TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    forecast_weight REAL NOT NULL,
+    weight_label TEXT NOT NULL DEFAULT 'scenario_weight',
+    setup_type TEXT,
+    session TEXT,
+    volatility_regime TEXT,
+    score INTEGER,
+    setup_quality_score INTEGER,
+    execution_readiness_score INTEGER,
+    entry REAL,
+    stop_loss REAL,
+    target REAL,
+    engine_version TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'PENDING'
+);
+CREATE INDEX IF NOT EXISTS idx_forecasts_dimensions ON analysis_forecasts(pair, timeframe, setup_type, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS forecast_outcomes (
+    forecast_id INTEGER PRIMARY KEY,
+    resolved_at TEXT NOT NULL,
+    outcome INTEGER NOT NULL,
+    r_multiple REAL,
+    mae_r REAL,
+    mfe_r REAL,
+    holding_bars INTEGER,
+    exit_reason TEXT,
+    review_json TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY(forecast_id) REFERENCES analysis_forecasts(id)
+);
+
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT UNIQUE NOT NULL,
@@ -241,6 +278,75 @@ class SQLiteRepository:
             (setup_id, limit),
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def save_forecast(self, payload: dict) -> int:
+        self.conn.execute(
+            """
+            INSERT INTO analysis_forecasts (
+                fingerprint, created_at, pair, timeframe, direction,
+                forecast_weight, weight_label, setup_type, session,
+                volatility_regime, score, setup_quality_score,
+                execution_readiness_score, entry, stop_loss, target,
+                engine_version, metadata_json, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(fingerprint) DO UPDATE SET metadata_json = excluded.metadata_json
+            """,
+            (
+                payload["fingerprint"], payload["created_at"], payload["pair"],
+                payload["timeframe"], payload["direction"], payload["forecast_weight"],
+                payload.get("weight_label", "scenario_weight"), payload.get("setup_type"),
+                payload.get("session"), payload.get("volatility_regime"), payload.get("score"),
+                payload.get("setup_quality_score"), payload.get("execution_readiness_score"),
+                payload.get("entry"), payload.get("stop_loss"), payload.get("target"),
+                payload.get("engine_version"), json.dumps(payload.get("metadata") or {}),
+                payload.get("status", "PENDING"),
+            ),
+        )
+        row = self.conn.execute(
+            "SELECT id FROM analysis_forecasts WHERE fingerprint = ?", (payload["fingerprint"],)
+        ).fetchone()
+        return int(row["id"])
+
+    def save_forecast_outcome(self, payload: dict) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO forecast_outcomes (
+                forecast_id, resolved_at, outcome, r_multiple, mae_r, mfe_r,
+                holding_bars, exit_reason, review_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(forecast_id) DO UPDATE SET
+                resolved_at = excluded.resolved_at, outcome = excluded.outcome,
+                r_multiple = excluded.r_multiple, mae_r = excluded.mae_r,
+                mfe_r = excluded.mfe_r, holding_bars = excluded.holding_bars,
+                exit_reason = excluded.exit_reason, review_json = excluded.review_json
+            """,
+            (
+                payload["forecast_id"], payload["resolved_at"], int(bool(payload["outcome"])),
+                payload.get("r_multiple"), payload.get("mae_r"), payload.get("mfe_r"),
+                payload.get("holding_bars"), payload.get("exit_reason"),
+                json.dumps(payload.get("review") or {}),
+            ),
+        )
+        self.conn.execute("UPDATE analysis_forecasts SET status = 'RESOLVED' WHERE id = ?", (payload["forecast_id"],))
+
+    def forecast_rows(self, limit: int = 5000) -> List[dict]:
+        rows = self.conn.execute(
+            """
+            SELECT f.*, o.resolved_at, o.outcome, o.r_multiple, o.mae_r,
+                   o.mfe_r, o.holding_bars, o.exit_reason, o.review_json
+            FROM analysis_forecasts f
+            LEFT JOIN forecast_outcomes o ON o.forecast_id = f.id
+            ORDER BY f.created_at DESC LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        output = []
+        for row in rows:
+            item = dict(row)
+            item["metadata"] = json.loads(item.pop("metadata_json") or "{}")
+            item["review"] = json.loads(item.pop("review_json") or "{}")
+            output.append(item)
+        return output
 
     def close(self) -> None:
         self.conn.close()

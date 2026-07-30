@@ -22,6 +22,17 @@ class TestHarmonicDetector(unittest.TestCase):
         self.assertEqual(result["name"], "Gartley")
         self.assertEqual(result["direction"], "bullish")
         self.assertAlmostEqual(result["prz"], 21.4)
+        self.assertEqual(result["status"], "candidate")
+        self.assertFalse(result["validated"])
+        self.assertFalse(result["forward_validation"]["available"])
+        self.assertEqual(result["pivot_coordinates"]["D"]["price"], 21.4)
+        self.assertIn("target", result["ratio_validation"]["ab_xa"])
+        self.assertIn("tolerance", result["ratio_validation"]["ab_xa"])
+        self.assertIn("error", result["ratio_validation"]["ab_xa"])
+        self.assertIn("lower", result["prz_zone"])
+        self.assertEqual(result["invalidation"]["price"], 0.0)
+        self.assertIn("deductions", result["geometry_quality"])
+        self.assertIn("alternative", result)
 
     def test_bearish_gartley(self):
         result = detect_from_swings(

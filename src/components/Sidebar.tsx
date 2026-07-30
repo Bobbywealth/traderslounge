@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import ConfluenceXLogo from './ConfluenceXLogo';
 import {
   Activity, BarChart3, BookOpen, Calendar, ChevronLeft, ChevronRight,
-  LayoutDashboard, Zap,
+  FlaskConical, LayoutDashboard, Zap,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -16,6 +16,7 @@ const navigation = [
   { name: 'Live Scanner', href: '/scanner', icon: Activity },
   { name: 'Signals', href: '/signals', icon: Zap },
   { name: 'Chart', href: '/tradingview', icon: BarChart3 },
+  { name: 'Validation', href: '/backtester', icon: FlaskConical },
   { name: 'Calendar', href: '/calendar', icon: Calendar },
   { name: 'Journal', href: '/journal', icon: BookOpen },
 ];

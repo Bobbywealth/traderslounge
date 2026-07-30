@@ -87,10 +87,14 @@ def enrich_with_plan(analysis: dict[str, Any]) -> dict[str, Any]:
     base = 100 - bullish - bearish
 
     institutional["scenario_analysis"] = {
-        "method": "rule_based_estimate_not_calibrated_forecast",
-        "bull_case": {"probability_pct": bullish, "target": plan.get("tp2") or plan.get("tp1"), "catalysts": ["higher-timeframe alignment", "volume and structure confirmation"]},
-        "base_case": {"probability_pct": base, "expected_range": _range(plan.get("stop"), plan.get("tp1")), "catalysts": ["continued consolidation", "mixed confirmation"]},
-        "bear_case": {"probability_pct": bearish, "target": plan.get("tp2") or plan.get("tp1") if direction == "SELL" else plan.get("stop"), "risk_factors": list(plan.get("reasons") or [])[:4] or ["structure invalidation"]},
+        "label": "Scenario Weights",
+        "method": "rule_based_weight_not_calibrated_probability",
+        "calibrated": False,
+        "position_sizing_allowed": False,
+        "disclaimer": "These are deterministic scenario weights, not empirical forecast probabilities, and they never drive position sizing.",
+        "bull_case": {"weight_pct": bullish, "probability_pct": bullish, "target": plan.get("tp2") or plan.get("tp1"), "catalysts": ["higher-timeframe alignment", "volume and structure confirmation"]},
+        "base_case": {"weight_pct": base, "probability_pct": base, "expected_range": _range(plan.get("stop"), plan.get("tp1")), "catalysts": ["continued consolidation", "mixed confirmation"]},
+        "bear_case": {"weight_pct": bearish, "probability_pct": bearish, "target": plan.get("tp2") or plan.get("tp1") if direction == "SELL" else plan.get("stop"), "risk_factors": list(plan.get("reasons") or [])[:4] or ["structure invalidation"]},
     }
     institutional["trading_strategies"] = _horizon_plans(plan, direction)
     institutional["risk_assessment"] = {

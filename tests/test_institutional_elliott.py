@@ -57,6 +57,13 @@ class TestElliott(unittest.TestCase):
         self.assertIn("next_expected", primary)
         self.assertIn("rules_passed", primary)
         self.assertIn("rules_failed", primary)
+        self.assertEqual(result["candidate_status"], "candidate_unvalidated")
+        self.assertFalse(result["validated"])
+        self.assertFalse(result["forward_validation"]["available"])
+        self.assertEqual(primary["status"], "candidate")
+        self.assertIn("pivot_quality", primary)
+        self.assertIn("rule_score", primary)
+        self.assertIsNotNone(result["alternative"])
 
     def test_corrective_setup(self):
         snap = _corrective_setup()

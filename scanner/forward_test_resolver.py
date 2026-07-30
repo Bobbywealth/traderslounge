@@ -27,6 +27,7 @@ class ResolutionResult:
     r_result: Optional[float]  # Final R multiple
     holding_bars: int
     ambiguity_note: Optional[str] = None
+    review: Optional[dict] = None
 
 class ForwardTestResolver:
     def __init__(self, market_client, ledger):
@@ -61,8 +62,10 @@ class ForwardTestResolver:
         
         stop_hit = False
         tp_hit = None  # 1, 2, or 3
-        highest_mfe = 0
-        lowest_mae = 0
+        highest_mfe = 0.0
+        highest_mae = 0.0
+        exit_bar_idx = None
+        exit_price = None
         
         for idx, bar in enumerate(bars):
             high, low, close = bar.high, bar.low, bar.close
@@ -84,38 +87,38 @@ class ForwardTestResolver:
                     mfe = (high - entry_price) / (stop_price - entry_price) if entry_price > stop_price else 0
                     mae = (entry_price - low) / (entry_price - stop_price) if entry_price > stop_price else 0
                 else:
-                    mfe = (entry_price - low) / (entry_price - stop_price) if entry_price < stop_price else 0
-                    mae = (high - entry_price) / (entry_price - stop_price) if entry_price < stop_price else 0
+                    mfe = (entry_price - low) / (stop_price - entry_price) if entry_price < stop_price else 0
+                    mae = (high - entry_price) / (stop_price - entry_price) if entry_price < stop_price else 0
                 
                 highest_mfe = max(highest_mfe, mfe)
-                lowest_mae = min(lowest_mae, mae)
+                highest_mae = max(highest_mae, mae)
                 
                 # Check exit conditions
                 if direction == 'BUY':
                     if low <= stop_price:
-                        stop_hit = True
+                        stop_hit, exit_bar_idx, exit_price = True, idx, stop_price
                         break
                     if high >= tp3:
-                        tp_hit = 3
+                        tp_hit, exit_bar_idx, exit_price = 3, idx, tp3
                         break
                     if high >= tp2:
-                        tp_hit = 2
+                        tp_hit, exit_bar_idx, exit_price = 2, idx, tp2
                         break
                     if high >= tp1:
-                        tp_hit = 1
+                        tp_hit, exit_bar_idx, exit_price = 1, idx, tp1
                         break
                 else:  # SELL
                     if high >= stop_price:
-                        stop_hit = True
+                        stop_hit, exit_bar_idx, exit_price = True, idx, stop_price
                         break
                     if low <= tp3:
-                        tp_hit = 3
+                        tp_hit, exit_bar_idx, exit_price = 3, idx, tp3
                         break
                     if low <= tp2:
-                        tp_hit = 2
+                        tp_hit, exit_bar_idx, exit_price = 2, idx, tp2
                         break
                     if low <= tp1:
-                        tp_hit = 1
+                        tp_hit, exit_bar_idx, exit_price = 1, idx, tp1
                         break
         
         # Determine final result
@@ -151,18 +154,41 @@ class ForwardTestResolver:
             # Expired without hitting target or stop
             r_result = highest_mfe - 1.0  # Conservative: assume partial loss
             exit_reason = ExitReason.EXPIRED
-        
-        return ResolutionResult(
+            exit_bar_idx = len(bars) - 1 if bars else entry_bar_idx
+            exit_price = bars[exit_bar_idx].close if exit_bar_idx is not None else entry_price
+
+        review = {
+            "result": "win" if (r_result or 0) > 0 else "loss" if (r_result or 0) < 0 else "flat",
+            "what_happened": exit_reason.value,
+            "maximum_favorable_excursion_r": round(highest_mfe, 4),
+            "maximum_adverse_excursion_r": round(highest_mae, 4),
+            "lesson": "Target reached before invalidation." if tp_hit else "Invalidation or time expiry occurred before the target.",
+        }
+        result = ResolutionResult(
             setup_id=setup['id'],
             snapshot_id=setup['snapshot_id'],
             entry_triggered=True,
-            entry_time=bars[entry_bar_idx].time.isoformat() if entry_bar_idx else None,
+            entry_time=bars[entry_bar_idx].time.isoformat() if entry_bar_idx is not None else None,
             entry_price=entry_price,
             exit_reason=exit_reason,
-            exit_time=bars[entry_bar_idx + (tp_hit or 1) - 1].time.isoformat() if entry_bar_idx else None,
+            exit_time=bars[exit_bar_idx].time.isoformat() if exit_bar_idx is not None else None,
             exit_price=exit_price,
             mfe=highest_mfe,
-            mae=lowest_mae,
+            mae=highest_mae,
             r_result=r_result,
-            holding_bars=entry_bar_idx + (tp_hit or 1) if entry_bar_idx else 0
+            holding_bars=max(0, (exit_bar_idx or 0) - (entry_bar_idx or 0) + 1),
+            review=review,
         )
+        if hasattr(self.ledger, "save_forecast_outcome") and setup.get("forecast_id") is not None:
+            self.ledger.save_forecast_outcome({
+                "forecast_id": setup["forecast_id"],
+                "resolved_at": result.exit_time or datetime.now(timezone.utc).isoformat(),
+                "outcome": bool((result.r_result or 0) > 0),
+                "r_multiple": result.r_result,
+                "mae_r": result.mae,
+                "mfe_r": result.mfe,
+                "holding_bars": result.holding_bars,
+                "exit_reason": result.exit_reason.value if result.exit_reason else None,
+                "review": review,
+            })
+        return result

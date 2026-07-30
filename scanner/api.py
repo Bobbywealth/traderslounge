@@ -51,6 +51,8 @@ from .persistence import SignalRepository
 from .trade_planner import build_trade_plan
 from .published_signals import build_published_signal
 from .institutional_analysis import enrich_with_plan
+from .decision_quality import attach_decision_quality
+from .validation_metrics import calibration_report, grouped_calibration, walk_forward_report
 from .v2_backtester import run_v2_backtest
 from .trade_repo import ClosedTradeRepository, PositionRepository
 from .auth import (
@@ -405,6 +407,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 return self._kill_status()
             if path == "/api/performance/stats":
                 return self._performance_stats(query)
+            if path == "/api/validation/report":
+                return self._validation_report(query)
             return self._error(404, f"unknown route: {path}")
         finally:
             duration_ms = (time.time() - start_time) * 1000
@@ -826,8 +830,9 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 analysis["zones"]["setup_zones"] = _build_setup_zones(price=float(selected_candles[-1].close), atr_value=analysis.get("indicators", {}).get("atr"), zones=analysis.get("zones", {}), indicators=analysis.get("indicators", {}), direction=analysis.get("direction", "NEUTRAL"), market_context=analysis.get("market_context", {}), trade_timing=analysis.get("trade_timing", {}))
             analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar, primary_candles=selected_candles)
             enrich_with_plan(analysis)
-            self._publish_actionable_analysis(analysis)
             self._attach_institutional_block(analysis, snapshot, selected_timeframe)
+            analysis = attach_decision_quality(analysis, calendar=calendar)
+            self._publish_actionable_analysis(analysis)
         except Exception as exc:
             stale = self._cache_get(cache_key, allow_stale=True)
             if stale is not None:
@@ -984,13 +989,26 @@ class _ApiHandler(BaseHTTPRequestHandler):
             }
             prz = float(match["prz"])
             width = max(abs(prz) * 0.0015, 1e-8)
+            candidate_zone = match.get("prz_zone") or {}
             body = {
-                "pair": pair, "timeframe": timeframe, "status": "completed",
+                "pair": pair, "timeframe": timeframe, "status": "candidate",
                 "pattern": {
                     "name": match["name"], "direction": match["direction"],
-                    "prz": {"price": prz, "low": prz - width, "high": prz + width},
-                    "points": points, "ratios": match["ratios"],
+                    "candidate_status": match.get("candidate_status", "candidate_unvalidated"),
+                    "validated": False,
+                    "prz": {
+                        "price": prz,
+                        "low": candidate_zone.get("lower", prz - width),
+                        "high": candidate_zone.get("upper", prz + width),
+                    },
+                    "points": points, "pivots": match.get("pivot_coordinates") or {},
+                    "ratios": match["ratios"], "ratio_validation": match.get("ratio_validation") or {},
+                    "invalidation": match.get("invalidation"),
+                    "alternative": match.get("alternative_interpretation"),
+                    "geometry_quality": match.get("geometry_quality"),
+                    "forward_validation": match.get("forward_validation"),
                 },
+                "warning": "Candidate only. Pattern geometry has not yet passed forward outcome validation.",
             }
         self._cache_set(cache_key, body, ttl=30, stale_ttl=120)
         self._json(200, body)
@@ -1033,12 +1051,46 @@ class _ApiHandler(BaseHTTPRequestHandler):
 
     def _publish_actionable_analysis(self, analysis: dict) -> None:
         payload = build_published_signal(analysis)
-        if payload is None or not hasattr(_STATE.repository, "publish_actionable"):
+        if payload is None:
             return
         try:
-            _STATE.repository.publish_actionable(payload)
+            if hasattr(_STATE.repository, "publish_actionable"):
+                _STATE.repository.publish_actionable(payload)
+            if hasattr(_STATE.repository, "save_forecast"):
+                quality = analysis.get("decision_quality") or {}
+                weights = ((quality.get("scenario_weights") or {}).get("weights") or {})
+                direction = str(payload["direction"]).upper()
+                primary_label = "bull" if direction == "BUY" else "bear"
+                plan = analysis.get("trade_plan") or {}
+                timing = analysis.get("trade_timing") or {}
+                locations = timing.get("location_signals") or ["unspecified"]
+                _STATE.repository.save_forecast({
+                    "fingerprint": payload["fingerprint"],
+                    "created_at": payload["published_at"].isoformat(),
+                    "pair": payload["pair"],
+                    "timeframe": payload["timeframe"],
+                    "direction": direction,
+                    "forecast_weight": float(weights.get(primary_label, 0.0)) / 100.0,
+                    "weight_label": "scenario_weight_uncalibrated",
+                    "setup_type": "+".join(sorted(map(str, locations))),
+                    "session": ((timing.get("session") or {}).get("name")),
+                    "volatility_regime": ((timing.get("regime") or {}).get("name") or (timing.get("regime") or {}).get("volatility") or "unknown"),
+                    "score": payload["score"],
+                    "setup_quality_score": quality.get("setup_quality"),
+                    "execution_readiness_score": quality.get("execution_readiness"),
+                    "entry": payload["entry"],
+                    "stop_loss": payload["stop_loss"],
+                    "target": payload["tp1"],
+                    "engine_version": payload["engine_version"],
+                    "metadata": {
+                        "calibrated": False,
+                        "position_sizing_allowed": False,
+                        "risk_profile": quality.get("financial_risk_profile") or {},
+                        "evidence_ledger": quality.get("evidence_ledger") or {},
+                    },
+                })
         except Exception:
-            logging.exception("failed to publish actionable V2 signal for %s", analysis.get("pair"))
+            logging.exception("failed to persist actionable V2 forecast for %s", analysis.get("pair"))
 
     def _list_signals(self, query: dict) -> None:
         limit = _clamp_int(query.get("limit"), default=50, lo=1, hi=500)
@@ -1217,6 +1269,36 @@ class _ApiHandler(BaseHTTPRequestHandler):
             })
         except Exception as exc:
             return self._error(500, f"performance stats unavailable: {exc}")
+
+    def _validation_report(self, query: dict) -> None:
+        """Return live outcome calibration without treating scenario weights as probabilities."""
+        repo = _STATE.repository
+        limit = _clamp_int(query.get("limit"), default=5000, lo=100, hi=20000)
+        if not hasattr(repo, "forecast_rows"):
+            return self._json(200, {
+                "status": "INSUFFICIENT_DATA", "pending": 0, "resolved": 0,
+                "calibration": calibration_report([]), "segments": {},
+                "walk_forward": walk_forward_report([]),
+                "warning": "Outcome ledger is not configured. Scenario weights remain uncalibrated and cannot drive sizing.",
+            })
+        try:
+            rows = repo.forecast_rows(limit=limit)
+            resolved = [row for row in rows if row.get("outcome") is not None]
+            dimensions = ("pair", "timeframe", "volatility_regime", "session", "setup_type")
+            report = calibration_report(resolved)
+            status = "CALIBRATED" if report.get("calibrated") else "INSUFFICIENT_DATA"
+            return self._json(200, {
+                "status": status,
+                "pending": len(rows) - len(resolved),
+                "resolved": len(resolved),
+                "calibration": report,
+                "segments": grouped_calibration(resolved, dimensions),
+                "walk_forward": walk_forward_report(resolved),
+                "warning": "Scenario weights are not forecast probabilities and never drive sizing until this report reaches a defensible calibrated sample.",
+                "dimensions": list(dimensions),
+            })
+        except Exception as exc:
+            return self._error(500, f"validation report unavailable: {exc}")
 
     def _kill_status(self) -> None:
         ks = _STATE.kill_switch
@@ -1467,8 +1549,9 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 analysis["zones"]["setup_zones"] = _build_setup_zones(price=float(selected_candles[-1].close), atr_value=analysis.get("indicators", {}).get("atr"), zones=analysis.get("zones", {}), indicators=analysis.get("indicators", {}), direction=analysis.get("direction", "NEUTRAL"), market_context=analysis.get("market_context", {}), trade_timing=analysis.get("trade_timing", {}))
             analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar, primary_candles=selected_candles)
             enrich_with_plan(analysis)
-            self._publish_actionable_analysis(analysis)
             self._attach_institutional_block(analysis, snapshot, "H1")
+            analysis = attach_decision_quality(analysis, calendar=calendar)
+            self._publish_actionable_analysis(analysis)
             self._cache_set(cache_key, analysis, ttl=20, stale_ttl=120)
             return analysis
         except Exception as exc:

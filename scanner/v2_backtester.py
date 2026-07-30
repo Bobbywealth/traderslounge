@@ -9,6 +9,8 @@ from .crypto_analysis import analyze_crypto
 from .data_types import Candle, MarketSnapshot
 from .lifecycle_manager import stabilize_direction
 from .trade_planner import build_trade_plan
+from .decision_quality import attach_decision_quality
+from .validation_metrics import calibration_report, grouped_calibration, walk_forward_report
 
 
 def _before(candles, timestamp, limit):
@@ -70,6 +72,8 @@ def run_v2_backtest(pair, d1, h4, h1, m15, stride=4, maximum_holding_bars=96, mi
             timing.setdefault("wait_for", []).append("signal stability")
         analysis["trade_timing"] = timing
         plan = build_trade_plan(snap, analysis, {"status": "CLEAR"}, primary_candles=snap.m15)
+        analysis["trade_plan"] = plan
+        analysis = attach_decision_quality(analysis, calendar={"status": "CLEAR"})
         if not plan["eligible"]:
             for reason in plan.get("reasons", [])[:1]: blocked[reason] += 1
             index += stride
@@ -92,8 +96,14 @@ def run_v2_backtest(pair, d1, h4, h1, m15, stride=4, maximum_holding_bars=96, mi
         exit_index = min(len(m15)-1, index+maximum_holding_bars)
         cost_r = fill_cost_r
         outcome, exit_price, r_multiple = "timeout", float(m15[exit_index].close), 0.0
+        maximum_favorable_excursion_r = 0.0
+        maximum_adverse_excursion_r = 0.0
         for cursor in range(index+1, exit_index+1):
             bar = m15[cursor]
+            favorable = (bar.high-entry)/risk if direction == "BUY" else (entry-bar.low)/risk
+            adverse = (entry-bar.low)/risk if direction == "BUY" else (bar.high-entry)/risk
+            maximum_favorable_excursion_r = max(maximum_favorable_excursion_r, favorable)
+            maximum_adverse_excursion_r = max(maximum_adverse_excursion_r, adverse)
             stop_hit = bar.low <= stop if direction == "BUY" else bar.high >= stop
             target_hit = bar.high >= target if direction == "BUY" else bar.low <= target
             if stop_hit:  # conservative when both occur in one candle
@@ -108,10 +118,22 @@ def run_v2_backtest(pair, d1, h4, h1, m15, stride=4, maximum_holding_bars=96, mi
         locations = timing.get("location_signals") or ["unknown"]
         confirmations = timing.get("confirmation_signals") or ["unknown"]
         score = int(analysis.get("total_score") or 0)
-        trades.append({"entry_time": next_bar.time, "exit_time": m15[exit_index].time, "direction": direction, "entry": entry,
+        quality = analysis.get("decision_quality") or {}
+        weights = ((quality.get("scenario_weights") or {}).get("weights") or {})
+        primary_label = "bull" if direction == "BUY" else "bear"
+        regime = timing.get("regime") or {}
+        trades.append({"entry_time": next_bar.time, "timestamp": next_bar.time, "exit_time": m15[exit_index].time,
+                       "pair": pair, "asset": pair, "direction": direction, "entry": entry,
                        "stop": stop, "target_2r": target, "exit": exit_price, "outcome": outcome, "r_multiple": r_multiple,
-                       "score": score, "cost_r": cost_r, "score_band": f"{score//10*10}-{score//10*10+9}", "timeframe": timeframe,
+                       "mae_r": maximum_adverse_excursion_r, "mfe_r": maximum_favorable_excursion_r,
+                       "forecast_weight": float(weights.get(primary_label, 0.0))/100.0,
+                       "weight_kind": "scenario_weight_uncalibrated", "position_sizing_allowed": False,
+                       "score": score, "setup_quality_score": quality.get("setup_quality"),
+                       "execution_readiness_score": quality.get("execution_readiness"),
+                       "cost_r": cost_r, "score_band": f"{score//10*10}-{score//10*10+9}", "timeframe": timeframe,
                        "session": (timing.get("session") or {}).get("name"), "setup": "+".join(sorted(locations)),
+                       "setup_type": "+".join(sorted(locations)),
+                       "volatility_regime": regime.get("name") or regime.get("volatility") or "unknown",
                        "confirmation": "+".join(sorted(confirmations)), "macro_bias": (analysis.get("market_context") or {}).get("macro_bias")})
         index = exit_index+1
 
@@ -126,9 +148,16 @@ def run_v2_backtest(pair, d1, h4, h1, m15, stride=4, maximum_holding_bars=96, mi
                   "positive_time_slices": positive_slices, "required_positive_time_slices": 3,
                   "warning": "Do not optimize or deploy thresholds from a small sample."}
     history_seconds = (m15[-1].time-m15[0].time) if len(m15) > 1 else 0
-    return {"version": "2.0.0", "pair": pair, "timeframe": timeframe, "bars": len(m15), "history": {"start": m15[0].time if m15 else None, "end": m15[-1].time if m15 else None, "years": history_seconds/(365.25*86400)}, "candidates": candidates,
-            "rules": {"minimum_score": 60, "minimum_rr": 2.0, "entry": "next candle open", "target": "absolute structural TP2", "same_bar_policy": "stop first", "maximum_holding_bars": maximum_holding_bars, "round_trip_cost_bps": round_trip_cost_bps, "scan_stride_bars": stride},
+    calibration = calibration_report(out_sample)
+    calibration_dimensions = ("pair", "timeframe", "volatility_regime", "session", "setup_type")
+    return {"version": "2.1.0", "pair": pair, "timeframe": timeframe, "bars": len(m15), "history": {"start": m15[0].time if m15 else None, "end": m15[-1].time if m15 else None, "years": history_seconds/(365.25*86400)}, "candidates": candidates,
+            "rules": {"minimum_score": 60, "minimum_rr": 2.0, "entry": "next candle open", "target": "absolute structural TP2", "same_bar_policy": "stop first", "maximum_holding_bars": maximum_holding_bars, "round_trip_cost_bps": round_trip_cost_bps, "scan_stride_bars": stride, "scenario_weights_drive_sizing": False},
             "overall": _metrics(trades), "in_sample_70pct": _metrics(in_sample), "out_of_sample_30pct": out_sample_metrics, "time_slices": time_slices, "validation": validation,
+            "calibration": calibration, "reliability_curve": calibration.get("reliability_bins", []),
+            "walk_forward": walk_forward_report(trades),
+            "calibration_segments": grouped_calibration(out_sample, calibration_dimensions),
+            "calibration_disclaimer": "Scenario weights are uncalibrated and never drive sizing until sufficient out-of-sample evidence passes calibration thresholds.",
             "by_setup": _group(trades, "setup"), "by_confirmation": _group(trades, "confirmation"),
             "by_score_band": _group(trades, "score_band"), "by_session": _group(trades, "session"),
+            "by_volatility_regime": _group(trades, "volatility_regime"),
             "blocked_reasons": dict(sorted(blocked.items(), key=lambda item: item[1], reverse=True)[:10]), "trades": trades[-100:]}

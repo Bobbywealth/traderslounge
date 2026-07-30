@@ -4,9 +4,6 @@ Simulates the live failure mode (MiniMax vision hits the token limit and cuts
 off mid risk_factors with no closing arrays/root) and confirms the repair
 recovers the complete structured data instead of raising RuntimeError.
 """
-import sys
-sys.path.insert(0, '/Users/bobbyc/.aside/u/0/sessions/2026-07-30_Vw1NReYaNrgbsS8f/tmp/tl')
-
 from scanner.minimax_client import _extract_json, _repair_truncated_json
 
 

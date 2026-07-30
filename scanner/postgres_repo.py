@@ -70,6 +70,42 @@ CREATE TABLE IF NOT EXISTS published_signals (
 );
 CREATE INDEX IF NOT EXISTS idx_published_signals_time ON published_signals(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_published_signals_status ON published_signals(status, published_at DESC);
+
+CREATE TABLE IF NOT EXISTS analysis_forecasts (
+    id BIGSERIAL PRIMARY KEY,
+    fingerprint TEXT NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL,
+    pair TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    forecast_weight DOUBLE PRECISION NOT NULL,
+    weight_label TEXT NOT NULL DEFAULT 'scenario_weight',
+    setup_type TEXT,
+    session TEXT,
+    volatility_regime TEXT,
+    score INTEGER,
+    setup_quality_score INTEGER,
+    execution_readiness_score INTEGER,
+    entry DOUBLE PRECISION,
+    stop_loss DOUBLE PRECISION,
+    target DOUBLE PRECISION,
+    engine_version TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status TEXT NOT NULL DEFAULT 'PENDING'
+);
+CREATE INDEX IF NOT EXISTS idx_forecasts_dimensions ON analysis_forecasts(pair, timeframe, setup_type, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS forecast_outcomes (
+    forecast_id BIGINT PRIMARY KEY REFERENCES analysis_forecasts(id),
+    resolved_at TIMESTAMPTZ NOT NULL,
+    outcome BOOLEAN NOT NULL,
+    r_multiple DOUBLE PRECISION,
+    mae_r DOUBLE PRECISION,
+    mfe_r DOUBLE PRECISION,
+    holding_bars INTEGER,
+    exit_reason TEXT,
+    review JSONB NOT NULL DEFAULT '{}'::jsonb
+);
 """
 
 
@@ -171,6 +207,73 @@ class PostgresRepository:
                     "SELECT * FROM published_signals ORDER BY published_at DESC LIMIT %s",
                     (limit,),
                 )
+            return list(cur.fetchall())
+
+    def save_forecast(self, payload: dict) -> int:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO analysis_forecasts (
+                    fingerprint, created_at, pair, timeframe, direction,
+                    forecast_weight, weight_label, setup_type, session,
+                    volatility_regime, score, setup_quality_score,
+                    execution_readiness_score, entry, stop_loss, target,
+                    engine_version, metadata, status
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s::jsonb, %s
+                )
+                ON CONFLICT (fingerprint) DO UPDATE SET metadata = EXCLUDED.metadata
+                RETURNING id
+                """,
+                (
+                    payload["fingerprint"], payload["created_at"], payload["pair"],
+                    payload["timeframe"], payload["direction"], payload["forecast_weight"],
+                    payload.get("weight_label", "scenario_weight"), payload.get("setup_type"),
+                    payload.get("session"), payload.get("volatility_regime"), payload.get("score"),
+                    payload.get("setup_quality_score"), payload.get("execution_readiness_score"),
+                    payload.get("entry"), payload.get("stop_loss"), payload.get("target"),
+                    payload.get("engine_version"), json.dumps(payload.get("metadata") or {}),
+                    payload.get("status", "PENDING"),
+                ),
+            )
+            return int(cur.fetchone()["id"])
+
+    def save_forecast_outcome(self, payload: dict) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO forecast_outcomes (
+                    forecast_id, resolved_at, outcome, r_multiple, mae_r, mfe_r,
+                    holding_bars, exit_reason, review
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                ON CONFLICT (forecast_id) DO UPDATE SET
+                    resolved_at = EXCLUDED.resolved_at, outcome = EXCLUDED.outcome,
+                    r_multiple = EXCLUDED.r_multiple, mae_r = EXCLUDED.mae_r,
+                    mfe_r = EXCLUDED.mfe_r, holding_bars = EXCLUDED.holding_bars,
+                    exit_reason = EXCLUDED.exit_reason, review = EXCLUDED.review
+                """,
+                (
+                    payload["forecast_id"], payload["resolved_at"], bool(payload["outcome"]),
+                    payload.get("r_multiple"), payload.get("mae_r"), payload.get("mfe_r"),
+                    payload.get("holding_bars"), payload.get("exit_reason"),
+                    json.dumps(payload.get("review") or {}),
+                ),
+            )
+            cur.execute("UPDATE analysis_forecasts SET status = 'RESOLVED' WHERE id = %s", (payload["forecast_id"],))
+
+    def forecast_rows(self, limit: int = 5000) -> List[dict]:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT f.*, o.resolved_at, o.outcome, o.r_multiple, o.mae_r,
+                       o.mfe_r, o.holding_bars, o.exit_reason, o.review
+                FROM analysis_forecasts f
+                LEFT JOIN forecast_outcomes o ON o.forecast_id = f.id
+                ORDER BY f.created_at DESC LIMIT %s
+                """,
+                (limit,),
+            )
             return list(cur.fetchall())
 
     def close(self) -> None:

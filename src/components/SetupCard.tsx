@@ -9,6 +9,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { planReasonText, type CalendarGateStatus, type CryptoAnalysis } from '../services/bwtsApi';
+import DecisionQualityPanel from './DecisionQualityPanel';
 
 export type SetupCardVariant = 'full' | 'compact' | 'row' | 'highlight';
 
@@ -249,6 +250,19 @@ export const SetupCard: React.FC<SetupCardProps> = ({
   const DirIcon = directionIcon(direction);
   const plan = analysis?.trade_plan;
   const alignPct = analysis?.market_context?.alignment_score;
+  const decision = analysis?.decision_quality;
+  const scenarioWeights = decision
+    ? Object.entries(decision.scenario_weights?.weights || {}).map(([label, weight]) => ({
+        label: `${label[0].toUpperCase()}${label.slice(1)} scenario`,
+        weight,
+        detail: analysis?.scenarios?.invalidation,
+      }))
+    : [];
+  const evidence = (decision?.evidence_ledger?.entries || []).map((item) => ({
+    label: `${item.kind.replace(/_/g, ' ')} ${item.points > 0 ? '+' : ''}${item.points}`,
+    detail: item.reason,
+    status: item.polarity === 'positive' ? 'confirmed' as const : item.polarity === 'negative' ? 'conflict' as const : 'unknown' as const,
+  }));
 
   // ---- ROW VARIANT (Dashboard opportunity queue list) ----
   if (variant === 'row') {
@@ -323,6 +337,13 @@ export const SetupCard: React.FC<SetupCardProps> = ({
             >
               Timing {analysis.trade_timing.status}
             </span>
+          )}
+          {decision && (
+            <>
+              <span className="rounded-md border border-cyan-400/15 bg-cyan-400/[0.06] px-2 py-1 text-[10px] font-black text-cyan-200">Bias {decision.market_bias_confidence}%</span>
+              <span className="rounded-md border border-violet-400/15 bg-violet-400/[0.06] px-2 py-1 text-[10px] font-black text-violet-200">Setup {decision.setup_quality}%</span>
+              <span className="rounded-md border border-amber-400/15 bg-amber-400/[0.06] px-2 py-1 text-[10px] font-black text-amber-200">Ready {decision.execution_readiness}%</span>
+            </>
           )}
         </div>
         {plan?.entry !== null && plan?.entry !== undefined && plan?.stop !== null && plan?.stop !== undefined ? (
@@ -406,22 +427,36 @@ export const SetupCard: React.FC<SetupCardProps> = ({
         <div className="mt-3 rounded-xl border border-violet-400/15 bg-violet-400/[0.05] p-3">
           <div className="grid grid-cols-2 gap-2 text-[9px] font-bold uppercase tracking-wider text-slate-500 sm:grid-cols-4">
             <span>Risk <b className="text-violet-200">{analysis.institutional_analysis.risk_assessment?.overall_risk_1_to_10 ?? '—'}/10</b></span>
-            <span>Elliott <b className="text-slate-200">{analysis.institutional_analysis.elliott_wave?.estimated_wave ? `Wave ${analysis.institutional_analysis.elliott_wave.estimated_wave}` : 'Undetermined'}</b></span>
-            <span>AB=CD <b className="text-slate-200">{analysis.institutional_analysis.abcd_pattern?.detected ? 'Candidate' : 'None'}</b></span>
+            <span>Elliott <b className="text-slate-200">{analysis.institutional_analysis.elliott_wave?.estimated_wave ? `Candidate Wave ${analysis.institutional_analysis.elliott_wave.estimated_wave}` : 'Candidate unavailable'}</b></span>
+            <span>AB=CD <b className="text-slate-200">{analysis.institutional_analysis.abcd_pattern?.detected ? 'Candidate, unvalidated' : 'None'}</b></span>
             <span>Indicators <b className="text-slate-200">{analysis.institutional_analysis.momentum_detail?.agreement?.summary || '—'}</b></span>
           </div>
           {analysis.institutional_analysis.scenario_analysis && (
-            <div className="mt-2 flex gap-3 text-[10px] text-slate-500">
-              <span>Bull <b className="text-emerald-300">{analysis.institutional_analysis.scenario_analysis.bull_case.probability_pct}%</b></span>
-              <span>Base <b className="text-cyan-300">{analysis.institutional_analysis.scenario_analysis.base_case.probability_pct}%</b></span>
-              <span>Bear <b className="text-rose-300">{analysis.institutional_analysis.scenario_analysis.bear_case.probability_pct}%</b></span>
-              <span className="ml-auto text-[9px] italic">rule-based estimate</span>
+            <div className="mt-2">
+              <div className="mb-1 text-[9px] font-black uppercase tracking-[0.16em] text-amber-300">Scenario Weights · Uncalibrated · Never used for sizing</div>
+              <div className="flex gap-3 text-[10px] text-slate-500">
+                <span>Bull <b className="text-emerald-300">{analysis.institutional_analysis.scenario_analysis.bull_case.weight_pct ?? analysis.institutional_analysis.scenario_analysis.bull_case.probability_pct}%</b></span>
+                <span>Base <b className="text-cyan-300">{analysis.institutional_analysis.scenario_analysis.base_case.weight_pct ?? analysis.institutional_analysis.scenario_analysis.base_case.probability_pct}%</b></span>
+                <span>Bear <b className="text-rose-300">{analysis.institutional_analysis.scenario_analysis.bear_case.weight_pct ?? analysis.institutional_analysis.scenario_analysis.bear_case.probability_pct}%</b></span>
+              </div>
             </div>
           )}
           <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
             {analysis.institutional_analysis.executive_summary.plain_english_thesis}
           </p>
         </div>
+      )}
+      {decision && (
+        <DecisionQualityPanel
+          analysis={analysis}
+          scenarios={scenarioWeights}
+          marketBiasConfidence={decision.market_bias_confidence}
+          setupQuality={decision.setup_quality}
+          executionReadiness={decision.execution_readiness}
+          maxRecommendedExposure={decision.financial_risk_profile?.max_recommended_account_exposure_pct}
+          evidence={evidence}
+          className="mt-3"
+        />
       )}
       {plan?.eligible ? (
         <>

@@ -55,6 +55,63 @@ def _alt_alternates(swings: List[Swing]) -> List[Swing]:
     return swings[1:] if len(swings) > 1 else swings
 
 
+def _serializable_pivots(swings: List[Swing]) -> List[Dict[str, Any]]:
+    """Coordinates are plain values so candidate output can be serialized."""
+    return [
+        {"index": swing.index, "time": swing.time, "price": swing.price,
+         "type": swing.type, "label": swing.label}
+        for swing in swings
+    ]
+
+
+def _pivot_quality(swings: List[Swing]) -> Dict[str, Any]:
+    """Describe swing sample quality without rejecting or re-scoring a count."""
+    spacing = [swings[i].index - swings[i - 1].index for i in range(1, len(swings))]
+    minimum = min(spacing) if spacing else 0
+    minimum_required = 2
+    deductions: List[Dict[str, Any]] = []
+    if minimum < minimum_required:
+        deductions.append({"reason": "tight_pivot_spacing", "points": 20,
+                           "minimum_observed": minimum,
+                           "minimum_required": minimum_required})
+    if len(swings) < 5:
+        deductions.append({"reason": "limited_pivot_sample", "points": 25,
+                           "observed": len(swings), "minimum_required": 5})
+    score = max(0, 100 - sum(item["points"] for item in deductions))
+    return {
+        "score": score,
+        "grade": "strong" if score >= 80 else "acceptable" if score >= 60 else "weak",
+        "pivot_count": len(swings),
+        "minimum_pivots": 5,
+        "spacing": {"values": spacing, "minimum_observed": minimum,
+                    "minimum_required": minimum_required,
+                    "meets_minimum": minimum >= minimum_required},
+        "deductions": deductions,
+    }
+
+
+def _with_candidate_metadata(candidate: Dict[str, Any], swings: List[Swing]) -> Dict[str, Any]:
+    """Add report-only quality and validation context to a count in place."""
+    candidate.setdefault("pivots", _serializable_pivots(swings))
+    passed = candidate.get("rules_passed", [])
+    failed = candidate.get("rules_failed", [])
+    evaluated = len(passed) + len(failed)
+    candidate.update({
+        "status": "candidate",
+        "candidate_status": "candidate_unvalidated",
+        "validated": False,
+        "forward_validation": {"available": False, "status": "unavailable", "validated": False,
+                               "reason": "forward outcome statistics are unavailable"},
+        "pivot_quality": _pivot_quality(swings),
+        "rule_score": {
+            "passed": len(passed), "failed": len(failed), "evaluated": evaluated,
+            "score": round(len(passed) / evaluated, 3) if evaluated else 0.0,
+        },
+    })
+    return candidate
+
+
+
 def _classify(swings: List[Swing]) -> Dict[str, Any]:
     """Try to label the most recent 5 swings as 1-2-3-4-5 (impulse) or A-B-C (corrective)."""
     if len(swings) < 5:
@@ -214,6 +271,11 @@ def compute(
         return {
             "available": False,
             "kind": "estimate",
+            "status": "unavailable",
+            "candidate_status": "unavailable_insufficient_data",
+            "validated": False,
+            "forward_validation": {"available": False, "status": "unavailable", "validated": False,
+                                   "reason": "forward outcome statistics are unavailable"},
             "reason": "insufficient_data",
             "min_required": 12,
             "got": len(candles),
@@ -221,16 +283,25 @@ def compute(
 
     swings = label_swings(detect_swings(candles, left_right=2))
     if len(swings) < 5:
+        primary = _with_candidate_metadata({
+            "structure": "unclear",
+            "current_wave": "Unclear",
+            "next_expected": "Need at least 5 labeled swings.",
+            "confidence": "low",
+            "rules_passed": [],
+            "rules_failed": ["insufficient_swings"],
+        }, swings)
         return {
             "available": True,
             "kind": "estimate",
-            "primary": {
-                "structure": "unclear",
-                "current_wave": "Unclear",
-                "next_expected": "Need at least 5 labeled swings.",
-                "confidence": "low",
-            },
-            "alternative": None,
+            "status": "candidate",
+            "candidate_status": "candidate_unvalidated",
+            "validated": False,
+            "forward_validation": {"available": False, "status": "unavailable", "validated": False,
+                                   "reason": "forward outcome statistics are unavailable"},
+            "primary": primary,
+            "alternative": {"status": "unavailable", "reason": "not enough labeled swings for an alternative count"},
+            "alternative_interpretation": {"status": "unavailable", "reason": "not enough labeled swings for an alternative count"},
             "swing_count": len(swings),
             "disclaimer": (
                 "Elliott counts are swing-sequence heuristic estimates, "
@@ -238,15 +309,25 @@ def compute(
             ),
         }
 
-    primary = _classify(swings)
+    primary = _with_candidate_metadata(_classify(swings), swings)
     alt_swings = _alt_alternates(swings)
-    alternative = _classify(alt_swings) if alt_swings is not swings else None
+    alternative = (
+        _with_candidate_metadata(_classify(alt_swings), alt_swings)
+        if alt_swings is not swings
+        else {"status": "unavailable", "reason": "no distinct alternate pivot window"}
+    )
 
     return {
         "available": True,
         "kind": "estimate",
+        "status": "candidate",
+        "candidate_status": "candidate_unvalidated",
+        "validated": False,
+        "forward_validation": {"available": False, "status": "unavailable", "validated": False,
+                               "reason": "forward outcome statistics are unavailable"},
         "primary": primary,
         "alternative": alternative,
+        "alternative_interpretation": alternative,
         "swing_count": len(swings),
         "timeframe": (primary_timeframe or "4h").upper(),
         "disclaimer": (

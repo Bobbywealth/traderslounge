@@ -1779,11 +1779,11 @@ const TradingView: React.FC = () => {
           {harmonicPatterns.length > 0 ? (
             harmonicPatterns.map((pattern) => (
               <span key={pattern.id} className="font-medium">
-                {pattern.direction.toUpperCase()} {pattern.type} detected on {selectedSymbol} {timeframe} · PRZ {pattern.prz.min.toFixed(2)}–{pattern.prz.max.toFixed(2)} · X-A-B-C-D drawn below
+                CANDIDATE · {pattern.direction.toUpperCase()} {pattern.type} on {selectedSymbol} {timeframe} · PRZ {pattern.prz.min.toFixed(2)}–{pattern.prz.max.toFixed(2)} · unvalidated geometry, X-A-B-C-D drawn below
               </span>
             ))
           ) : (
-            <span>No completed harmonic pattern on {selectedSymbol} {timeframe}. Scanning live candles.</span>
+            <span>No harmonic candidate on {selectedSymbol} {timeframe}. Scanning live candles.</span>
           )}
         </div>
       )}
@@ -1810,6 +1810,11 @@ const TradingView: React.FC = () => {
           <span className="rounded-md border border-cyan-400/20 bg-cyan-400/10 px-2 py-1 text-sm font-black text-cyan-300">{cryptoAnalysis.total_score}<span className="text-[10px] text-cyan-500">/100</span></span>
           <span className={`rounded-md border px-2 py-1 text-[9px] font-black ${cryptoAnalysis.direction === 'BUY' ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'border-rose-400/20 bg-rose-400/10 text-rose-300' : 'border-slate-400/20 bg-slate-400/10 text-slate-400'}`}>{cryptoAnalysis.direction}</span>
           {cryptoAnalysis.direction_stability && <span title={cryptoAnalysis.direction_stability.reason} className={`rounded-md border px-2 py-1 text-[9px] font-black ${cryptoAnalysis.direction_stability.lifecycle === 'READY' || cryptoAnalysis.direction_stability.lifecycle === 'CONFIRMED' ? 'border-cyan-400/20 bg-cyan-400/10 text-cyan-300' : cryptoAnalysis.direction_stability.lifecycle === 'INVALIDATED' ? 'border-rose-400/20 bg-rose-400/10 text-rose-300' : 'border-amber-400/20 bg-amber-400/10 text-amber-300'}`}>{cryptoAnalysis.direction_stability.lifecycle}{cryptoAnalysis.direction_stability.raw_direction !== cryptoAnalysis.direction_stability.confirmed_direction ? ` · RAW ${cryptoAnalysis.direction_stability.raw_direction}` : ''}</span>}
+          {cryptoAnalysis.decision_quality && <>
+            <span className="rounded-md border border-cyan-400/15 bg-cyan-400/[0.06] px-2 py-1 text-[9px] font-black text-cyan-200">BIAS {cryptoAnalysis.decision_quality.market_bias_confidence}%</span>
+            <span className="rounded-md border border-violet-400/15 bg-violet-400/[0.06] px-2 py-1 text-[9px] font-black text-violet-200">SETUP {cryptoAnalysis.decision_quality.setup_quality}%</span>
+            <span className="rounded-md border border-amber-400/15 bg-amber-400/[0.06] px-2 py-1 text-[9px] font-black text-amber-200">READY {cryptoAnalysis.decision_quality.execution_readiness}%</span>
+          </>}
           <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[10px] font-black text-slate-300">STR {cryptoAnalysis.category_breakdown.structure}/20</span>
           <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[10px] font-black text-slate-300">VOL {cryptoAnalysis.category_breakdown.volume}/10</span>
           <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[10px] font-black text-slate-300">MOM {cryptoAnalysis.category_breakdown.momentum}/10</span>

@@ -217,14 +217,60 @@ export interface InstitutionalAnalysis {
   limitations: string[];
   market_structure: { timeframes: Record<string, { trend: string; swing_labels: string[]; latest_structure_event: string | null; confidence: string }>; overall: string; confidence: string; support: number[]; resistance: number[] };
   momentum_detail: { rsi: number | null; rsi_state: string; rsi_divergences: Array<{ type: string; confidence: string }>; macd: number | null; macd_signal: number | null; macd_histogram: number | null; agreement: { supporting: number; evaluated: number; summary: string } };
-  elliott_wave: { classification: string; estimated_wave: number | null; primary_direction: string; alternative_count: string; confidence: string; pivot_count: number };
-  abcd_pattern: { detected: boolean; ab_cd_ratio?: number; bc_retracement?: number; completion_price?: number; direction?: string; confidence: string };
+  elliott_wave: { classification: string; estimated_wave: number | null; primary_direction: string; alternative_count: string; confidence: string; pivot_count: number; status?: string; validated?: boolean };
+  abcd_pattern: { detected: boolean; ab_cd_ratio?: number; bc_retracement?: number; completion_price?: number; direction?: string; confidence: string; status?: string; validated?: boolean };
   volatility_detail: { atr: number | null; historical_volatility_annualized_pct: number | null; bollinger_width: number | null; keltner_width: number | null; compression: boolean; regime: string };
-  scenario_analysis?: { method: string; bull_case: { probability_pct: number; target: number | null }; base_case: { probability_pct: number; expected_range: number[] }; bear_case: { probability_pct: number; target: number | null } };
+  scenario_analysis?: { label?: string; method: string; calibrated?: boolean; position_sizing_allowed?: boolean; disclaimer?: string; bull_case: { weight_pct?: number; probability_pct: number; target: number | null }; base_case: { weight_pct?: number; probability_pct: number; expected_range: number[] }; bear_case: { weight_pct?: number; probability_pct: number; target: number | null } };
   trading_strategies?: Record<string, any>;
   risk_assessment?: { overall_risk_1_to_10: number; rating: string; largest_risks: string[]; calendar_status: string };
   monitoring_plan?: Record<string, any>;
   executive_summary?: { overall_bias: string; conviction_0_to_100: number; confidence: string; best_setup_status: string; recommended_time_horizon: string; entry: number | null; stop: number | null; targets: number[]; clear_invalidation: number | null; plain_english_thesis: string };
+}
+
+export interface DecisionQuality {
+  scenario_weights: {
+    label: string;
+    weights: { bull?: number; base?: number; bear?: number };
+    calibrated: boolean;
+    forecast_probabilities: boolean;
+    position_sizing_allowed: boolean;
+    method: string;
+    disclaimer: string;
+  };
+  scenario_weight_disclaimer: string;
+  market_bias_confidence: number;
+  setup_quality: number;
+  execution_readiness: number;
+  evidence_ledger: {
+    canonical_score?: number;
+    final_setup_score: number;
+    method?: string;
+    entries: Array<{ kind: string; points: number; polarity: 'positive' | 'negative' | 'neutral'; reason: string; available: boolean }>;
+  };
+  entry_alert?: {
+    status: 'TRIGGERED' | 'ARMED' | 'MONITORING';
+    entry: number | null;
+    invalidation: number | null;
+    conditions: unknown[];
+    blocking_reasons: unknown[];
+    message: string;
+  };
+  financial_risk_profile: {
+    stop_pct: number | null;
+    atr_normalized_stop: number | null;
+    spread_bps: number | null;
+    slippage_bps: number | null;
+    liquidity_available: boolean;
+    portfolio_correlation_available: boolean;
+    news_status: string;
+    news_proximity_minutes: number | null;
+    historical_drawdown_available: boolean;
+    net_rr_after_fees: number | null;
+    risk_score_1_to_10: number;
+    max_recommended_account_exposure_pct: number;
+    exposure_basis: string;
+    sizing_rule_status: string;
+  };
 }
 
 export interface CryptoAnalysis {
@@ -272,6 +318,31 @@ export interface CryptoAnalysis {
   stale_categories?: string[];
   data_freshness_seconds?: number;
   institutional_analysis?: InstitutionalAnalysis;
+  decision_quality?: DecisionQuality;
+}
+
+export interface CalibrationMetrics {
+  sample_size: number;
+  brier_score: number;
+  calibration_error: number;
+  precision: number;
+  recall: number;
+  expectancy_r: number;
+  average_mae: number;
+  max_mae: number;
+  calibrated: boolean;
+  reliability_bins: Array<{ lower_bound: number; upper_bound: number; sample_size: number; mean_forecast: number | null; observed_rate: number | null; gap: number | null }>;
+}
+
+export interface ValidationReport {
+  status: 'CALIBRATED' | 'INSUFFICIENT_DATA';
+  pending: number;
+  resolved: number;
+  calibration: CalibrationMetrics;
+  segments: Record<string, Record<string, CalibrationMetrics>>;
+  walk_forward: { no_lookahead: boolean; folds_used: number; out_of_sample: CalibrationMetrics };
+  warning: string;
+  dimensions: string[];
 }
 
 export interface V2BacktestReport {
@@ -279,7 +350,11 @@ export interface V2BacktestReport {
   overall: { trades: number; wins: number; losses: number; win_rate: number; expectancy_r: number; profit_factor: number };
   in_sample_70pct: Record<string, number>; out_of_sample_30pct: Record<string, number>;
   validation: { status: 'INSUFFICIENT_DATA' | 'PROMISING' | 'REJECT'; minimum_out_of_sample_trades: number; observed_out_of_sample_trades: number; warning: string };
-  by_setup: Record<string, any>; by_confirmation: Record<string, any>; by_score_band: Record<string, any>; by_session: Record<string, any>;
+  calibration?: { sample_size: number; brier_score: number; calibration_error: number; precision: number; recall: number; expectancy_r: number; average_mae: number; max_mae: number; calibrated: boolean; reliability_bins: Array<{ lower_bound: number; upper_bound: number; sample_size: number; mean_forecast: number | null; observed_rate: number | null; gap: number | null }> };
+  walk_forward?: { no_lookahead: boolean; folds_used: number; out_of_sample: Record<string, any> };
+  calibration_segments?: Record<string, Record<string, any>>;
+  calibration_disclaimer?: string;
+  by_setup: Record<string, any>; by_confirmation: Record<string, any>; by_score_band: Record<string, any>; by_session: Record<string, any>; by_volatility_regime?: Record<string, any>;
   blocked_reasons: Record<string, number>;
 }
 
@@ -538,6 +613,7 @@ export const bwtsApi = {
   aiStatus: () => get<{ configured: boolean }>('/api/ai/status'),
   cryptoAnalysis: (pair: string, timeframe?: string) => getCached<CryptoAnalysis>('/api/analysis', timeframe ? { pair, timeframe } : { pair }, 20_000),
   v2Backtest: (pair: string, timeframe = '1h', limit = 10000) => get<V2BacktestReport>('/api/backtest/v2', { pair, timeframe, limit }),
+  validationReport: (limit = 5000) => getCached<ValidationReport>('/api/validation/report', { limit }, 30_000),
   analyzeSignal: (pair: string, signal: BwtsSignal, analysis?: CryptoAnalysis) => post<{ configured: boolean; analysis: AiSignalAnalysis; calendar: CalendarGateStatus }>('/api/ai/analyze', { pair, signal, analysis }),
   chartAnalyze: (payload: {
     pair: string;
