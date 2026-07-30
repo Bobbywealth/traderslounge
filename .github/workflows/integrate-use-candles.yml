@@ -33,3 +33,5 @@ jobs:
           git add src/pages/TradingView.tsx scripts/integrate-use-candles.py .github/workflows/integrate-use-candles.yml
           git commit -m "refactor: integrate useCandles into TradingView"
           git push origin HEAD:agent/integrate-use-candles
+
+# One-time branch workflow; it deletes itself after applying the codemod.
