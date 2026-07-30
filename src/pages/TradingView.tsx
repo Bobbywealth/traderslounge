@@ -1250,20 +1250,15 @@ const TradingView: React.FC = () => {
       removeOverlay();
       const plan = cryptoAnalysis?.trade_plan;
       if (!showSetups || !cryptoAnalysis || (plan?.direction && plan.direction !== 'NEUTRAL' && plan.entry != null)) return;
-      const detailed = Array.isArray(cryptoAnalysis.zones?.support_resistance) ? cryptoAnalysis.zones.support_resistance : [];
-      const atr = Number(cryptoAnalysis.indicators?.atr || 0);
-      const nearby = detailed
-        .filter((zone: any) => ['support', 'resistance'].includes(zone.type) && Number.isFinite(Number(zone.low)) && Number.isFinite(Number(zone.high)))
-        .filter((zone: any) => !atr || Math.abs(Number(zone.level) - currentPrice) <= atr * 2.5)
-        .sort((a: any, b: any) => (Number(a.distance_atr) || 99) - (Number(b.distance_atr) || 99));
-      const zones = ['support', 'resistance'].flatMap((type) => nearby.filter((zone: any) => zone.type === type).slice(0, 1));
+      const detailed = Array.isArray(cryptoAnalysis.zones?.setup_zones) ? cryptoAnalysis.zones.setup_zones : [];
+      const zones = ['BUY', 'SELL'].flatMap((direction) => detailed.filter((zone: any) => zone.direction === direction).slice(0, 1));
       if (!zones.length) return;
       const svg = document.createElementNS(SVG_NS, 'svg');
       svg.setAttribute('data-conditional-setup-overlay', 'true');
       svg.setAttribute('width', String(container.clientWidth)); svg.setAttribute('height', String(container.clientHeight));
       svg.style.position = 'absolute'; svg.style.inset = '0'; svg.style.zIndex = '11'; svg.style.pointerEvents = 'none'; svg.style.overflow = 'visible';
       zones.forEach((zone: any) => {
-        const bullish = zone.type === 'support';
+        const bullish = zone.direction === 'BUY';
         const color = bullish ? '#22c55e' : '#ef4444';
         const low = priceSeries.priceToCoordinate(Number(zone.low));
         const high = priceSeries.priceToCoordinate(Number(zone.high));
@@ -1275,7 +1270,7 @@ const TradingView: React.FC = () => {
         const label = document.createElementNS(SVG_NS, 'text');
         label.setAttribute('x', '10'); label.setAttribute('y', String(Math.max(16, Math.min(low, high) - 7))); label.setAttribute('fill', color); label.setAttribute('font-size', '12'); label.setAttribute('font-weight', '900');
         label.setAttribute('paint-order', 'stroke'); label.setAttribute('stroke', '#080d18'); label.setAttribute('stroke-width', '4');
-        label.textContent = bullish ? 'BUY AREA' : 'SELL AREA'; svg.appendChild(label);
+        label.textContent = `${bullish ? 'BUY' : 'SELL'} AREA ${zone.score}/100`; svg.appendChild(label);
       });
       container.appendChild(svg);
     };
@@ -1459,11 +1454,9 @@ const TradingView: React.FC = () => {
   const setupTimingStatus = String(setupPlan?.timing_status || cryptoAnalysis?.trade_timing?.status || 'WAIT').toUpperCase();
   const setupHardBlocked = ['BLOCKED', 'POST_NEWS', 'UNAVAILABLE'].includes(setupCalendarStatus);
   const setupReady = Boolean(setupPlan?.eligible) && setupTimingStatus === 'READY' && !setupHardBlocked;
-  const setupZones = (Array.isArray(cryptoAnalysis?.zones?.support_resistance) ? cryptoAnalysis.zones.support_resistance : [])
-    .filter((zone: any) => ['support', 'resistance'].includes(zone.type) && Number.isFinite(Number(zone.low)) && Number.isFinite(Number(zone.high)))
-    .filter((zone: any) => !cryptoAnalysis?.indicators?.atr || Math.abs(Number(zone.level) - currentPrice) <= Number(cryptoAnalysis.indicators.atr) * 2.5)
-    .sort((a: any, b: any) => (Number(a.distance_atr) || 99) - (Number(b.distance_atr) || 99))
-    .filter((zone: any, index: number, zones: any[]) => zones.findIndex((item) => item.type === zone.type) === index)
+  const setupZones = (Array.isArray(cryptoAnalysis?.zones?.setup_zones) ? cryptoAnalysis.zones.setup_zones : [])
+    .filter((zone: any) => ['BUY', 'SELL'].includes(zone.direction) && Number.isFinite(Number(zone.low)) && Number.isFinite(Number(zone.high)))
+    .filter((zone: any, index: number, zones: any[]) => zones.findIndex((item) => item.direction === zone.direction) === index)
     .slice(0, 2);
   const setupPrice = (value: number | null | undefined) => value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
@@ -1872,8 +1865,10 @@ const TradingView: React.FC = () => {
             <div className="flex justify-between gap-3"><span className="text-slate-500">Targets</span><b className="text-cyan-300">{setupPlan.targets?.slice(0, 3).map((target) => setupPrice(target.price)).join(' · ') || 'Waiting'}</b></div>
           </div> : <div className="mt-3 space-y-2">
             <p className="font-semibold text-slate-200">No confirmed buy or sell yet.</p>
-            {setupZones.map((zone: any) => <div key={`${zone.type}-${zone.level}`} className="flex justify-between gap-3"><span className={zone.type === 'support' ? 'text-emerald-300' : 'text-rose-300'}>{zone.type === 'support' ? 'BUY area' : 'SELL area'}</span><b className="text-slate-200">{setupPrice(zone.low)} – {setupPrice(zone.high)}</b></div>)}
+            {setupZones.map((zone: any) => <div key={`${zone.direction}-${zone.center}`} className="flex justify-between gap-3"><span className={zone.direction === 'BUY' ? 'text-emerald-300' : 'text-rose-300'}>{zone.direction} area <small className="text-slate-500">{zone.score}/100</small></span><b className="text-slate-200">{setupPrice(zone.low)} – {setupPrice(zone.high)}</b></div>)}
+            {setupZones[0]?.reasons?.length > 0 && <p className="text-[10px] leading-relaxed text-slate-500">Why: {setupZones[0].reasons.slice(0, 3).join(' · ')}</p>}
           </div>}
+
           <p className="mt-3 border-t border-white/[0.08] pt-2 text-[10px] leading-relaxed text-slate-500">{setupReady ? 'Deterministic gates are clear. Confirm the trigger before acting.' : setupHardBlocked ? 'Calendar gate is blocking this setup.' : `Wait for ${(cryptoAnalysis?.trade_timing?.wait_for || ['confirmation']).slice(0, 2).join(' and ').replace(/_/g, ' ')}.`}</p>
         </div>}
         {showManualDrawings && <svg data-revision={drawingRevision} className="absolute inset-0 z-20 h-full w-full" style={{ pointerEvents: drawingTool === 'pan' ? 'none' : 'auto', cursor: drawingTool === 'select' ? 'default' : drawingTool === 'pan' ? 'grab' : 'crosshair' }} onPointerDown={handleDrawingPointerDown} onPointerMove={handleDrawingPointerMove} onPointerUp={handleDrawingPointerUp}>
