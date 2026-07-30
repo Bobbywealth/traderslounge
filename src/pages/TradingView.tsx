@@ -14,6 +14,7 @@ import {
   Target,
   Zap,
   RefreshCw,
+  Pencil,
   LineChart,
   CandlestickChart,
   BarChart2,
@@ -176,6 +177,7 @@ const TradingView: React.FC = () => {
   const [draftDrawing, setDraftDrawing] = useState<ManualDrawing | null>(null);
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [showManualDrawings, setShowManualDrawings] = useState(true);
+  const [drawingRailCollapsed, setDrawingRailCollapsed] = useState(false);
   const [drawingRevision, setDrawingRevision] = useState(0);
   const [drawingColor, setDrawingColor] = useState('#22d3ee');
   const [magnetDrawing, setMagnetDrawing] = useState(true);
@@ -1417,24 +1419,7 @@ const TradingView: React.FC = () => {
 
           {/* Right Section - Controls */}
           <div className="flex items-center space-x-4">
-            {/* TradeLocker Connection */}
-            {tradeLockerConnected ? (
-              <button
-                onClick={disconnectFromTradeLocker}
-                className="flex items-center space-x-2 px-4 py-2 rounded bg-red-600 hover:bg-red-700 transition-colors"
-              >
-                <Link2Off className="w-4 h-4" />
-                <span>Disconnect TradeLocker</span>
-              </button>
-            ) : (
-              <button
-                onClick={() => setShowLoginModal(true)}
-                className="flex items-center space-x-2 px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-700 transition-colors"
-              >
-                <Link className="w-4 h-4" />
-                <span>Connect TradeLocker</span>
-              </button>
-            )}
+            {/* TradeLocker Connection removed: read-only product, no broker */}
 
             {/* Live Data Toggle */}
             <button
@@ -1500,6 +1485,16 @@ const TradingView: React.FC = () => {
 
       {/* Manual drawing toolbar. Drawings persist independently per symbol and timeframe. */}
       <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-white/[0.08] bg-[#080d18] px-4 py-1.5">
+        <button
+          onClick={() => setDrawingRailCollapsed((c) => !c)}
+          title={drawingRailCollapsed ? 'Expand drawing rail' : 'Collapse drawing rail'}
+          className="mr-2 flex items-center gap-1 rounded-md bg-white/[0.04] px-2 py-1 text-[9px] font-black tracking-widest text-cyan-300 hover:bg-white/[0.08]"
+        >
+          <Pencil className="h-3 w-3" />
+          {drawingRailCollapsed ? 'DRAW' : 'HIDE DRAW'}
+        </button>
+        {!drawingRailCollapsed && (
+          <>
         <span className="mr-2 text-[9px] font-black tracking-widest text-slate-600">DRAW</span>
         {([
           ['pan', Hand, 'Pan chart'], ['select', MousePointer2, 'Select drawing'], ['trend', LineChart, 'Trend line'], ['horizontal', Minus, 'Horizontal line'],
@@ -1517,6 +1512,8 @@ const TradingView: React.FC = () => {
         <button onClick={clearDrawings} disabled={!drawings.length} title="Clear drawings" className="rounded-md px-2 py-1.5 text-[10px] font-black text-slate-500 hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25">CLEAR</button>
         <button onClick={() => setShowManualDrawings((visible) => !visible)} title="Show / hide drawings" className="ml-auto rounded-md p-2 text-slate-500 hover:bg-white/[0.06] hover:text-slate-200">{showManualDrawings ? <Eye className="h-4 w-4"/> : <EyeOff className="h-4 w-4"/>}</button>
         <span className="text-[9px] font-bold text-slate-600">{drawings.length} · {selectedSymbol} {timeframe}</span>
+          </>
+        )}
       </div>
 
       {/* Technical Analysis Controls */}
@@ -1638,17 +1635,17 @@ const TradingView: React.FC = () => {
       )}
 
       {cryptoAnalysis && (
-        <div className="flex items-center gap-4 border-b border-violet-500/20 bg-[#0d1020] px-4 py-2 text-xs text-slate-400">
-          <span className="font-black tracking-wider text-violet-300">CONFLUENCE V2</span>
-          <span className="text-base font-black text-cyan-300">{cryptoAnalysis.total_score}<span className="text-[10px] text-slate-600">/100</span></span>
-          <span className={`rounded px-2 py-1 text-[9px] font-black ${cryptoAnalysis.direction === 'BUY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 text-slate-400'}`}>{cryptoAnalysis.direction}</span>
-          {cryptoAnalysis.direction_stability && <span title={cryptoAnalysis.direction_stability.reason} className={`rounded px-2 py-1 text-[9px] font-black ${cryptoAnalysis.direction_stability.lifecycle === 'READY' || cryptoAnalysis.direction_stability.lifecycle === 'CONFIRMED' ? 'bg-cyan-400/10 text-cyan-300' : cryptoAnalysis.direction_stability.lifecycle === 'INVALIDATED' ? 'bg-rose-400/10 text-rose-300' : 'bg-amber-400/10 text-amber-300'}`}>{cryptoAnalysis.direction_stability.lifecycle}{cryptoAnalysis.direction_stability.raw_direction !== cryptoAnalysis.direction_stability.confirmed_direction ? ` · RAW ${cryptoAnalysis.direction_stability.raw_direction}` : ''}</span>}
-          <span>Structure {cryptoAnalysis.category_breakdown.structure}/20</span>
-          <span>Volume {cryptoAnalysis.category_breakdown.volume}/10</span>
-          <span>Momentum {cryptoAnalysis.category_breakdown.momentum}/10</span>
-          <span>Liquidity {cryptoAnalysis.category_breakdown.liquidity}/15</span>
-          <span className="ml-auto font-semibold uppercase text-cyan-500">{cryptoAnalysis.data_quality.primary_timeframe}</span>
-          <span className="font-semibold uppercase text-slate-500">{cryptoAnalysis.data_quality.status} data</span>
+        <div className="flex flex-wrap items-center gap-2 border-b border-violet-500/20 bg-[#0d1020] px-4 py-2 text-xs text-slate-400">
+          <span className="rounded-md border border-violet-400/20 bg-violet-400/10 px-2 py-1 font-black tracking-wider text-violet-300">V2</span>
+          <span className="rounded-md border border-cyan-400/20 bg-cyan-400/10 px-2 py-1 text-sm font-black text-cyan-300">{cryptoAnalysis.total_score}<span className="text-[10px] text-cyan-500">/100</span></span>
+          <span className={`rounded-md border px-2 py-1 text-[9px] font-black ${cryptoAnalysis.direction === 'BUY' ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'border-rose-400/20 bg-rose-400/10 text-rose-300' : 'border-slate-400/20 bg-slate-400/10 text-slate-400'}`}>{cryptoAnalysis.direction}</span>
+          {cryptoAnalysis.direction_stability && <span title={cryptoAnalysis.direction_stability.reason} className={`rounded-md border px-2 py-1 text-[9px] font-black ${cryptoAnalysis.direction_stability.lifecycle === 'READY' || cryptoAnalysis.direction_stability.lifecycle === 'CONFIRMED' ? 'border-cyan-400/20 bg-cyan-400/10 text-cyan-300' : cryptoAnalysis.direction_stability.lifecycle === 'INVALIDATED' ? 'border-rose-400/20 bg-rose-400/10 text-rose-300' : 'border-amber-400/20 bg-amber-400/10 text-amber-300'}`}>{cryptoAnalysis.direction_stability.lifecycle}{cryptoAnalysis.direction_stability.raw_direction !== cryptoAnalysis.direction_stability.confirmed_direction ? ` · RAW ${cryptoAnalysis.direction_stability.raw_direction}` : ''}</span>}
+          <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[10px] font-black text-slate-300">STR {cryptoAnalysis.category_breakdown.structure}/20</span>
+          <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[10px] font-black text-slate-300">VOL {cryptoAnalysis.category_breakdown.volume}/10</span>
+          <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[10px] font-black text-slate-300">MOM {cryptoAnalysis.category_breakdown.momentum}/10</span>
+          <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[10px] font-black text-slate-300">LIQ {cryptoAnalysis.category_breakdown.liquidity}/15</span>
+          <span className="ml-auto rounded-md border border-cyan-400/20 bg-cyan-400/10 px-2 py-1 font-semibold uppercase text-cyan-300">{cryptoAnalysis.data_quality.primary_timeframe}</span>
+          <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2 py-1 font-semibold uppercase text-slate-300">{cryptoAnalysis.data_quality.status} data</span>
         </div>
       )}
 
