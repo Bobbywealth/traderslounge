@@ -1251,7 +1251,8 @@ const TradingView: React.FC = () => {
     const renderOverlay = () => {
       removeOverlay();
       const plan = cryptoAnalysis?.trade_plan;
-      if (!showSetups || !cryptoAnalysis || (plan?.direction && plan.direction !== 'NEUTRAL' && plan.entry != null)) return;
+      // Do not paint historical-looking zones while the final gated plan is neutral.
+      if (!showSetups || !cryptoAnalysis || !plan || plan.direction === 'NEUTRAL' || plan.entry == null) return;
       const detailed = Array.isArray(cryptoAnalysis.zones?.setup_zones) ? cryptoAnalysis.zones.setup_zones : [];
       const zones = ['BUY', 'SELL'].flatMap((direction) => detailed.filter((zone: any) => zone.direction === direction).slice(0, 1));
       if (!zones.length) return;
@@ -1654,7 +1655,7 @@ const TradingView: React.FC = () => {
         <span className="text-cyan-300">MARKET CONTEXT</span>
         {harmonicPatterns.length > 0 && <span className="rounded bg-emerald-400/10 px-2 py-1 text-emerald-300">{harmonicPatterns.length} harmonic</span>}
         {adrData && <span className={`rounded px-2 py-1 ${adrData.exhausted ? 'bg-rose-400/10 text-rose-300' : 'bg-sky-400/10 text-sky-300'}`}>ADR {adrData.percent_used.toFixed(0)}%</span>}
-        {cryptoAnalysis && <><span className="rounded bg-violet-400/10 px-2 py-1 text-violet-300">V2 {cryptoAnalysis.total_score}/100</span><span className={cryptoAnalysis.direction === 'BUY' ? 'text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.direction}</span><span>{timeframe}</span><span className="text-slate-400">{cryptoAnalysis.trade_timing?.status || 'WAIT'}</span>{cryptoAnalysis.trade_plan && <span className={`rounded px-2 py-1 ${cryptoAnalysis.trade_plan.direction === 'BUY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.trade_plan.direction === 'SELL' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 text-slate-400'}`}>{cryptoAnalysis.trade_plan.direction} SETUP {cryptoAnalysis.trade_plan.eligible ? 'ELIGIBLE' : 'WATCH'}</span>}</>}
+        {cryptoAnalysis && <><span className="rounded bg-violet-400/10 px-2 py-1 text-violet-300">V2 {cryptoAnalysis.total_score}/100</span><span className={cryptoAnalysis.direction === 'BUY' ? 'text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.direction}</span><span>{timeframe}</span><span className="text-slate-400">{cryptoAnalysis.trade_timing?.status || 'WAIT'}</span>{cryptoAnalysis.trade_plan && <span className={`rounded px-2 py-1 ${cryptoAnalysis.trade_plan.direction === 'BUY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.trade_plan.direction === 'SELL' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 text-slate-400'}`}>{cryptoAnalysis.trade_plan.direction === 'NEUTRAL' ? 'NO ACTIVE SETUP' : `${cryptoAnalysis.trade_plan.direction} SETUP ${cryptoAnalysis.trade_plan.eligible ? 'ELIGIBLE' : 'WAIT'}`}</span>}</>}
         <button onClick={() => setShowTechnicalControls((value) => !value)} className="ml-auto rounded bg-white/[0.06] px-2.5 py-1 text-[9px] text-slate-300 hover:bg-white/[0.1]">{showTechnicalControls ? 'Hide tools' : 'Analysis tools'}</button>
         <button onClick={() => setShowChartContext((value) => !value)} className="rounded bg-cyan-400/10 px-2.5 py-1 text-[9px] text-cyan-300 hover:bg-cyan-400/20">{showChartContext ? 'Hide details' : 'Details'}</button>
         {!showSetupGuide && <button onClick={() => setShowSetupGuide(true)} className="rounded bg-emerald-400/10 px-2.5 py-1 text-[9px] text-emerald-300 hover:bg-emerald-400/20">Guide</button>}
@@ -1861,9 +1862,11 @@ const TradingView: React.FC = () => {
             <div className="flex justify-between gap-3"><span className="text-slate-500">Invalid if price reaches</span><b className="text-rose-300">{setupPrice(setupPlan.stop ?? setupPlan.invalidation)}</b></div>
             <div className="flex justify-between gap-3"><span className="text-slate-500">Targets</span><b className="text-cyan-300">{setupPlan.targets?.slice(0, 3).map((target) => setupPrice(target.price)).join(' · ') || 'Waiting'}</b></div>
           </div> : <div className="mt-3 space-y-2">
-            <p className="font-semibold text-slate-200">No confirmed buy or sell yet.</p>
-            {setupZones.map((zone: any) => <div key={`${zone.direction}-${zone.center}`} className="flex justify-between gap-3"><span className={zone.direction === 'BUY' ? 'text-emerald-300' : 'text-rose-300'}>{zone.direction} area <small className="text-slate-500">{zone.score}/100</small></span><b className="text-slate-200">{setupPrice(zone.low)} – {setupPrice(zone.high)}</b></div>)}
-            {setupZones[0]?.reasons?.length > 0 && <p className="text-[10px] leading-relaxed text-slate-500">Why: {setupZones[0].reasons.slice(0, 3).join(' · ')}</p>}
+            <p className="font-semibold text-slate-200">NO ACTIVE SETUP</p>
+            <p className="text-[10px] leading-relaxed text-slate-500">These are reference areas, not entries. Wait for direction and confirmation first.</p>
+            {setupZones.map((zone: any) => <div key={`${zone.direction}-${zone.center}`} className="flex justify-between gap-3"><span className={zone.direction === 'BUY' ? 'text-emerald-300' : 'text-rose-300'}>{zone.direction} only if price returns here <small className="text-slate-500">{zone.score}/100</small></span><b className="text-slate-200">{setupPrice(zone.low)} – {setupPrice(zone.high)}</b></div>)}
+            <p className="text-[10px] leading-relaxed text-slate-500">Then wait for a confirming candle, volume, ADR, and V2 direction.</p>
+            {setupZones[0]?.reasons?.length > 0 && <p className="text-[10px] leading-relaxed text-slate-500">Why these areas: {setupZones[0].reasons.slice(0, 3).join(' · ')}</p>}
           </div>}
 
           <p className="mt-3 border-t border-white/[0.08] pt-2 text-[10px] leading-relaxed text-slate-500">{setupReady ? 'Deterministic gates are clear. Confirm the trigger before acting.' : setupHardBlocked ? 'Calendar gate is blocking this setup.' : `Wait for ${(cryptoAnalysis?.trade_timing?.wait_for || ['confirmation']).slice(0, 2).join(' and ').replace(/_/g, ' ')}.`}</p>
