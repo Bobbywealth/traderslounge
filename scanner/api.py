@@ -37,6 +37,7 @@ from .news_filter import NewsFilter
 from .persistence import SignalRepository
 from .trade_planner import build_trade_plan
 from .published_signals import build_published_signal
+from .institutional_analysis import enrich_with_plan
 from .v2_backtester import run_v2_backtest
 from .trade_repo import ClosedTradeRepository, PositionRepository
 from .auth import (
@@ -648,6 +649,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
             if selected_candles:
                 analysis["zones"]["setup_zones"] = _build_setup_zones(price=float(selected_candles[-1].close), atr_value=analysis.get("indicators", {}).get("atr"), zones=analysis.get("zones", {}), indicators=analysis.get("indicators", {}), direction=analysis.get("direction", "NEUTRAL"), market_context=analysis.get("market_context", {}), trade_timing=analysis.get("trade_timing", {}))
             analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar, primary_candles=selected_candles)
+            enrich_with_plan(analysis)
             self._publish_actionable_analysis(analysis)
         except Exception as exc:
             stale = self._cache_get(cache_key, allow_stale=True)
@@ -1167,6 +1169,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
             if selected_candles:
                 analysis["zones"]["setup_zones"] = _build_setup_zones(price=float(selected_candles[-1].close), atr_value=analysis.get("indicators", {}).get("atr"), zones=analysis.get("zones", {}), indicators=analysis.get("indicators", {}), direction=analysis.get("direction", "NEUTRAL"), market_context=analysis.get("market_context", {}), trade_timing=analysis.get("trade_timing", {}))
             analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar, primary_candles=selected_candles)
+            enrich_with_plan(analysis)
             self._publish_actionable_analysis(analysis)
             return analysis
         except Exception as exc:

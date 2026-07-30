@@ -402,6 +402,27 @@ export const SetupCard: React.FC<SetupCardProps> = ({
           )}
         </div>
       )}
+      {analysis?.institutional_analysis?.executive_summary && (
+        <div className="mt-3 rounded-xl border border-violet-400/15 bg-violet-400/[0.05] p-3">
+          <div className="grid grid-cols-2 gap-2 text-[9px] font-bold uppercase tracking-wider text-slate-500 sm:grid-cols-4">
+            <span>Risk <b className="text-violet-200">{analysis.institutional_analysis.risk_assessment?.overall_risk_1_to_10 ?? '—'}/10</b></span>
+            <span>Elliott <b className="text-slate-200">{analysis.institutional_analysis.elliott_wave?.estimated_wave ? `Wave ${analysis.institutional_analysis.elliott_wave.estimated_wave}` : 'Undetermined'}</b></span>
+            <span>AB=CD <b className="text-slate-200">{analysis.institutional_analysis.abcd_pattern?.detected ? 'Candidate' : 'None'}</b></span>
+            <span>Indicators <b className="text-slate-200">{analysis.institutional_analysis.momentum_detail?.agreement?.summary || '—'}</b></span>
+          </div>
+          {analysis.institutional_analysis.scenario_analysis && (
+            <div className="mt-2 flex gap-3 text-[10px] text-slate-500">
+              <span>Bull <b className="text-emerald-300">{analysis.institutional_analysis.scenario_analysis.bull_case.probability_pct}%</b></span>
+              <span>Base <b className="text-cyan-300">{analysis.institutional_analysis.scenario_analysis.base_case.probability_pct}%</b></span>
+              <span>Bear <b className="text-rose-300">{analysis.institutional_analysis.scenario_analysis.bear_case.probability_pct}%</b></span>
+              <span className="ml-auto text-[9px] italic">rule-based estimate</span>
+            </div>
+          )}
+          <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+            {analysis.institutional_analysis.executive_summary.plain_english_thesis}
+          </p>
+        </div>
+      )}
       {plan?.eligible ? (
         <>
           <div className="mt-4 grid grid-cols-3 gap-2">

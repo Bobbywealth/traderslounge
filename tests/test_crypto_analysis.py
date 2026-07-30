@@ -32,6 +32,12 @@ def test_crypto_analysis_is_capped_and_structured():
     assert result["total_score"] == sum(result["category_breakdown"].values())
     assert 0 <= result["total_score"] <= 100
     assert result["data_quality"]["status"] == "good"
+    institutional = result["institutional_analysis"]
+    assert institutional["methodology"] == "deterministic_ohlcv_phase_1"
+    assert set(institutional["market_structure"]["timeframes"]) == {"mn1", "w1", "d1", "h4", "h1", "selected"}
+    assert institutional["elliott_wave"]["confidence"] in {"low", "medium"}
+    assert "detected" in institutional["abcd_pattern"]
+    assert institutional["volatility_detail"]["historical_volatility_annualized_pct"] is not None
 
 
 def test_crypto_analysis_degrades_without_data():
@@ -40,3 +46,4 @@ def test_crypto_analysis_degrades_without_data():
     assert result["total_score"] == 0
     assert result["data_quality"]["status"] == "insufficient"
     assert "no usable OHLC candles" in result["data_quality"]["issues"]
+    assert result["institutional_analysis"]["elliott_wave"]["confidence"] == "low"
