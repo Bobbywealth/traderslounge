@@ -271,14 +271,54 @@ def _build_setup_zones(*, price, atr_value, zones, indicators, direction, market
             return
         candidates.append({"direction": candidate_direction, "low": low, "high": high, "sources": {source}, "details": [detail] if detail else [], "sr_strength": int(strength or 0)})
 
+    # Detect an active harmonic completion first so we can (a) suppress the
+    # misleading "bullish FVG" / "bearish FVG" continuation rationale inside an
+    # opposing PRZ and (b) flag those zones as reversal-only reference areas.
+    harmonic_meta = zones.get("harmonic") or {}
+    harmonic_direction = harmonic_meta.get("direction") if harmonic_meta.get("prz") is not None else None
+    harmonic_name = harmonic_meta.get("name") if harmonic_meta.get("prz") is not None else None
+    harmonic_prz = harmonic_meta.get("prz")
+
+    def _detail_sign(detail):
+        if not isinstance(detail, str):
+            return None
+        if detail.startswith("bullish ") or detail.startswith("bullish FVG") or detail.startswith("bullish order block"):
+            return "bullish"
+        if detail.startswith("bearish ") or detail.startswith("bearish FVG") or detail.startswith("bearish order block"):
+            return "bearish"
+        return None
+
     for zone in zones.get("support_resistance") or []:
         zone_type = str(zone.get("type") or "")
         if zone_type in ("support", "resistance"):
             add("BUY" if zone_type == "support" else "SELL", zone.get("low"), zone.get("high"), "support_resistance", f"{zone.get('strength', 'zone')} S/R", zone.get("strength_score", 0))
     for gap in zones.get("fair_value_gaps") or []:
-        add("BUY" if gap.get("type") == "bullish" else "SELL", gap.get("low"), gap.get("high"), "fair_value_gap", "bullish FVG" if gap.get("type") == "bullish" else "bearish FVG")
+        gap_type = gap.get("type")
+        gap_detail = "bullish FVG" if gap_type == "bullish" else "bearish FVG"
+        gap_dir = "BUY" if gap_type == "bullish" else "SELL"
+        # If this FVG sits inside an opposing harmonic PRZ, downgrade it to a
+        # reversal-only reference. Don't emit a directional continuation detail
+        # that conflicts with the harmonic structure.
+        if harmonic_direction and harmonic_prz is not None and gap_type and gap_type != harmonic_direction:
+            prz_lo = float(harmonic_prz) - width
+            prz_hi = float(harmonic_prz) + width
+            if float(gap.get("low")) <= prz_hi and float(gap.get("high")) >= prz_lo:
+                add(gap_dir, gap.get("low"), gap.get("high"), "fair_value_gap_reversal",
+                    f"reversal-zone at bearish {harmonic_name} PRZ" if harmonic_direction == "bearish" else f"reversal-zone at bullish {harmonic_name} PRZ")
+                continue
+        add(gap_dir, gap.get("low"), gap.get("high"), "fair_value_gap", gap_detail)
     for block in zones.get("order_blocks") or []:
-        add("BUY" if block.get("type") == "bullish" else "SELL", block.get("low"), block.get("high"), "order_block", "bullish order block" if block.get("type") == "bullish" else "bearish order block")
+        block_type = block.get("type")
+        block_detail = "bullish order block" if block_type == "bullish" else "bearish order block"
+        block_dir = "BUY" if block_type == "bullish" else "SELL"
+        if harmonic_direction and harmonic_prz is not None and block_type and block_type != harmonic_direction:
+            prz_lo = float(harmonic_prz) - width
+            prz_hi = float(harmonic_prz) + width
+            if float(block.get("low")) <= prz_hi and float(block.get("high")) >= prz_lo:
+                add(block_dir, block.get("low"), block.get("high"), "order_block_reversal",
+                    f"reversal-zone at bearish {harmonic_name} PRZ" if harmonic_direction == "bearish" else f"reversal-zone at bullish {harmonic_name} PRZ")
+                continue
+        add(block_dir, block.get("low"), block.get("high"), "order_block", block_detail)
 
     fib_data = zones.get("fibonacci") or {}
     fib_direction = direction if direction in ("BUY", "SELL") else None
@@ -296,10 +336,9 @@ def _build_setup_zones(*, price, atr_value, zones, indicators, direction, market
         candidate_direction = fib_direction or ("BUY" if float(poc) < price else "SELL")
         add(candidate_direction, float(poc) - width, float(poc) + width, "volume_profile", "point of control")
 
-    harmonic = zones.get("harmonic") or {}
-    if harmonic.get("prz") is not None:
-        candidate_direction = "BUY" if harmonic.get("direction") == "bullish" else "SELL"
-        add(candidate_direction, float(harmonic.get("prz")) - width, float(harmonic.get("prz")) + width, "harmonic", f"{harmonic.get('name', 'harmonic')} PRZ")
+    if harmonic_meta.get("prz") is not None:
+        candidate_direction = "BUY" if harmonic_direction == "bullish" else "SELL"
+        add(candidate_direction, float(harmonic_meta.get("prz")) - width, float(harmonic_meta.get("prz")) + width, "harmonic", f"{harmonic_name or 'harmonic'} PRZ")
 
     merged = []
     merge_distance = max(atr_value * 0.35, price * 0.001)
@@ -318,6 +357,9 @@ def _build_setup_zones(*, price, atr_value, zones, indicators, direction, market
 
     expected = direction if direction in ("BUY", "SELL") else None
     macro = market_context.get("macro_bias")
+    timing_status = str(trade_timing.get("status") or "WAIT").upper()
+    technical_checks = trade_timing.get("checks") or {}
+    score_60 = bool(technical_checks.get("score_60"))
     setup_zones = []
     for item in merged:
         sources = item["sources"]
@@ -326,28 +368,73 @@ def _build_setup_zones(*, price, atr_value, zones, indicators, direction, market
             "fibonacci": 20 if "fibonacci" in sources else 0,
             "harmonic": 15 if "harmonic" in sources else 0,
             "fair_value_gap": 15 if "fair_value_gap" in sources else 0,
+            "fair_value_gap_reversal": 0,  # reversal-tagged FVGs do not contribute to score
             "order_block": 10 if "order_block" in sources else 0,
+            "order_block_reversal": 0,
             "volume_profile": 10 if "volume_profile" in sources else 0,
             "direction_alignment": 10 if expected == item["direction"] else 5 if expected is None else 0,
             "macro_alignment": 5 if ((item["direction"] == "BUY" and macro == "bullish") or (item["direction"] == "SELL" and macro == "bearish")) else 0,
         }
         score = min(100, sum(components.values()))
-        reasons = list(dict.fromkeys(item["details"]))
+
+        # Filter detail strings whose embedded direction opposes the zone
+        # direction. Keeps the displayed rationale directionally coherent.
+        raw_details = list(dict.fromkeys(item["details"]))
+        zone_dir = item["direction"]
+        filtered_details = []
+        for detail in raw_details:
+            sign = _detail_sign(detail)
+            if sign == "bullish" and zone_dir == "SELL":
+                continue
+            if sign == "bearish" and zone_dir == "BUY":
+                continue
+            filtered_details.append(detail)
+        reasons = filtered_details
+
+        # Flag if this zone's direction opposes the active harmonic PRZ.
+        conflicting_with_harmonic = bool(
+            harmonic_direction
+            and harmonic_prz is not None
+            and (
+                (zone_dir == "BUY" and harmonic_direction == "bearish")
+                or (zone_dir == "SELL" and harmonic_direction == "bullish")
+            )
+            and abs(item["center"] - float(harmonic_prz)) <= width * 2
+        )
+
+        if conflicting_with_harmonic:
+            reasons = [f"inside {harmonic_direction} {harmonic_name} PRZ \u2014 reversal context only"]
+            if "fair_value_gap_reversal" in sources or "order_block_reversal" in sources:
+                pass
+
         if expected == item["direction"]:
             reasons.append("matches V2 direction")
         elif expected is None:
             reasons.append("V2 direction is neutral; conditional only")
         elif expected != item["direction"]:
             reasons.append("opposes current V2 direction")
-        if trade_timing.get("status") != "READY":
-            reasons.append(f"timing is {trade_timing.get('status', 'WAIT')}")
+        if timing_status != "READY":
+            reasons.append(f"timing is {timing_status}")
+
+        # Actionable only when the global plan gates pass AND the local zone
+        # is not a reversal-context conflict with the harmonic structure.
+        actionable = bool(
+            timing_status == "READY"
+            and score_60
+            and expected == item["direction"]
+            and not conflicting_with_harmonic
+        )
+
         setup_zones.append({
             "direction": item["direction"], "low": round(item["low"], 8), "high": round(item["high"], 8), "center": round(item["center"], 8),
-            "score": score, "tier": "A" if score >= 80 else "B" if score >= 65 else "C" if score >= 50 else "WATCH",
+            "score": score if actionable else None,
+            "tier": "A" if score >= 80 else "B" if score >= 65 else "C" if score >= 50 else "WATCH",
+            "actionable": actionable,
+            "conflicting_with_harmonic": conflicting_with_harmonic,
             "sources": sorted(sources), "components": components, "reasons": reasons[:6],
             "distance_atr": round(abs(item["center"] - price) / atr_value, 4),
         })
-    return sorted(setup_zones, key=lambda item: (-item["score"], item["distance_atr"]))[:8]
+    return sorted(setup_zones, key=lambda item: (-(item["score"] or 0), item["distance_atr"]))[:8]
 
 
 def _significant_leg(candles, atr_value):
@@ -544,7 +631,10 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
             low, high, leg_dir = leg
             retrace = retracement_pct(price, low, high, leg_dir)
             span = high - low
-            retracement_ratios = (.236, .382, .5, .618, .65, .786)
+            # Standard Fibonacci retracement ladder. 0.65 was a non-standard
+            # pseudo-golden level that conflicted with the canonical Fib 0.618
+            # and misled users (e.g. labeling a 0.65 band as a "golden pocket").
+            retracement_ratios = (.236, .382, .5, .618, .786)
             extension_ratios = (1.272, 1.618, 2.0, 2.618)
             fibs = {
                 f"{ratio:g}": high - span*ratio if leg_dir == "up" else low + span*ratio
@@ -560,7 +650,8 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
                 matched = [zone for zone in sr_zones if abs(zone["level"]-fib_level) <= fib_tolerance]
                 if matched:
                     confluence.append({"ratio": ratio, "level": fib_level, "sr_level": matched[0]["level"], "sr_strength": matched[0]["strength"], "distance": abs(matched[0]["level"]-fib_level)})
-            golden_low, golden_high = sorted((fibs["0.618"], fibs["0.65"]))
+            # Golden pocket is the canonical 0.618–0.786 band.
+            golden_low, golden_high = sorted((fibs["0.618"], fibs["0.786"]))
             in_golden_pocket = golden_low <= price <= golden_high
             nearest_ratio, nearest_level = min(fibs.items(), key=lambda item: abs(item[1]-price))
             zones["fibonacci"] = {

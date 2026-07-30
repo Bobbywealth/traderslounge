@@ -858,6 +858,14 @@ const TradingView: React.FC = () => {
     }
     harmonicSeriesRefs.current = [];
     if (!showHarmonics) return;
+    // The PRZ overlay dims and adds a "REFERENCE" tag whenever the deterministic
+    // setup is not actionable, so the chart does not look like a trade signal.
+    const v2Score = Number(cryptoAnalysis?.total_score || 0);
+    const planDirection = String(cryptoAnalysis?.trade_plan?.direction || 'NEUTRAL').toUpperCase();
+    const timingStatus = String(cryptoAnalysis?.trade_plan?.timing_status || cryptoAnalysis?.trade_timing?.status || 'WAIT').toUpperCase();
+    const calendarStatus = String(cryptoAnalysis?.trade_plan?.calendar_status || cryptoAnalysis?.economic_calendar?.status || '').toUpperCase();
+    const planEligible = Boolean(cryptoAnalysis?.trade_plan?.eligible);
+    const harmonicActionable = planEligible && timingStatus === 'READY' && !['BLOCKED', 'POST_NEWS', 'UNAVAILABLE'].includes(calendarStatus) && v2Score >= 60;
 
     for (const pattern of harmonicPatterns) {
       if (pattern.status !== 'completed') continue;
@@ -893,6 +901,18 @@ const TradingView: React.FC = () => {
     const renderOverlay = () => {
       removeOverlay();
       if (!showHarmonics || harmonicPatterns.length === 0) return;
+      // Dim the harmonic PRZ to "REFERENCE" when the deterministic setup is
+      // not actionable, so the chart does not look like an active trade.
+      const v2Score = Number(cryptoAnalysis?.total_score || 0);
+      const timingStatus = String(cryptoAnalysis?.trade_plan?.timing_status || cryptoAnalysis?.trade_timing?.status || 'WAIT').toUpperCase();
+      const calendarStatus = String(cryptoAnalysis?.trade_plan?.calendar_status || cryptoAnalysis?.economic_calendar?.status || '').toUpperCase();
+      const planEligible = Boolean(cryptoAnalysis?.trade_plan?.eligible);
+      const harmonicActionable = planEligible && timingStatus === 'READY' && !['BLOCKED', 'POST_NEWS', 'UNAVAILABLE'].includes(calendarStatus) && v2Score >= 60;
+      const overlayOpacity = harmonicActionable ? 1 : 0.45;
+      const fillOpacity = harmonicActionable ? 0.22 : 0.08;
+      const przFillOpacity = harmonicActionable ? 0.18 : 0.06;
+      const przStrokeOpacity = harmonicActionable ? 1 : 0.5;
+      const referenceTag = harmonicActionable ? '' : ' (REFERENCE)';
       const svg = document.createElementNS(SVG_NS, 'svg');
       svg.setAttribute('data-harmonic-overlay', 'true');
       svg.setAttribute('width', String(container.clientWidth));
@@ -902,6 +922,7 @@ const TradingView: React.FC = () => {
       svg.style.zIndex = '10';
       svg.style.pointerEvents = 'none';
       svg.style.overflow = 'visible';
+      svg.style.opacity = String(overlayOpacity);
 
       for (const pattern of harmonicPatterns) {
         const labels = ['X', 'A', 'B', 'C', 'D'] as const;
@@ -928,7 +949,7 @@ const TradingView: React.FC = () => {
           const polygon = document.createElementNS(SVG_NS, 'polygon');
           polygon.setAttribute('points', xy(indexes));
           polygon.setAttribute('fill', fill);
-          polygon.setAttribute('fill-opacity', '0.22');
+          polygon.setAttribute('fill-opacity', String(fillOpacity));
           polygon.setAttribute('stroke', color);
           polygon.setAttribute('stroke-opacity', '0.55');
           polygon.setAttribute('stroke-width', '1.5');
@@ -982,8 +1003,9 @@ const TradingView: React.FC = () => {
           prz.setAttribute('width', String(boxWidth));
           prz.setAttribute('height', String(height));
           prz.setAttribute('fill', color);
-          prz.setAttribute('fill-opacity', '0.18');
+          prz.setAttribute('fill-opacity', String(przFillOpacity));
           prz.setAttribute('stroke', color);
+          prz.setAttribute('stroke-opacity', String(przStrokeOpacity));
           prz.setAttribute('stroke-width', '2');
           prz.setAttribute('stroke-dasharray', '7 5');
           svg.appendChild(prz);
@@ -994,7 +1016,7 @@ const TradingView: React.FC = () => {
           przLabel.setAttribute('fill', color);
           przLabel.setAttribute('font-size', '13');
           przLabel.setAttribute('font-weight', '800');
-          przLabel.textContent = `${pattern.type} PRZ ${pattern.prz.min.toFixed(2)}–${pattern.prz.max.toFixed(2)}`;
+          przLabel.textContent = `${pattern.type} PRZ ${pattern.prz.min.toFixed(2)}–${pattern.prz.max.toFixed(2)}${referenceTag}`;
           svg.appendChild(przLabel);
         }
       }
@@ -1010,7 +1032,7 @@ const TradingView: React.FC = () => {
       window.removeEventListener('resize', deferredRender);
       removeOverlay();
     };
-  }, [chartRevision, harmonicPatterns, showHarmonics]);
+  }, [chartRevision, harmonicPatterns, showHarmonics, cryptoAnalysis]);
 
   // ADR(14) high, low, and day-open reference lines.
   useEffect(() => {
@@ -1139,8 +1161,10 @@ const TradingView: React.FC = () => {
       const confluenceRatios = new Set((fibData.sr_confluence || []).map((item: any) => String(item.ratio)));
       const atrDistance = Number(cryptoAnalysis.indicators.atr || 0) * 4; // Tighter filter than before
 
-      // Only show KEY fibonacci levels: 0.382, 0.5, 0.618, 0.65, 0.786
-      const keyRatios = ['0.382', '0.5', '0.618', '0.65', '0.786'];
+      // Only show KEY fibonacci levels: standard 0.382, 0.5, 0.618, 0.786.
+      // 0.65 was a non-standard pseudo-golden level that conflicted with the
+      // canonical 0.618 and was removed.
+      const keyRatios = ['0.382', '0.5', '0.618', '0.786'];
       Object.entries(fibData.levels || {})
         .filter(([ratio]) => keyRatios.includes(String(ratio)))
         .filter(([, value]) => !atrDistance || Math.abs(Number(value) - currentPrice) <= atrDistance)
@@ -1148,14 +1172,14 @@ const TradingView: React.FC = () => {
           levels.push({
             title: `Fib ${ratio}${confluenceRatios.has(ratio) ? ' ★' : ''}`,
             value: Number(value),
-            color: ['0.618', '0.65'].includes(ratio) ? '#c084fc' : confluenceRatios.has(ratio) ? '#22d3ee' : '#6366f1',
+            color: ratio === '0.618' ? '#c084fc' : confluenceRatios.has(ratio) ? '#22d3ee' : '#6366f1',
             style: LineStyle.Dotted
           });
         });
     }
 
     levels.filter((level) => Number.isFinite(level.value)).forEach((level) => {
-      const showAxisLabel = /^[SR]\d/.test(level.title) || level.title.startsWith('Fib 0.618') || level.title.startsWith('Fib 0.65');
+      const showAxisLabel = /^[SR]\d/.test(level.title) || level.title.startsWith('Fib 0.618');
       const series = chart.addSeries(LineSeries, { color: level.color, lineWidth: 1, lineStyle: level.style, title: level.title, lastValueVisible: showAxisLabel, priceLineVisible: false });
       series.setData([{ time: start, value: level.value }, { time: end, value: level.value }]);
       v2LevelSeriesRefs.current.push(series);
@@ -1861,13 +1885,46 @@ const TradingView: React.FC = () => {
             <div className="flex justify-between gap-3"><span className="text-slate-500">Possible {setupPlan.direction.toLowerCase()} area</span><b className={setupPlan.direction === 'BUY' ? 'text-emerald-300' : 'text-rose-300'}>{setupPrice(setupPlan.entry)}</b></div>
             <div className="flex justify-between gap-3"><span className="text-slate-500">Invalid if price reaches</span><b className="text-rose-300">{setupPrice(setupPlan.stop ?? setupPlan.invalidation)}</b></div>
             <div className="flex justify-between gap-3"><span className="text-slate-500">Targets</span><b className="text-cyan-300">{setupPlan.targets?.slice(0, 3).map((target) => setupPrice(target.price)).join(' · ') || 'Waiting'}</b></div>
-          </div> : <div className="mt-3 space-y-2">
-            <p className="font-semibold text-slate-200">NO ACTIVE SETUP</p>
-            <p className="text-[10px] leading-relaxed text-slate-500">These are reference areas, not entries. Wait for direction and confirmation first.</p>
-            {setupZones.map((zone: any) => <div key={`${zone.direction}-${zone.center}`} className="flex justify-between gap-3"><span className={zone.direction === 'BUY' ? 'text-emerald-300' : 'text-rose-300'}>{zone.direction} only if price returns here <small className="text-slate-500">{zone.score}/100</small></span><b className="text-slate-200">{setupPrice(zone.low)} – {setupPrice(zone.high)}</b></div>)}
-            <p className="text-[10px] leading-relaxed text-slate-500">Then wait for a confirming candle, volume, ADR, and V2 direction.</p>
-            {setupZones[0]?.reasons?.length > 0 && <p className="text-[10px] leading-relaxed text-slate-500">Why these areas: {setupZones[0].reasons.slice(0, 3).join(' · ')}</p>}
-          </div>}
+          </div> : (() => {
+            const v2Score = Number(cryptoAnalysis?.total_score || 0);
+            const belowThreshold = v2Score < 60;
+            const calendarBlocked = setupHardBlocked;
+            const timingWait = setupTimingStatus !== 'READY';
+            // Only show zones that the backend marked as actionable. When none
+            // qualify, the panel truthfully shows "no reference areas".
+            const displayZones = setupReady
+              ? setupZones.filter((z: any) => z.actionable !== false)
+              : [];
+            const isReferenceMode = displayZones.length > 0 && !setupReady;
+            return (
+              <div className="mt-3 space-y-2">
+                <p className="font-semibold text-slate-200">NO ACTIVE SETUP</p>
+                {belowThreshold && <p className="text-[10px] leading-relaxed text-rose-300">V2 score is {v2Score}/100 — below the 60 threshold. Zones are not actionable until score clears.</p>}
+                {calendarBlocked && <p className="text-[10px] leading-relaxed text-rose-300">Economic calendar gate is BLOCKED. No new entries until the gate clears.</p>}
+                {timingWait && !belowThreshold && !calendarBlocked && <p className="text-[10px] leading-relaxed text-amber-300">Timing is WAIT — waiting on a confirming candle, volume, ADR, and V2 direction.</p>}
+                {displayZones.length === 0 && !belowThreshold && !calendarBlocked && !timingWait && <p className="text-[10px] leading-relaxed text-slate-500">No qualifying zones on this timeframe yet.</p>}
+                {displayZones.map((zone: any) => {
+                  const actionable = zone.actionable !== false;
+                  const conflicting = zone.conflicting_with_harmonic === true;
+                  const scoreLabel = actionable && zone.score != null ? <small className="text-slate-500"> {zone.score}/100</small> : null;
+                  const labelClass = actionable
+                    ? (zone.direction === 'BUY' ? 'text-emerald-300' : 'text-rose-300')
+                    : 'text-slate-500';
+                  const prefix = actionable
+                    ? `${zone.direction} only if price returns here`
+                    : (conflicting ? 'Harmonic conflict — wait for confirmation' : 'Reference area — not actionable');
+                  return (
+                    <div key={`${zone.direction}-${zone.center}`} className="flex justify-between gap-3">
+                      <span className={labelClass}>{prefix}{scoreLabel}</span>
+                      <b className={actionable ? 'text-slate-200' : 'text-slate-500'}>{setupPrice(zone.low)} – {setupPrice(zone.high)}</b>
+                    </div>
+                  );
+                })}
+                {displayZones[0]?.reasons?.length > 0 && <p className="text-[10px] leading-relaxed text-slate-500">Why: {displayZones[0].reasons.slice(0, 3).join(' · ')}</p>}
+                {!isReferenceMode && (belowThreshold || calendarBlocked || timingWait) && <p className="text-[10px] leading-relaxed text-slate-500">Then wait for a confirming candle, volume, ADR, and V2 direction.</p>}
+              </div>
+            );
+          })()}
 
           <p className="mt-3 border-t border-white/[0.08] pt-2 text-[10px] leading-relaxed text-slate-500">{setupReady ? 'Deterministic gates are clear. Confirm the trigger before acting.' : setupHardBlocked ? 'Calendar gate is blocking this setup.' : `Wait for ${(cryptoAnalysis?.trade_timing?.wait_for || ['confirmation']).slice(0, 2).join(' and ').replace(/_/g, ' ')}.`}</p>
         </div>}
@@ -1882,7 +1939,7 @@ const TradingView: React.FC = () => {
             if (points.length < 2) return null;
             if (drawing.type === 'trend') return <g key={drawing.id}><line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke="transparent" strokeWidth="14" onPointerDown={select} style={{pointerEvents:'stroke'}}/><line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke={stroke} strokeWidth={selected ? 2.5 : 1.7} strokeDasharray={dash} onPointerDown={select} style={{ pointerEvents: 'stroke' }}/>{drawing.showPrice && <text x={points[1].x!+5} y={points[1].y!-5} fill={stroke} fontSize="9">{drawing.points[1].price.toFixed(2)}</text>}{anchors}</g>;
             if (drawing.type === 'rectangle') { const x=Math.min(points[0].x!,points[1].x!), y=Math.min(points[0].y!,points[1].y!), width=Math.abs(points[1].x!-points[0].x!), height=Math.abs(points[1].y!-points[0].y!); return <g key={drawing.id}><rect x={x} y={y} width={width} height={height} fill={`${stroke}18`} stroke={stroke} strokeDasharray={dash} strokeWidth={selected ? 2 : 1.5} onPointerDown={select} style={{ pointerEvents: 'all' }}/>{drawing.showPrice && <text x={x+4} y={y+12} fill={stroke} fontSize="9">{Math.min(...drawing.points.map((point)=>point.price)).toFixed(2)}–{Math.max(...drawing.points.map((point)=>point.price)).toFixed(2)}</text>}{anchors}</g>; }
-            if (drawing.type === 'fib') { const ratios=[0,.236,.382,.5,.618,.65,.786,1,1.272,1.618]; const ax=Math.min(points[0].x!,points[1].x!), bx=Math.max(points[0].x!,points[1].x!); return <g key={drawing.id} onPointerDown={select} style={{ pointerEvents: 'stroke' }}><rect x={ax} y={Math.min(points[0].y!,points[1].y!)} width={Math.max(0,bx-ax)} height={Math.max(0,Math.abs(points[1].y!-points[0].y!))} fill={`${stroke}0f`} stroke="none" style={{ pointerEvents: 'none' }}/>{ratios.map((ratio) => { const y=points[0].y!+(points[1].y!-points[0].y!)*ratio; const price=drawing.points[0].price+(drawing.points[1].price-drawing.points[0].price)*ratio; const golden=['0.618','0.65'].includes(String(ratio)); const color=golden?'#c084fc':stroke; return <g key={ratio}><line x1="0" x2="100%" y1={y} y2={y} stroke="transparent" strokeWidth="14" style={{ pointerEvents: 'stroke' }}/><line x1="0" x2="100%" y1={y} y2={y} stroke={color} strokeWidth={selected ? 2 : 1} strokeDasharray={dash || '4 3'} style={{ pointerEvents: 'none' }}/>{drawing.showPrice !== false && <text x="100%" dx={-6} y={y+3} textAnchor="end" fill={color} fontSize="9" style={{ pointerEvents: 'none' }}>{ratio} · {price.toFixed(2)}</text>}</g>; })}<line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke={stroke} strokeWidth={selected ? 2 : 1.4} strokeDasharray="2 3" style={{ pointerEvents: 'none' }}/>{anchors}</g>; }
+            if (drawing.type === 'fib') { const ratios=[0,.236,.382,.5,.618,.786,1,1.272,1.618]; const ax=Math.min(points[0].x!,points[1].x!), bx=Math.max(points[0].x!,points[1].x!); return <g key={drawing.id} onPointerDown={select} style={{ pointerEvents: 'stroke' }}><rect x={ax} y={Math.min(points[0].y!,points[1].y!)} width={Math.max(0,bx-ax)} height={Math.max(0,Math.abs(points[1].y!-points[0].y!))} fill={`${stroke}0f`} stroke="none" style={{ pointerEvents: 'none' }}/>{ratios.map((ratio) => { const y=points[0].y!+(points[1].y!-points[0].y!)*ratio; const price=drawing.points[0].price+(drawing.points[1].price-drawing.points[0].price)*ratio; const golden=String(ratio)==='0.618'; const color=golden?'#c084fc':stroke; return <g key={ratio}><line x1="0" x2="100%" y1={y} y2={y} stroke="transparent" strokeWidth="14" style={{ pointerEvents: 'stroke' }}/><line x1="0" x2="100%" y1={y} y2={y} stroke={color} strokeWidth={selected ? 2 : 1} strokeDasharray={dash || '4 3'} style={{ pointerEvents: 'none' }}/>{drawing.showPrice !== false && <text x="100%" dx={-6} y={y+3} textAnchor="end" fill={color} fontSize="9" style={{ pointerEvents: 'none' }}>{ratio} · {price.toFixed(2)}</text>}</g>; })}<line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke={stroke} strokeWidth={selected ? 2 : 1.4} strokeDasharray="2 3" style={{ pointerEvents: 'none' }}/>{anchors}</g>; }
             return null;
           })}
         </svg>}
