@@ -73,12 +73,12 @@ describe('Header Component', () => {
     expect(screen.getByText(/Welcome back/)).toBeTruthy();
   });
 
-  it('displays the logo', () => {
+  it('displays the ConfluenceX logo', () => {
     render(
       <BrowserRouter>
         <Header />
       </BrowserRouter>
     );
-    expect(screen.getByTestId('zap-icon')).toBeTruthy();
+    expect(screen.getByAltText('ConfluenceX')).toBeTruthy();
   });
 });
