@@ -1071,6 +1071,7 @@ const TradingView: React.FC = () => {
   }, [trendLines, showTrendLines, chartRevision]);
 
   // Draw V2 Fibonacci plus support/resistance from the same analysis used by the dashboard.
+  // Only shows the STRONGEST zones close to current price to avoid clutter.
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
@@ -1089,17 +1090,62 @@ const TradingView: React.FC = () => {
     if (showSupportResistance) {
       const detailed = cryptoAnalysis.zones.support_resistance || [];
       if (detailed.length) {
-        ['support', 'resistance'].forEach((type) => detailed.filter((zone: any) => zone.type === type).slice(0, 3).forEach((zone: any, index: number) => levels.push({ title: `${type === 'support' ? 'S' : 'R'}${index + 1} ${zone.strength} · ${zone.touches}x`, value: Number(zone.level), color: type === 'support' ? '#22c55e' : '#f43f5e', style: zone.strength === 'strong' ? LineStyle.Solid : LineStyle.Dashed })));
+        // Sort by strength first (strong first), then by distance (closest first)
+        // Show only top 2 of each type that are within 5*ATR of current price
+        const atrForFilter = Number(cryptoAnalysis.indicators.atr || 0) * 5;
+        ['support', 'resistance'].forEach((type) => {
+          const zonesOfType = detailed
+            .filter((zone: any) => zone.type === type)
+            .filter((zone: any) => !atrForFilter || Math.abs(Number(zone.level) - currentPrice) <= atrForFilter)
+            .sort((a: any, b: any) => {
+              const strengthOrder = { strong: 0, moderate: 1, weak: 2 };
+              const aStr = strengthOrder[a.strength as keyof typeof strengthOrder] ?? 2;
+              const bStr = strengthOrder[b.strength as keyof typeof strengthOrder] ?? 2;
+              if (aStr !== bStr) return aStr - bStr;
+              return (a.distance_atr || 99) - (b.distance_atr || 99);
+            })
+            .slice(0, 2);
+          zonesOfType.forEach((zone: any, index: number) => {
+            const emoji = zone.strength === 'strong' ? '◆' : '◇';
+            levels.push({
+              title: `${type === 'support' ? 'S' : 'R'}${index + 1} ${emoji} ${zone.touches}×`,
+              value: Number(zone.level),
+              color: type === 'support' ? '#22c55e' : '#f43f5e',
+              style: zone.strength === 'strong' ? LineStyle.Solid : LineStyle.Dashed
+            });
+          });
+        });
       } else {
-        (cryptoAnalysis.zones.support || []).slice(0, 3).forEach((value: number, index: number) => levels.push({ title: `S${index + 1}`, value, color: '#22c55e', style: LineStyle.Dashed }));
-        (cryptoAnalysis.zones.resistance || []).slice(0, 3).forEach((value: number, index: number) => levels.push({ title: `R${index + 1}`, value, color: '#f43f5e', style: LineStyle.Dashed }));
+        // Fallback: only show zones within 3*ATR of current price
+        const atrForFilter = Number(cryptoAnalysis.indicators.atr || 0) * 3;
+        (cryptoAnalysis.zones.support || [])
+          .filter((value: number) => !atrForFilter || Math.abs(value - currentPrice) <= atrForFilter)
+          .slice(0, 2)
+          .forEach((value: number, index: number) => levels.push({ title: `S${index + 1}`, value, color: '#22c55e', style: LineStyle.Dashed }));
+        (cryptoAnalysis.zones.resistance || [])
+          .filter((value: number) => !atrForFilter || Math.abs(value - currentPrice) <= atrForFilter)
+          .slice(0, 2)
+          .forEach((value: number, index: number) => levels.push({ title: `R${index + 1}`, value, color: '#f43f5e', style: LineStyle.Dashed }));
       }
     }
     if (showFibonacci) {
       const fibData = cryptoAnalysis.zones.fibonacci || {};
       const confluenceRatios = new Set((fibData.sr_confluence || []).map((item: any) => String(item.ratio)));
-      const atrDistance = Number(cryptoAnalysis.indicators.atr || 0)*8;
-      Object.entries(fibData.levels || {}).filter(([, value]) => !atrDistance || Math.abs(Number(value)-currentPrice) <= atrDistance).forEach(([ratio, value]) => levels.push({ title: `Fib ${ratio}${confluenceRatios.has(ratio) ? ' + S/R' : ''}`, value: Number(value), color: ['0.618', '0.65'].includes(ratio) ? '#c084fc' : confluenceRatios.has(ratio) ? '#22d3ee' : '#6366f1', style: LineStyle.Dotted }));
+      const atrDistance = Number(cryptoAnalysis.indicators.atr || 0) * 4; // Tighter filter than before
+
+      // Only show KEY fibonacci levels: 0.382, 0.5, 0.618, 0.65, 0.786
+      const keyRatios = ['0.382', '0.5', '0.618', '0.65', '0.786'];
+      Object.entries(fibData.levels || {})
+        .filter(([ratio]) => keyRatios.includes(String(ratio)))
+        .filter(([, value]) => !atrDistance || Math.abs(Number(value) - currentPrice) <= atrDistance)
+        .forEach(([ratio, value]) => {
+          levels.push({
+            title: `Fib ${ratio}${confluenceRatios.has(ratio) ? ' ★' : ''}`,
+            value: Number(value),
+            color: ['0.618', '0.65'].includes(ratio) ? '#c084fc' : confluenceRatios.has(ratio) ? '#22d3ee' : '#6366f1',
+            style: LineStyle.Dotted
+          });
+        });
     }
 
     levels.filter((level) => Number.isFinite(level.value)).forEach((level) => {
@@ -1108,7 +1154,7 @@ const TradingView: React.FC = () => {
       series.setData([{ time: start, value: level.value }, { time: end, value: level.value }]);
       v2LevelSeriesRefs.current.push(series);
     });
-  }, [cryptoAnalysis, showFibonacci, showSupportResistance, chartRevision]);
+  }, [cryptoAnalysis, showFibonacci, showSupportResistance, chartRevision, currentPrice]);
 
   // Native-feeling live candles: REST loads history once, then the global
   // public Binance market-data stream updates the active candle trade-by-trade.
