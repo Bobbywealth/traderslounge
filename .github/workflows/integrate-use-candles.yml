@@ -1,0 +1,35 @@
+name: Integrate useCandles
+
+on:
+  push:
+    branches:
+      - agent/integrate-use-candles
+
+permissions:
+  contents: write
+
+jobs:
+  codemod:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/integrate-use-candles
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply integration
+        run: python scripts/integrate-use-candles.py
+      - name: Remove one-time automation
+        run: |
+          rm scripts/integrate-use-candles.py
+          rm .github/workflows/integrate-use-candles.yml
+      - name: Commit integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/TradingView.tsx scripts/integrate-use-candles.py .github/workflows/integrate-use-candles.yml
+          git commit -m "refactor: integrate useCandles into TradingView"
+          git push origin HEAD:agent/integrate-use-candles
