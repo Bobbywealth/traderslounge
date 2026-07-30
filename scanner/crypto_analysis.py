@@ -254,6 +254,102 @@ def _cluster_support_resistance(candles, price, atr_value):
     return sorted(output, key=lambda zone: (zone["distance_atr"], -zone["strength_score"]))[:10]
 
 
+def _build_setup_zones(*, price, atr_value, zones, indicators, direction, market_context, trade_timing):
+    """Build deterministic, explainable setup areas from all technical zones."""
+    if not price:
+        return []
+    atr_value = float(atr_value or price * 0.01)
+    width = max(atr_value * 0.18, price * 0.0004)
+    candidates = []
+
+    def add(candidate_direction, low, high, source, detail=None, strength=0):
+        try:
+            low, high = sorted((float(low), float(high)))
+        except (TypeError, ValueError):
+            return
+        if not math.isfinite(low) or not math.isfinite(high):
+            return
+        candidates.append({"direction": candidate_direction, "low": low, "high": high, "sources": {source}, "details": [detail] if detail else [], "sr_strength": int(strength or 0)})
+
+    for zone in zones.get("support_resistance") or []:
+        zone_type = str(zone.get("type") or "")
+        if zone_type in ("support", "resistance"):
+            add("BUY" if zone_type == "support" else "SELL", zone.get("low"), zone.get("high"), "support_resistance", f"{zone.get('strength', 'zone')} S/R", zone.get("strength_score", 0))
+    for gap in zones.get("fair_value_gaps") or []:
+        add("BUY" if gap.get("type") == "bullish" else "SELL", gap.get("low"), gap.get("high"), "fair_value_gap", "bullish FVG" if gap.get("type") == "bullish" else "bearish FVG")
+    for block in zones.get("order_blocks") or []:
+        add("BUY" if block.get("type") == "bullish" else "SELL", block.get("low"), block.get("high"), "order_block", "bullish order block" if block.get("type") == "bullish" else "bearish order block")
+
+    fib_data = zones.get("fibonacci") or {}
+    fib_direction = direction if direction in ("BUY", "SELL") else None
+    for ratio, level in (fib_data.get("levels") or {}).items():
+        candidate_direction = fib_direction or ("BUY" if float(level) < price else "SELL")
+        add(candidate_direction, float(level) - width, float(level) + width, "fibonacci", f"Fib {ratio}")
+
+    profile = zones.get("volume_profile_summary") or {}
+    hvn = profile.get("high_volume_node") or {}
+    if hvn.get("low") is not None and hvn.get("high") is not None:
+        candidate_direction = fib_direction or ("BUY" if float(hvn.get("high")) < price else "SELL")
+        add(candidate_direction, hvn.get("low"), hvn.get("high"), "volume_profile", "high-volume node")
+    poc = profile.get("poc")
+    if poc is not None:
+        candidate_direction = fib_direction or ("BUY" if float(poc) < price else "SELL")
+        add(candidate_direction, float(poc) - width, float(poc) + width, "volume_profile", "point of control")
+
+    harmonic = zones.get("harmonic") or {}
+    if harmonic.get("prz") is not None:
+        candidate_direction = "BUY" if harmonic.get("direction") == "bullish" else "SELL"
+        add(candidate_direction, float(harmonic.get("prz")) - width, float(harmonic.get("prz")) + width, "harmonic", f"{harmonic.get('name', 'harmonic')} PRZ")
+
+    merged = []
+    merge_distance = max(atr_value * 0.35, price * 0.001)
+    for candidate in sorted(candidates, key=lambda item: (item["direction"], abs(((item["low"] + item["high"]) / 2) - price))):
+        center = (candidate["low"] + candidate["high"]) / 2
+        existing = next((item for item in merged if item["direction"] == candidate["direction"] and abs(item["center"] - center) <= merge_distance), None)
+        if existing:
+            existing["low"] = min(existing["low"], candidate["low"])
+            existing["high"] = max(existing["high"], candidate["high"])
+            existing["center"] = (existing["low"] + existing["high"]) / 2
+            existing["sources"].update(candidate["sources"])
+            existing["details"].extend(candidate["details"])
+            existing["sr_strength"] = max(existing["sr_strength"], candidate["sr_strength"])
+        else:
+            merged.append({**candidate, "center": center})
+
+    expected = direction if direction in ("BUY", "SELL") else None
+    macro = market_context.get("macro_bias")
+    setup_zones = []
+    for item in merged:
+        sources = item["sources"]
+        components = {
+            "support_resistance": min(20, item["sr_strength"] * 2) if "support_resistance" in sources else 0,
+            "fibonacci": 20 if "fibonacci" in sources else 0,
+            "harmonic": 15 if "harmonic" in sources else 0,
+            "fair_value_gap": 15 if "fair_value_gap" in sources else 0,
+            "order_block": 10 if "order_block" in sources else 0,
+            "volume_profile": 10 if "volume_profile" in sources else 0,
+            "direction_alignment": 10 if expected == item["direction"] else 5 if expected is None else 0,
+            "macro_alignment": 5 if ((item["direction"] == "BUY" and macro == "bullish") or (item["direction"] == "SELL" and macro == "bearish")) else 0,
+        }
+        score = min(100, sum(components.values()))
+        reasons = list(dict.fromkeys(item["details"]))
+        if expected == item["direction"]:
+            reasons.append("matches V2 direction")
+        elif expected is None:
+            reasons.append("V2 direction is neutral; conditional only")
+        elif expected != item["direction"]:
+            reasons.append("opposes current V2 direction")
+        if trade_timing.get("status") != "READY":
+            reasons.append(f"timing is {trade_timing.get('status', 'WAIT')}")
+        setup_zones.append({
+            "direction": item["direction"], "low": round(item["low"], 8), "high": round(item["high"], 8), "center": round(item["center"], 8),
+            "score": score, "tier": "A" if score >= 80 else "B" if score >= 65 else "C" if score >= 50 else "WATCH",
+            "sources": sorted(sources), "components": components, "reasons": reasons[:6],
+            "distance_atr": round(abs(item["center"] - price) / atr_value, 4),
+        })
+    return sorted(setup_zones, key=lambda item: (-item["score"], item["distance_atr"]))[:8]
+
+
 def _significant_leg(candles, atr_value):
     """Choose the latest swing leg large enough to matter on this timeframe."""
     if len(candles) < 12:
@@ -484,6 +580,8 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         confirmed_bars = bars
         candle_patterns = _candle_patterns(confirmed_bars)
         harmonic = detect_harmonic(confirmed_bars)
+        if harmonic:
+            zones["harmonic"] = {"name": harmonic.get("name"), "direction": harmonic.get("direction"), "prz": harmonic.get("prz")}
         pattern_ok = any(("bullish" in p or p == "hammer") if sign > 0 else ("bearish" in p or p == "shooting_star") for p in candle_patterns)
         harmonic_ok = harmonic and harmonic["direction"] == ("bullish" if sign > 0 else "bearish")
         scores["patterns"] = _clamp((5 if pattern_ok else 0)+(5 if harmonic_ok else 0), 0, 10) if sign else 0
@@ -671,6 +769,7 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
     if bars and price:
         a = indicators.get("atr") or (price*.02)
         stop = price-sign*2*a if sign else None
+    zones["setup_zones"] = _build_setup_zones(price=price, atr_value=indicators.get("atr"), zones=zones, indicators=indicators, direction=direction, market_context=market_context, trade_timing=trade_timing)
     analysis_result = {"version": VERSION, "asset_class": "crypto", "pair": getattr(snapshot, "pair", None), "direction": direction,
             "total_score": int(_clamp(total, 0, 100)), "category_breakdown": scores, "data_quality": quality,
             "indicators": indicators, "zones": zones, "market_context": market_context, "trade_timing": trade_timing,
