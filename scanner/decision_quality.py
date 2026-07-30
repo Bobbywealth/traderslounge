@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Optional
 
+from .institutional_intelligence import attach_institutional_intelligence
+
 
 SCENARIO_WEIGHT_DISCLAIMER = (
     "Scenario weights are explicitly uncalibrated, are not probabilities, "
@@ -257,6 +259,21 @@ def _component_scores(analysis: Mapping[str, Any], ledger: Mapping[str, Any], ri
     }
 
 
+def _intelligence_unavailable(exc: Exception) -> dict[str, Any]:
+    """Return a stable additive fallback without weakening canonical gates."""
+    return {
+        "version": "2.0.0",
+        "available": False,
+        "status": "UNAVAILABLE",
+        "reason": f"intelligence_v2_error: {exc!r}",
+        "execution_authority": "CANONICAL_TRADE_GATES_ONLY",
+        "position_sizing_uses_consensus": False,
+        "position_sizing_uses_similarity": False,
+        "position_sizing_uses_grade": False,
+        "disclaimer": "Intelligence V2 is unavailable; canonical trade gates remain authoritative.",
+    }
+
+
 def attach_decision_quality(analysis: Mapping[str, Any], calendar: Optional[Mapping[str, Any]] = None, portfolio: Optional[Mapping[str, Any]] = None, historical_stats: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
     """Return an enriched copy, preserving canonical direction, total_score and gates."""
     original = dict(analysis or {})
@@ -292,4 +309,8 @@ def attach_decision_quality(analysis: Mapping[str, Any], calendar: Optional[Mapp
             "message": "Entry conditions are valid now." if alert_status == "TRIGGERED" else "Alert will become valid only after every execution gate passes.",
         },
     }
-    return result
+    try:
+        return attach_institutional_intelligence(result, calendar=calendar)
+    except Exception as exc:  # pragma: no cover - defensive runtime isolation
+        result["institutional_intelligence_v2"] = _intelligence_unavailable(exc)
+        return result
