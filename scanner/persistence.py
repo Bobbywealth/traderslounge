@@ -51,6 +51,33 @@ CREATE TABLE IF NOT EXISTS signals (
 CREATE INDEX IF NOT EXISTS idx_signals_pair_created ON signals(pair, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_signals_tier_created ON signals(tier, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS published_signals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fingerprint TEXT NOT NULL UNIQUE,
+    published_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    pair TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    setup_quality TEXT NOT NULL,
+    entry REAL NOT NULL,
+    stop_loss REAL NOT NULL,
+    tp1 REAL NOT NULL,
+    tp2 REAL,
+    tp3 REAL,
+    net_rr REAL,
+    risk_percent REAL,
+    calendar_status TEXT NOT NULL,
+    scenario TEXT NOT NULL,
+    rationale_json TEXT NOT NULL DEFAULT '[]',
+    source_candle_time REAL,
+    engine_version TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ACTIVE'
+);
+CREATE INDEX IF NOT EXISTS idx_published_signals_time ON published_signals(published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_published_signals_status ON published_signals(status, published_at DESC);
+
 CREATE TABLE IF NOT EXISTS lifecycle_events (
     id TEXT PRIMARY KEY,
     setup_id TEXT NOT NULL,
@@ -141,6 +168,51 @@ class SQLiteRepository:
 
     def count(self) -> int:
         return int(self.conn.execute("SELECT COUNT(*) FROM signals").fetchone()[0])
+
+    def publish_actionable(self, payload: dict) -> int:
+        published_at = payload["published_at"].isoformat() if hasattr(payload["published_at"], "isoformat") else str(payload["published_at"])
+        self.conn.execute(
+            """
+            INSERT INTO published_signals (
+                fingerprint, published_at, updated_at, pair, direction, timeframe,
+                score, setup_quality, entry, stop_loss, tp1, tp2, tp3, net_rr,
+                risk_percent, calendar_status, scenario, rationale_json,
+                source_candle_time, engine_version, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(fingerprint) DO UPDATE SET updated_at = excluded.updated_at
+            """,
+            (
+                payload["fingerprint"], published_at, published_at, payload["pair"],
+                payload["direction"], payload["timeframe"], payload["score"],
+                payload["setup_quality"], payload["entry"], payload["stop_loss"],
+                payload["tp1"], payload.get("tp2"), payload.get("tp3"),
+                payload.get("net_rr"), payload.get("risk_percent"),
+                payload["calendar_status"], payload["scenario"],
+                json.dumps(payload.get("rationale") or []), payload.get("source_candle_time"),
+                payload["engine_version"], payload.get("status", "ACTIVE"),
+            ),
+        )
+        row = self.conn.execute(
+            "SELECT id FROM published_signals WHERE fingerprint = ?", (payload["fingerprint"],)
+        ).fetchone()
+        return int(row["id"])
+
+    def published(self, limit: int = 50, status: str | None = None) -> List[dict]:
+        if status:
+            rows = self.conn.execute(
+                "SELECT * FROM published_signals WHERE status = ? ORDER BY published_at DESC LIMIT ?",
+                (status, limit),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM published_signals ORDER BY published_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        output = []
+        for row in rows:
+            item = dict(row)
+            item["rationale"] = json.loads(item.pop("rationale_json") or "[]")
+            output.append(item)
+        return output
 
     def save_lifecycle_event(self, event: dict) -> None:
         self.conn.execute(

@@ -48,6 +48,30 @@ export interface BwtsSignal {
   reasons: string[];
 }
 
+export interface PublishedSignal {
+  id: number;
+  published_at: string;
+  updated_at: string;
+  pair: string;
+  direction: 'BUY' | 'SELL';
+  timeframe: string;
+  score: number;
+  setup_quality: 'STRONG' | 'VALID';
+  entry: number;
+  stop_loss: number;
+  tp1: number;
+  tp2: number | null;
+  tp3: number | null;
+  net_rr: number | null;
+  risk_percent: number | null;
+  calendar_status: CalendarRiskStatus;
+  scenario: string;
+  rationale: string[];
+  source_candle_time: number | null;
+  engine_version: string;
+  status: 'ACTIVE' | 'TP1_HIT' | 'TP2_HIT' | 'TP3_HIT' | 'STOPPED' | 'EXPIRED' | 'CANCELLED';
+}
+
 export interface BwtsHealth {
   status: string;
   db_signals: number;
@@ -478,6 +502,8 @@ export const bwtsApi = {
   dashboardSnapshot: () => get<DashboardSnapshot>('/api/dashboard-snapshot'),
   signals: (opts?: { pair?: string; tier?: SignalTier; limit?: number }) =>
     getCached<{ signals: BwtsSignal[]; count: number }>('/api/signals', opts as any, 10_000),
+  publishedSignals: (opts?: { status?: string; limit?: number }) =>
+    getCached<{ signals: PublishedSignal[]; count: number; source: string }>('/api/published-signals', opts as any, 10_000),
   signal: (id: number) => get<{ signal: BwtsSignal }>(`/api/signals/${id}`),
 
   positions: () => get<{ positions: BwtsPosition[]; count: number }>('/api/positions'),

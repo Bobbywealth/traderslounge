@@ -36,6 +36,7 @@ from .minimax_client import analyze as minimax_analyze, analyze_chart as minimax
 from .news_filter import NewsFilter
 from .persistence import SignalRepository
 from .trade_planner import build_trade_plan
+from .published_signals import build_published_signal
 from .v2_backtester import run_v2_backtest
 from .trade_repo import ClosedTradeRepository, PositionRepository
 from .auth import (
@@ -232,6 +233,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 return self._harmonics(query)
             if path == "/api/adr":
                 return self._adr(query)
+            if path == "/api/published-signals":
+                return self._list_published_signals(query)
             if path == "/api/signals":
                 return self._list_signals(query)
             if path.startswith("/api/signals/"):
@@ -645,6 +648,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
             if selected_candles:
                 analysis["zones"]["setup_zones"] = _build_setup_zones(price=float(selected_candles[-1].close), atr_value=analysis.get("indicators", {}).get("atr"), zones=analysis.get("zones", {}), indicators=analysis.get("indicators", {}), direction=analysis.get("direction", "NEUTRAL"), market_context=analysis.get("market_context", {}), trade_timing=analysis.get("trade_timing", {}))
             analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar, primary_candles=selected_candles)
+            self._publish_actionable_analysis(analysis)
         except Exception as exc:
             stale = self._cache_get(cache_key, allow_stale=True)
             if stale is not None:
@@ -774,6 +778,24 @@ class _ApiHandler(BaseHTTPRequestHandler):
         body = adr.__dict__.copy()
         body.update({"pair": pair, "period": 14, "day_time": candles[-1].time})
         self._json(200, body)
+
+    def _list_published_signals(self, query: dict) -> None:
+        limit = _clamp_int(query.get("limit"), default=50, lo=1, hi=200)
+        status = str(query.get("status") or "").upper() or None
+        repo = _STATE.repository
+        if not hasattr(repo, "published"):
+            return self._json(200, {"signals": [], "count": 0})
+        rows = repo.published(limit=limit, status=status)
+        self._json(200, {"signals": rows, "count": len(rows), "source": "V2_GUARDED"})
+
+    def _publish_actionable_analysis(self, analysis: dict) -> None:
+        payload = build_published_signal(analysis)
+        if payload is None or not hasattr(_STATE.repository, "publish_actionable"):
+            return
+        try:
+            _STATE.repository.publish_actionable(payload)
+        except Exception:
+            logging.exception("failed to publish actionable V2 signal for %s", analysis.get("pair"))
 
     def _list_signals(self, query: dict) -> None:
         limit = _clamp_int(query.get("limit"), default=50, lo=1, hi=500)
@@ -1145,6 +1167,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
             if selected_candles:
                 analysis["zones"]["setup_zones"] = _build_setup_zones(price=float(selected_candles[-1].close), atr_value=analysis.get("indicators", {}).get("atr"), zones=analysis.get("zones", {}), indicators=analysis.get("indicators", {}), direction=analysis.get("direction", "NEUTRAL"), market_context=analysis.get("market_context", {}), trade_timing=analysis.get("trade_timing", {}))
             analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar, primary_candles=selected_candles)
+            self._publish_actionable_analysis(analysis)
             return analysis
         except Exception as exc:
             stale = self._cache_get(f"analysis:{pair}:default", allow_stale=True)
