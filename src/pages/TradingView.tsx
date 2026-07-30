@@ -40,6 +40,7 @@ import { liveDataService, HarmonicPattern, TrendLine, FibonacciLevel } from '../
 import { tradeLockerService, TradeLockerConfig } from '../services/tradeLockerService';
 import { tradeLockerApi } from '../services/apiService';
 import ConfluenceXLogo from '../components/ConfluenceXLogo';
+import ChartAiAnalysisPanel from '../components/ChartAiAnalysisPanel';
 import { bwtsApi, type ChartAiAnalysis, type CryptoAnalysis } from '../services/bwtsApi';
 
 interface CandlestickData {
@@ -1841,31 +1842,13 @@ const TradingView: React.FC = () => {
 
       </>}
 
-      {(chartAiError || chartAiAnalysis) && (
-        <div className="absolute left-4 right-4 top-[160px] z-40 max-h-[min(42vh,380px)] overflow-y-auto rounded-xl border border-violet-500/20 bg-[#0d1020]/95 px-4 py-3 text-xs text-slate-300 shadow-2xl backdrop-blur">
-          <div className="flex items-start gap-3">
-            <BrainCircuit className="mt-0.5 h-4 w-4 shrink-0 text-violet-300" />
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-black tracking-widest text-violet-300">AI CHART ANALYSIS</span>
-                {chartAiConfigured !== null && <span className="rounded bg-white/[0.06] px-2 py-0.5 text-[9px] font-black text-slate-500">{chartAiConfigured ? 'MINIMAX VISION' : 'DETERMINISTIC FALLBACK'}</span>}
-                {chartAiAnalysis && <span className="rounded bg-cyan-400/10 px-2 py-0.5 text-[9px] font-black text-cyan-300">{chartAiAnalysis.visual_bias} · {chartAiAnalysis.confidence}/100</span>}
-              </div>
-              {chartAiError && <p className="mt-1 text-rose-300">{chartAiError}</p>}
-              {chartAiAnalysis && <>
-                <p className="mt-1 max-w-5xl leading-relaxed text-slate-300">{chartAiAnalysis.summary}</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {chartAiAnalysis.visible_patterns?.slice(0, 3).map((pattern) => <span key={pattern} className="rounded bg-emerald-400/10 px-2 py-1 text-[10px] text-emerald-300">{pattern}</span>)}
-                  {chartAiAnalysis.key_levels?.slice(0, 4).map((level) => <span key={`${level.label}-${level.price}`} className="rounded bg-cyan-400/10 px-2 py-1 text-[10px] text-cyan-200">{level.label}: {Number(level.price).toLocaleString()}</span>)}
-                  {chartAiAnalysis.conflicts?.slice(0, 2).map((conflict) => <span key={conflict} className="rounded bg-amber-400/10 px-2 py-1 text-[10px] text-amber-200">Conflict: {conflict}</span>)}
-                </div>
-                <div className="mt-2 grid gap-2 text-[10px] text-slate-500 md:grid-cols-3"><span><b className="text-slate-300">Wait for:</b> {chartAiAnalysis.wait_for}</span><span><b className="text-slate-300">Invalidation:</b> {chartAiAnalysis.invalidation}</span><span><b className="text-slate-300">Risk:</b> {chartAiAnalysis.risk_factors?.slice(0, 2).join(' · ') || 'No additional visual risk flagged'}</span></div>
-              </>}
-            </div>
-            <button onClick={() => { setChartAiAnalysis(null); setChartAiError(null); }} className="rounded px-2 py-1 text-[10px] font-black text-slate-500 hover:bg-white/[0.06] hover:text-slate-200">CLOSE</button>
-          </div>
-        </div>
-      )}
+      <ChartAiAnalysisPanel
+        analysis={chartAiAnalysis}
+        error={chartAiError}
+        configured={chartAiConfigured}
+        currentPrice={currentPrice}
+        onClose={() => { setChartAiAnalysis(null); setChartAiError(null); }}
+      />
 
       {/* Chart Area */}
       <div className="flex-1 min-w-0 min-h-0 overflow-hidden relative bg-gray-900">
