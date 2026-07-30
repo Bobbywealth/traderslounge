@@ -9,6 +9,80 @@ const BASE =
   (import.meta as any).env?.VITE_API_URL ||
   'http://localhost:8000';
 
+const REFRESH_TOKEN_KEY = 'confluencex_refresh_token';
+let accessToken: string | null = null;
+let refreshInFlight: Promise<boolean> | null = null;
+
+export interface BackendAuthUser {
+  id: number | string;
+  email: string;
+  name: string;
+  role: string;
+  plan: string;
+}
+
+interface AuthResponse {
+  user?: BackendAuthUser;
+  access_token: string;
+  refresh_token: string;
+}
+
+const rawAuthRequest = async <T>(path: string, body: Record<string, unknown>): Promise<T> => {
+  const response = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload?.error || `${response.status} ${response.statusText}`);
+  }
+  return response.json() as Promise<T>;
+};
+
+const saveTokens = (payload: AuthResponse) => {
+  accessToken = payload.access_token;
+  localStorage.setItem(REFRESH_TOKEN_KEY, payload.refresh_token);
+};
+
+const refreshAccessToken = async (): Promise<boolean> => {
+  if (refreshInFlight) return refreshInFlight;
+  const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+  if (!refreshToken) return false;
+  refreshInFlight = rawAuthRequest<AuthResponse>('/api/auth/refresh', { refresh_token: refreshToken })
+    .then((payload) => { saveTokens(payload); return true; })
+    .catch(() => { accessToken = null; localStorage.removeItem(REFRESH_TOKEN_KEY); return false; })
+    .finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
+};
+
+const fetchWithAuth = async (url: string, init: RequestInit = {}, retry = true): Promise<Response> => {
+  if (!accessToken) await refreshAccessToken();
+  const headers = new Headers(init.headers || {});
+  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
+  const response = await fetch(url, { ...init, headers });
+  if (response.status === 401 && retry && await refreshAccessToken()) {
+    return fetchWithAuth(url, init, false);
+  }
+  return response;
+};
+
+export const bwtsAuth = {
+  login: async (email: string, password: string) => {
+    const payload = await rawAuthRequest<AuthResponse>('/api/auth/login', { email, password });
+    saveTokens(payload);
+    return payload.user || null;
+  },
+  signup: async (email: string, password: string, name: string) => {
+    const payload = await rawAuthRequest<AuthResponse>('/api/auth/register', { email, password, name });
+    saveTokens(payload);
+    return payload.user || null;
+  },
+  restore: refreshAccessToken,
+  clear: () => { accessToken = null; localStorage.removeItem(REFRESH_TOKEN_KEY); },
+  hasRefreshToken: () => Boolean(localStorage.getItem(REFRESH_TOKEN_KEY)),
+};
+
 export type SignalTier = 'STRONG' | 'GOOD' | 'WATCHLIST' | 'NO_TRADE';
 export type SignalDirection = 'BUY' | 'SELL' | 'NEUTRAL';
 
@@ -393,7 +467,7 @@ async function get<T>(path: string, query?: Record<string, string | number>): Pr
       url.searchParams.set(k, String(v));
     }
   }
-  const res = await fetch(url.toString(), {
+  const res = await fetchWithAuth(url.toString(), {
     headers: { Accept: 'application/json' },
   });
   if (!res.ok) {
@@ -567,7 +641,7 @@ export interface DashboardSnapshot {
 }
 
 async function post<T>(path: string, body: any): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetchWithAuth(`${BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body || {}),

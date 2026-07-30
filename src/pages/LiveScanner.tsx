@@ -48,8 +48,9 @@ const LiveScanner: React.FC = () => {
         : [];
       if (!pairList.length) throw new Error('Scanner returned no tracked markets');
       setRows(pairList.map((pair) => ({ pair, loading: true })));
-      const results = await Promise.all(
-        pairList.map(async (pair): Promise<Row> => {
+      await Promise.all(
+        pairList.map(async (pair): Promise<void> => {
+          let nextRow: Row;
           try {
             const analysis = await bwtsApi.cryptoAnalysis(pair);
             if (!analysis || typeof analysis !== 'object') throw new Error('Incomplete V2 analysis');
@@ -59,13 +60,13 @@ const LiveScanner: React.FC = () => {
             } catch {
               calendar = null;
             }
-            return { pair, analysis, loading: false, calendar };
+            nextRow = { pair, analysis, loading: false, calendar };
           } catch (error: any) {
-            return { pair, loading: false, error: error?.message || 'V2 analysis failed' };
+            nextRow = { pair, loading: false, error: error?.message || 'V2 analysis failed' };
           }
+          setRows((current) => current.map((row) => row.pair === pair ? nextRow : row));
         })
       );
-      setRows(results);
       setLastUpdate(new Date());
     } catch (error: any) {
       setGlobalError(error?.message || 'Failed to load tracked markets');

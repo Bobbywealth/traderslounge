@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { bwtsAuth, type BackendAuthUser } from '../services/bwtsApi';
 
 interface User {
   id: string;
@@ -23,87 +24,71 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const fromBackendUser = (raw: BackendAuthUser): User => ({
+  id: String(raw.id),
+  email: raw.email,
+  name: raw.name || raw.email.split('@')[0],
+  plan: (['free', 'pro', 'premium'].includes(raw.plan) ? raw.plan : 'free') as User['plan'],
+  role: raw.role === 'admin' ? 'admin' : 'user',
+  createdAt: new Date(),
+  lastLogin: new Date(),
+});
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check for existing session
-    const savedUser = localStorage.getItem('traderslounge_user');
-    if (savedUser) {
+    let active = true;
+    const restore = async () => {
+      const savedUser = localStorage.getItem('traderslounge_user');
+      if (!savedUser) {
+        if (active) setIsLoading(false);
+        return;
+      }
       try {
         const userData = JSON.parse(savedUser);
-        setUser({
+        let restored = await bwtsAuth.restore();
+        if (!restored && userData.email === 'demo@trader.com') {
+          const backendUser = await bwtsAuth.login('demo@trader.com', 'demo123');
+          if (backendUser) {
+            const normalized = fromBackendUser(backendUser);
+            localStorage.setItem('traderslounge_user', JSON.stringify(normalized));
+            if (active) setUser(normalized);
+            return;
+          }
+        }
+        if (!restored) throw new Error('Session expired');
+        if (active) setUser({
           ...userData,
           createdAt: new Date(userData.createdAt),
           lastLogin: new Date(userData.lastLogin),
         });
       } catch (error) {
-        console.error('Failed to parse saved user data:', error);
+        console.error('Failed to restore session:', error);
+        bwtsAuth.clear();
         localStorage.removeItem('traderslounge_user');
+        if (active) setUser(null);
+      } finally {
+        if (active) setIsLoading(false);
       }
-    }
-    setIsLoading(false);
+    };
+    restore();
+    return () => { active = false; };
   }, []);
 
   const login = async (email: string, password: string): Promise<boolean> => {
     setIsLoading(true);
-    
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Test login credentials
-      let mockUser: User;
-      
-      if (email === 'admin@traderslounge.com' && password === 'admin123') {
-        mockUser = {
-          id: 'admin_001',
-          email,
-          name: 'Admin User',
-          plan: 'premium',
-          role: 'admin',
-          createdAt: new Date(),
-          lastLogin: new Date(),
-        };
-      } else if (email === 'demo@trader.com' && password === 'demo123') {
-        mockUser = {
-          id: 'user_001',
-          email,
-          name: 'Demo Trader',
-          plan: 'pro',
-          role: 'user',
-          createdAt: new Date(),
-          lastLogin: new Date(),
-        };
-      } else if (email === 'test@test.com' && password === 'test123') {
-        mockUser = {
-          id: 'user_002',
-          email,
-          name: 'Test User',
-          plan: 'free',
-          role: 'user',
-          createdAt: new Date(),
-          lastLogin: new Date(),
-        };
-      } else {
-        // Generic user for any other email/password
-        mockUser = {
-          id: Date.now().toString(),
-          email,
-          name: email.split('@')[0].charAt(0).toUpperCase() + email.split('@')[0].slice(1),
-          plan: 'pro',
-          role: 'user',
-          createdAt: new Date(),
-          lastLogin: new Date(),
-        };
-      }
-      
-      setUser(mockUser);
-      localStorage.setItem('traderslounge_user', JSON.stringify(mockUser));
+      const backendUser = await bwtsAuth.login(email.trim().toLowerCase(), password);
+      if (!backendUser) return false;
+      const authenticatedUser = fromBackendUser(backendUser);
+      setUser(authenticatedUser);
+      localStorage.setItem('traderslounge_user', JSON.stringify(authenticatedUser));
       return true;
     } catch (error) {
       console.error('Login failed:', error);
+      bwtsAuth.clear();
       return false;
     } finally {
       setIsLoading(false);
@@ -112,27 +97,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signup = async (email: string, password: string, name: string): Promise<boolean> => {
     setIsLoading(true);
-    
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Mock user creation
-      const newUser: User = {
-        id: Date.now().toString(),
-        email,
-        name,
-        plan: 'free',
-        role: 'user',
-        createdAt: new Date(),
-        lastLogin: new Date(),
-      };
-      
+      const backendUser = await bwtsAuth.signup(email.trim().toLowerCase(), password, name.trim());
+      if (!backendUser) return false;
+      const newUser = fromBackendUser(backendUser);
       setUser(newUser);
       localStorage.setItem('traderslounge_user', JSON.stringify(newUser));
       return true;
     } catch (error) {
       console.error('Signup failed:', error);
+      bwtsAuth.clear();
       return false;
     } finally {
       setIsLoading(false);
@@ -141,6 +115,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = () => {
     setUser(null);
+    bwtsAuth.clear();
     localStorage.removeItem('traderslounge_user');
     localStorage.removeItem('broker_credentials');
   };

@@ -4,6 +4,7 @@
 // timeline state and a clear CTA to start logging decisions.
 
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { CalendarClock, Loader2, PencilLine, RefreshCw, Sparkles } from 'lucide-react';
 import {
   bwtsApi,
@@ -58,12 +59,12 @@ const Journal: React.FC = () => {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              disabled
-              className="flex items-center gap-2 rounded-xl border border-violet-400/20 bg-violet-400/10 px-4 py-2.5 text-xs font-black text-violet-200 opacity-80"
+            <Link
+              to="/backtester"
+              className="flex items-center gap-2 rounded-xl border border-violet-400/20 bg-violet-400/10 px-4 py-2.5 text-xs font-black text-violet-200 hover:bg-violet-400/15"
             >
-              <PencilLine className="h-4 w-4" /> Log decision
-            </button>
+              <PencilLine className="h-4 w-4" /> Review outcomes
+            </Link>
             <button
               onClick={refresh}
               disabled={loading}
@@ -103,14 +104,14 @@ const Journal: React.FC = () => {
                 V2 setup, calendar gate, and your reasoning side-by-side. Once the decision
                 is closed by the market, an outcome chip is attached.
               </p>
-              <button
-                disabled
-                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-5 py-3 text-sm font-black text-[#05070d] opacity-90"
+              <Link
+                to="/backtester"
+                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-5 py-3 text-sm font-black text-[#05070d]"
               >
-                <PencilLine className="h-4 w-4" /> Log your first decision
-              </button>
+                <PencilLine className="h-4 w-4" /> Open outcome validation
+              </Link>
               <p className="mt-2 text-[10px] text-slate-600">
-                Decision logging ships next. The button is staged.
+                The journal remains read-only until resolved setup outcomes are available.
               </p>
             </div>
             <div className="relative">

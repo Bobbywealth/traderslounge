@@ -114,11 +114,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
           
           {mode === 'login' && (
             <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-              <h4 className="font-medium text-blue-900 dark:text-blue-100 mb-2">Test Credentials:</h4>
-              <div className="text-sm text-blue-800 dark:text-blue-200 space-y-1">
-                <div><strong>Admin:</strong> admin@traderslounge.com / admin123</div>
+              <h4 className="font-medium text-blue-900 dark:text-blue-100 mb-2">Read-only demo access</h4>
+              <div className="text-sm text-blue-800 dark:text-blue-200">
                 <div><strong>Demo Trader:</strong> demo@trader.com / demo123</div>
-                <div><strong>Free User:</strong> test@test.com / test123</div>
               </div>
             </div>
           )}

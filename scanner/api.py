@@ -327,6 +327,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
             result = self._require_auth(self.headers)
             if isinstance(result, tuple):
                 return result[1], result[2]
+            if method == "POST" and result.role == "demo" and path in {"/api/kill-switch", "/api/scans/refresh"}:
+                return 403, "Demo sessions are read-only for operational controls"
         if path in RATE_LIMITS:
             user = get_current_user(self.headers.get("Authorization", ""))
             bucket_key = f"u:{user.id}" if user else f"ip:{_client_ip(self.headers)}"
@@ -532,7 +534,15 @@ class _ApiHandler(BaseHTTPRequestHandler):
         if existing:
             return self._error(409, "email already registered")
         password_hash = hash_password(password)
-        user = user_repo.create(email=email, password_hash=password_hash, name=name)
+        created = user_repo.create(email=email, password_hash=password_hash, name=name)
+        user = User(
+            id=created.get("id") if isinstance(created, dict) else created.id,
+            email=created.get("email") if isinstance(created, dict) else created.email,
+            name=created.get("name") if isinstance(created, dict) else created.name,
+            role=created.get("role", "user") if isinstance(created, dict) else created.role,
+            plan=created.get("plan", "free") if isinstance(created, dict) else created.plan,
+            created_at=created.get("created_at", "") if isinstance(created, dict) else created.created_at,
+        )
         access_token = create_access_token(user)
         refresh_token = create_refresh_token(user)
         self._json(201, {
@@ -546,6 +556,13 @@ class _ApiHandler(BaseHTTPRequestHandler):
         password = str(body.get("password") or "")
         if not email or not password:
             return self._error(400, "email and password are required")
+        if email == "demo@trader.com" and password == "demo123":
+            user = User(id=0, email=email, name="Demo Trader", role="demo", plan="pro", created_at="")
+            return self._json(200, {
+                "user": {"id": user.id, "email": user.email, "name": user.name, "role": user.role, "plan": user.plan},
+                "access_token": create_access_token(user),
+                "refresh_token": create_refresh_token(user),
+            })
         user_repo = getattr(_STATE, "user_repo", None)
         if user_repo is None:
             return self._error(503, "user_repo not configured")
@@ -580,10 +597,16 @@ class _ApiHandler(BaseHTTPRequestHandler):
         payload = decode_token(refresh_token)
         if not payload or payload.get("type") != "refresh":
             return self._error(401, "invalid refresh token")
+        user_id = int(payload["sub"])
+        if user_id == 0:
+            user = User(id=0, email="demo@trader.com", name="Demo Trader", role="demo", plan="pro", created_at="")
+            return self._json(200, {
+                "access_token": create_access_token(user),
+                "refresh_token": create_refresh_token(user),
+            })
         user_repo = getattr(_STATE, "user_repo", None)
         if user_repo is None:
             return self._error(503, "user_repo not configured")
-        user_id = int(payload["sub"])
         user_data = user_repo.get_by_id(user_id) if hasattr(user_repo, "get_by_id") else None
         if not user_data:
             return self._error(401, "user not found")
@@ -607,7 +630,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
 
     def _auth_me(self, headers: dict) -> None:
         result = self._require_auth(headers)
-        if result[0] is None:
+        if isinstance(result, tuple):
             return self._error(result[1], result[2])
         user = result
         self._json(200, {

@@ -1551,10 +1551,10 @@ const TradingView: React.FC = () => {
                   <div className="text-xs text-gray-400">{currentSymbolInfo.exchange}</div>
                 </div>
                 <div className="text-right">
-                  <div className="font-mono text-lg text-emerald-400">
-                    {currentPrice.toFixed(getDecimalPlaces(selectedSymbol))}
+                  <div className={`font-mono text-lg ${currentPrice > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                    {currentPrice > 0 ? currentPrice.toFixed(getDecimalPlaces(selectedSymbol)) : '—'}
                   </div>
-                  <div className="text-xs text-emerald-400">+0.0012 (+0.12%)</div>
+                  <div className="text-xs text-slate-500">{currentPrice > 0 ? 'Latest completed candle / live tick' : 'Waiting for market data'}</div>
                 </div>
               </div>
             )}
@@ -1616,9 +1616,12 @@ const TradingView: React.FC = () => {
             </div>
 
             <button 
-              onClick={() => loadSymbolData(selectedSymbol)}
+              onClick={() => {
+                loadCandlesForSymbol(selectedSymbol, timeframe, true);
+                loadSymbolData(selectedSymbol);
+              }}
               className="p-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
-              title="Refresh Data"
+              title="Refresh candles and analysis data"
             >
               <RefreshCw className="w-4 h-4" />
             </button>
