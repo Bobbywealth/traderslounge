@@ -68,8 +68,40 @@ def _default_http(url: str, timeout: float) -> str:
         return resp.read().decode("utf-8")
 
 
+# Binance publishes its perpetuals/spot pairs as "<COIN>USDT". The scanner
+# internally uses the no-T canonical name ("BTCUSD") so the canonical
+# Binance symbol map is keyed on that. Accept common aliases — including
+# the more familiar "<COIN>USDT" form and lowercase/space variants — and
+# normalize to the canonical key before routing.
+_PAIR_ALIASES: Dict[str, str] = {
+    "BTCUSDT": "BTCUSD",
+    "ETHUSDT": "ETHUSD",
+    "XRPUSDT": "XRPUSD",
+    "LTCUSDT": "LTCUSD",
+    "DOTUSDT": "DOTUSD",
+    "XLMUSDT": "XLMUSD",
+    "BATUSDT": "BATUSD",
+    "NEOUSDT": "NEOUSD",
+}
+
+
+def canonicalize(pair: str) -> str:
+    """Normalize a user-supplied pair name to the scanner's canonical form.
+
+    Trims whitespace, upper-cases, then collapses common aliases (notably
+    ``<COIN>USDT`` → ``<COIN>USD``) so callers don't silently get an empty
+    snapshot when they pass the more familiar Binance notation. Unknown
+    pairs pass through unchanged so FX/metal symbols still route to
+    Twelve Data.
+    """
+    if not isinstance(pair, str):
+        return ""
+    normalized = pair.strip().upper().replace(" ", "")
+    return _PAIR_ALIASES.get(normalized, normalized)
+
+
 def supports(pair: str) -> bool:
-    return pair in BINANCE_SYMBOL_MAP
+    return canonicalize(pair) in BINANCE_SYMBOL_MAP
 
 
 @dataclass

@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass
 from typing import List, Optional
 
-from .binance_client import BinanceClient, supports as is_crypto
+from .binance_client import BinanceClient, canonicalize, supports as is_crypto
 from .data_provider import DataProviderError, TwelveDataClient
 from .data_types import MarketSnapshot
 
@@ -41,6 +41,9 @@ class MultiSourceClient:
         pair: str,
         timeframes: Optional[List[str]] = None,
     ) -> MarketSnapshot:
+        # Normalize the pair so "BTCUSDT", "btcusdt", and " btcusdt "
+        # all route to the Binance provider and share a single cache key.
+        pair = canonicalize(pair) or pair
         if timeframes is None:
             # FX/gold/indices cost against the Twelve Data free-tier quota, so
             # background scans use only the three higher timeframes; M15/M1 are
@@ -68,6 +71,7 @@ class MultiSourceClient:
     # Forward fetch_candles for callers (price_oracle, etc.) that only
     # need a single timeframe.
     def fetch_candles(self, pair: str, timeframe: str, limit: Optional[int] = None):
+        pair = canonicalize(pair) or pair
         if is_crypto(pair):
             if limit is None:
                 return self.crypto.fetch_candles(pair, timeframe)
