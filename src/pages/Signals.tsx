@@ -1,699 +1,287 @@
-import React, { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Star, Clock, Target, AlertTriangle, CheckCircle, RefreshCw, Wifi, WifiOff, Settings, Loader2, Brain, Zap, X, ExternalLink, Check, ChevronDown } from 'lucide-react';
-import { format, formatDistanceToNow } from 'date-fns';
-import { signalsApi, tradeLockerApi, SignalAnalysis } from '../services/apiService';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Activity, CalendarClock, Loader2, RefreshCw, Sparkles, TrendingUp, Zap } from 'lucide-react';
+import { bwtsApi, type CryptoAnalysis } from '../services/bwtsApi';
+import { SetupCard } from '../components/SetupCard';
+
+type Row = { pair: string; analysis?: CryptoAnalysis; loading: boolean; error?: string };
+
+type DirectionFilter = 'all' | 'BUY' | 'SELL' | 'NEUTRAL';
+type PlanFilter = 'all' | 'READY' | 'WAIT' | 'BLOCKED';
+type SortBy = 'score' | 'pair' | 'plan';
+
+const directionLabel: Record<DirectionFilter, string> = {
+  all: 'All directions',
+  BUY: 'Bullish',
+  SELL: 'Bearish',
+  NEUTRAL: 'Neutral',
+};
 
 const Signals: React.FC = () => {
-  const [signals, setSignals] = useState<SignalAnalysis[]>([]);
-  const [filteredSignals, setFilteredSignals] = useState<SignalAnalysis[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [nextAllowedRefreshAt, setNextAllowedRefreshAt] = useState<Date | null>(null);
-  const [tlConnected, setTlConnected] = useState(false);
-  const [tlChecking, setTlChecking] = useState(false);
-  const [tlExecuting, setTlExecuting] = useState<string | null>(null);
-  const [showTlModal, setShowTlModal] = useState(false);
-  const [tlAccount, setTlAccount] = useState<any>(null);
-  const [tlError, setTlError] = useState<string | null>(null);
+  const [rows, setRows] = useState<Row[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [globalError, setGlobalError] = useState<string | null>(null);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [direction, setDirection] = useState<DirectionFilter>('all');
+  const [planFilter, setPlanFilter] = useState<PlanFilter>('all');
+  const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState<SortBy>('score');
+  const refreshInFlight = useRef(false);
 
-  // Load signals from database
-  useEffect(() => {
-    loadSignals();
-    checkTlConnection();
+  const refresh = useCallback(async () => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    setRefreshing(true);
+    setGlobalError(null);
+    try {
+      const { pairs } = await bwtsApi.pairs();
+      const pairList = Array.isArray(pairs)
+        ? pairs.filter((p): p is string => typeof p === 'string' && p.length > 0)
+        : [];
+      if (!pairList.length) throw new Error('Scanner returned no tracked markets');
+      setRows(pairList.map((pair) => ({ pair, loading: true })));
+      const results = await Promise.all(
+        pairList.map(async (pair): Promise<Row> => {
+          try {
+            const analysis = await bwtsApi.cryptoAnalysis(pair);
+            if (!analysis || typeof analysis !== 'object') throw new Error('Incomplete V2 analysis');
+            return { pair, analysis, loading: false };
+          } catch (error: any) {
+            return { pair, loading: false, error: error?.message || 'V2 analysis failed' };
+          }
+        })
+      );
+      setRows(results);
+      setLastUpdate(new Date());
+    } catch (error: any) {
+      setGlobalError(error?.message || 'Failed to load V2 signals');
+    } finally {
+      refreshInFlight.current = false;
+      setRefreshing(false);
+    }
   }, []);
 
-  const checkTlConnection = async () => {
-    setTlChecking(true);
-    try {
-      const status = await tradeLockerApi.connect();
-      setTlConnected(status.connected);
-      if (status.connected) {
-        const account = await tradeLockerApi.getAccount();
-        setTlAccount(account?.accounts?.[0] || account);
-      }
-    } catch {
-      setTlConnected(false);
-    } finally {
-      setTlChecking(false);
-    }
-  };
-
-  const loadSignals = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await signalsApi.getSignals();
-      setSignals(data);
-      setLastUpdated(new Date());
-    } catch (err) {
-      if (err instanceof Error && err.message.includes('Failed to fetch')) {
-        setError('Unable to connect to the API server. Please ensure the server is running and accessible.');
-      } else {
-        setError(err instanceof Error ? err.message : 'Failed to load signals. Please check your API configuration.');
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleRefresh = async () => {
-    if (nextAllowedRefreshAt && nextAllowedRefreshAt > new Date()) {
-      setError(`Refresh cooling down until ${format(nextAllowedRefreshAt, 'PPpp')}.`);
-      return;
-    }
-
-    setIsRefreshing(true);
-    setError(null);
-    try {
-      const refreshResponse = await signalsApi.refreshSignals([
-        'XAUUSD', 'GBPUSD', 'EURUSD', 'USDJPY', 'GBPJPY',
-        'NAS100', 'US30',
-      ]);
-      if (refreshResponse.nextAllowedRefreshAt) {
-        setNextAllowedRefreshAt(new Date(refreshResponse.nextAllowedRefreshAt));
-      }
-      await loadSignals();
-    } catch (err) {
-      if (err instanceof Error && 'details' in err && (err as any).details?.nextAllowedRefreshAt) {
-        setNextAllowedRefreshAt(new Date((err as any).details.nextAllowedRefreshAt));
-      }
-      setError(err instanceof Error ? err.message : 'Failed to refresh signals');
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
-  const handleExecuteOnTradeLocker = async (signal: SignalAnalysis) => {
-    if (!tlConnected) {
-      setShowTlModal(true);
-      return;
-    }
-    setTlExecuting(signal.id);
-    setTlError(null);
-    try {
-      await tradeLockerApi.executeSignal(signal, tlAccount?.id);
-      alert(`✅ Trade executed! ${signal.direction.toUpperCase()} ${signal.symbol} sent to TradeLocker.`);
-    } catch (err) {
-      setTlError(err instanceof Error ? err.message : 'Failed to execute trade');
-      alert(`❌ Trade failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    } finally {
-      setTlExecuting(null);
-    }
-  };
-
-  // Filter signals
   useEffect(() => {
-    let filtered = signals;
+    refresh();
+    const id = setInterval(refresh, 60_000);
+    return () => clearInterval(id);
+  }, [refresh]);
 
-    if (searchTerm) {
-      filtered = filtered.filter(signal =>
-        signal.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        signal.reasoning?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        signal.trend?.toLowerCase().includes(searchTerm.toLowerCase())
+  const loaded = useMemo(() => rows.filter((r) => r.analysis), [rows]);
+  const eligible = loaded.filter((r) => r.analysis?.trade_plan?.eligible).length;
+  const buyCount = loaded.filter((r) => r.analysis?.direction === 'BUY').length;
+  const sellCount = loaded.filter((r) => r.analysis?.direction === 'SELL').length;
+  const avgScore = loaded.length
+    ? Math.round(loaded.reduce((s, r) => s + (r.analysis?.total_score || 0), 0) / loaded.length)
+    : 0;
+
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return loaded.filter((row) => {
+      const a = row.analysis!;
+      if (direction !== 'all' && a.direction !== direction) return false;
+      if (planFilter !== 'all') {
+        const status = a.trade_plan?.status || 'WAIT';
+        if (planFilter === 'READY' && status !== 'STRONG' && status !== 'VALID') return false;
+        if (planFilter === 'WAIT' && status !== 'WAIT' && status !== 'WATCHLIST') return false;
+        if (planFilter === 'BLOCKED' && status !== 'BLOCKED') return false;
+      }
+      if (term && !row.pair.toLowerCase().includes(term)) return false;
+      return true;
+    });
+  }, [loaded, direction, planFilter, search]);
+
+  const sorted = useMemo(() => {
+    const list = [...filtered];
+    if (sortBy === 'score') {
+      list.sort((a, b) => (b.analysis!.total_score || 0) - (a.analysis!.total_score || 0));
+    } else if (sortBy === 'pair') {
+      list.sort((a, b) => a.pair.localeCompare(b.pair));
+    } else {
+      const rank = { STRONG: 5, VALID: 4, WATCHLIST: 3, WAIT: 2, BLOCKED: 1 } as Record<string, number>;
+      list.sort(
+        (a, b) =>
+          (rank[b.analysis!.trade_plan?.status || ''] || 0) -
+          (rank[a.analysis!.trade_plan?.status || ''] || 0)
       );
     }
-
-    setFilteredSignals(filtered);
-  }, [signals, searchTerm]);
-
-  const getDirectionColor = (direction: string) => {
-    return direction === 'buy'
-      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
-      : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300';
-  };
-
-  const getSentimentColor = (sentiment: string) => {
-    switch (sentiment) {
-      case 'bullish': return 'text-emerald-600';
-      case 'bearish': return 'text-red-600';
-      default: return 'text-gray-600';
-    }
-  };
-
-  const renderConfidenceStars = (confidence: number) => {
-    const stars = Math.round(confidence / 20);
-    return (
-      <div className="flex space-x-1">
-        {[1, 2, 3, 4, 5].map(i => (
-          <Star
-            key={i}
-            className={`w-4 h-4 ${
-              i <= stars
-                ? 'text-yellow-400 fill-current'
-                : 'text-gray-300 dark:text-gray-600'
-            }`}
-          />
-        ))}
-      </div>
-    );
-  };
-
-  const calculatePips = (signal: SignalAnalysis) => {
-    const pips = Math.abs(signal.take_profit - signal.entry_price) * getPipMultiplier(signal.symbol);
-    return pips.toFixed(1);
-  };
-
-  const getPricePrecision = (symbol: string) => {
-    if (symbol.includes('JPY')) return 3;
-    if (symbol === 'XAUUSD') return 2;
-    return 5;
-  };
-
-  const formatSignalPrice = (value: number | null | undefined, symbol: string) => {
-    if (typeof value !== 'number' || Number.isNaN(value)) return 'N/A';
-    return value.toFixed(getPricePrecision(symbol));
-  };
-
-  const getPipMultiplier = (symbol: string) => {
-    if (symbol.includes('JPY')) return 100;
-    if (symbol === 'XAUUSD') return 10;
-    return 10000;
-  };
+    return list;
+  }, [filtered, sortBy]);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">🤖 AI Trading Signals v2</h1>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-            Perplexity AI-powered market analysis with trend, levels, and trade setups
-          </p>
-        </div>
-        <div className="flex items-center space-x-4">
-          {lastUpdated && (
-            <span className="text-sm text-gray-500 dark:text-gray-400">
-              Updated {formatDistanceToNow(lastUpdated, { addSuffix: true })}
-            </span>
-          )}
-          <button
-            onClick={handleRefresh}
-            disabled={isRefreshing || (nextAllowedRefreshAt ? nextAllowedRefreshAt > new Date() : false)}
-            className="flex items-center space-x-2 px-4 py-2 bg-emerald-500 text-white rounded-lg font-medium hover:bg-emerald-600 transition-colors disabled:opacity-50"
-          >
-            {isRefreshing ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                <span>Analyzing...</span>
-              </>
-            ) : (
-              <>
-                <RefreshCw className="w-5 h-5" />
-                <span>Refresh Analysis</span>
-              </>
-            )}
-          </button>
-          {nextAllowedRefreshAt && nextAllowedRefreshAt > new Date() && (
-            <span className="text-xs text-amber-600 dark:text-amber-400">
-              Cooldown until {formatDistanceToNow(nextAllowedRefreshAt, { addSuffix: true })}
-            </span>
-          )}
-          <button
-            onClick={() => setShowTlModal(true)}
-            className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-colors ${
-              tlConnected
-                ? 'bg-blue-500 text-white hover:bg-blue-600'
-                : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-            }`}
-          >
-            {tlChecking ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : tlConnected ? (
-              <Wifi className="w-5 h-5" />
-            ) : (
-              <WifiOff className="w-5 h-5" />
-            )}
-            <span>{tlConnected ? 'TradeLocker Connected' : 'Connect TradeLocker'}</span>
-            <ChevronDown className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* Stats Bar */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Active Signals</p>
-              <p className="text-2xl font-bold text-emerald-600">{filteredSignals.length}</p>
+      <section className="relative overflow-hidden rounded-[28px] border border-white/[0.08] bg-[#080d1a] p-6 shadow-2xl shadow-black/20 sm:p-8">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_0%,rgba(34,211,238,0.12),transparent_32%),radial-gradient(circle_at_90%_30%,rgba(139,92,246,0.16),transparent_36%)]" />
+        <div className="relative z-10 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/[0.07] px-3 py-1 text-[10px] font-black tracking-[0.2em] text-cyan-300">
+              <Sparkles className="h-3 w-3" /> V2 MARKET INTELLIGENCE
             </div>
-            <Target className="w-8 h-8 text-emerald-500" />
+            <h1 className="text-3xl font-black tracking-[-0.04em] text-white sm:text-4xl">Signals</h1>
+            <p className="mt-2 max-w-2xl text-sm text-slate-400">
+              V2 engine view of every tracked market. Filter by direction or plan status, sort by the
+              metric you trade on. Same setup card used across Dashboard and Live Scanner.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                bwtsApi.clearCache();
+                refresh();
+              }}
+              disabled={refreshing}
+              className="flex items-center gap-2 rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-2.5 text-xs font-black text-cyan-200 transition hover:bg-cyan-400/15 disabled:opacity-50"
+            >
+              {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Refresh V2
+            </button>
           </div>
         </div>
-
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Buy Signals</p>
-              <p className="text-2xl font-bold text-emerald-600">
-                {filteredSignals.filter(s => s.direction === 'buy').length}
-              </p>
-            </div>
-            <TrendingUp className="w-8 h-8 text-emerald-500" />
-          </div>
+        <div className="relative z-10 mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Tile label="Markets tracked" value={String(rows.length)} icon={Activity} />
+          <Tile label="Ready plans" value={String(eligible)} icon={Zap} tone="cyan" />
+          <Tile
+            label="Bias"
+            value={`${buyCount} buy · ${sellCount} sell`}
+            icon={TrendingUp}
+            tone="violet"
+          />
+          <Tile label="Avg V2 score" value={`${avgScore}/100`} icon={Sparkles} tone="fuchsia" />
         </div>
+      </section>
 
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Sell Signals</p>
-              <p className="text-2xl font-bold text-red-600">
-                {filteredSignals.filter(s => s.direction === 'sell').length}
-              </p>
-            </div>
-            <TrendingDown className="w-8 h-8 text-red-500" />
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Avg Confidence</p>
-              <p className="text-2xl font-bold text-blue-600">
-                {filteredSignals.length > 0
-                  ? Math.round(filteredSignals.reduce((sum, s) => sum + s.confidence, 0) / filteredSignals.length)
-                  : 0}%
-              </p>
-            </div>
-            <Brain className="w-8 h-8 text-blue-500" />
-          </div>
-        </div>
-      </div>
-
-      {/* Error Banner */}
-      {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
-          <div className="flex items-center space-x-3">
-            <AlertTriangle className="w-5 h-5 text-red-600" />
-            <p className="text-red-800 dark:text-red-200">{error}</p>
-          </div>
+      {globalError && (
+        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-rose-300">
+          {globalError}
         </div>
       )}
 
-      {/* Search */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-        <input
-          type="text"
-          placeholder="Search by symbol, trend, or analysis..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-        />
-      </div>
-
-      {/* Loading State */}
-      {isLoading && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-12 border border-gray-200 dark:border-gray-700 text-center">
-          <Loader2 className="w-12 h-12 text-emerald-500 animate-spin mx-auto mb-4" />
-          <p className="text-gray-600 dark:text-gray-400">Loading AI analysis...</p>
-        </div>
-      )}
-
-      {/* Signals Grid */}
-      {!isLoading && filteredSignals.length === 0 && !error && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-12 border border-gray-200 dark:border-gray-700 text-center">
-          <Brain className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-            No AI Analysis Available
-          </h3>
-          <p className="text-gray-600 dark:text-gray-400 mb-4">
-            Click "Refresh Analysis" to generate new trading signals using Perplexity AI.
-          </p>
-          <button
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            className="px-6 py-3 bg-emerald-500 text-white rounded-lg font-medium hover:bg-emerald-600 transition-colors disabled:opacity-50"
-          >
-            Generate Analysis
-          </button>
-        </div>
-      )}
-
-      {!isLoading && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {filteredSignals.map((signal) => (
-            <div
-              key={signal.id}
-              className={`bg-white dark:bg-gray-800 rounded-xl border-2 transition-all duration-200 hover:shadow-lg ${
-                signal.direction === 'buy'
-                  ? 'border-emerald-200 dark:border-emerald-800'
-                  : 'border-red-200 dark:border-red-800'
+      <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/[0.07] bg-[#090d18] p-4">
+        <div className="flex items-center gap-1 rounded-xl border border-white/[0.07] bg-black/20 p-1 text-[10px] font-black uppercase tracking-wider">
+          {(['all', 'BUY', 'SELL', 'NEUTRAL'] as DirectionFilter[]).map((d) => (
+            <button
+              key={d}
+              onClick={() => setDirection(d)}
+              className={`rounded-lg px-3 py-1.5 transition ${
+                direction === d
+                  ? 'bg-cyan-400/15 text-cyan-200'
+                  : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              {/* Header */}
-              <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className={`p-3 rounded-xl ${
-                      signal.direction === 'buy'
-                        ? 'bg-emerald-100 dark:bg-emerald-900/30'
-                        : 'bg-red-100 dark:bg-red-900/30'
-                    }`}>
-                      {signal.direction === 'buy' ? (
-                        <TrendingUp className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
-                      ) : (
-                        <TrendingDown className="w-8 h-8 text-red-600 dark:text-red-400" />
-                      )}
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-bold text-gray-900 dark:text-white">
-                        {signal.symbol}
-                      </h3>
-                      <div className="flex items-center space-x-2 mt-1">
-                        <span className={`px-3 py-1 rounded-full text-sm font-medium ${getDirectionColor(signal.direction)}`}>
-                          {signal.direction.toUpperCase()}
-                        </span>
-                        <span className={`text-sm font-medium ${getSentimentColor(signal.sentiment)}`}>
-                          {signal.sentiment}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="flex items-center space-x-1">
-                      <span className="text-sm text-gray-500">Confidence:</span>
-                      <span className="font-bold text-gray-900 dark:text-white">{signal.confidence}%</span>
-                    </div>
-                    {renderConfidenceStars(signal.confidence)}
-                  </div>
-                </div>
-              </div>
-
-              {/* Price Levels */}
-              <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                    <p className="text-xs text-gray-500 mb-1">Entry</p>
-                    <p className="text-lg font-bold text-blue-600">{formatSignalPrice(signal.entry_price, signal.symbol)}</p>
-                  </div>
-                  <div className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                    <p className="text-xs text-gray-500 mb-1">Stop Loss</p>
-                    <p className="text-lg font-bold text-red-600">{formatSignalPrice(signal.stop_loss, signal.symbol)}</p>
-                  </div>
-                  <div className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                    <p className="text-xs text-gray-500 mb-1">Take Profit</p>
-                    <p className="text-lg font-bold text-emerald-600">{formatSignalPrice(signal.take_profit, signal.symbol)}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between mt-4">
-                  <div className="flex items-center space-x-4">
-                    <div className="text-sm">
-                      <span className="text-gray-500">Risk/Reward: </span>
-                      <span className="font-medium">1:{signal.risk_reward_ratio?.toFixed(1)}</span>
-                    </div>
-                    <div className="text-sm">
-                      <span className="text-gray-500">Target: </span>
-                      <span className="font-medium text-emerald-600">{calculatePips(signal)} pips</span>
-                    </div>
-                  </div>
-                  <div className="text-sm">
-                    <span className="text-gray-500">Trend: </span>
-                    <span className={`font-medium ${
-                      signal.trend === 'bullish' ? 'text-emerald-600' :
-                      signal.trend === 'bearish' ? 'text-red-600' : 'text-gray-600'
-                    }`}>
-                      {signal.trend} ({signal.trend_strength?.toFixed(0)}%)
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Support/Resistance Levels */}
-              {(signal.support_levels?.length > 0 || signal.resistance_levels?.length > 0) && (
-                <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-                  <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3">Key Levels</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-xs text-gray-500 mb-2">Support</p>
-                      <div className="space-y-1">
-                        {signal.support_levels?.slice(0, 2).map((level, i) => (
-                          <div key={i} className="flex items-center justify-between text-sm">
-                            <span className="text-emerald-600">{formatSignalPrice(level, signal.symbol)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500 mb-2">Resistance</p>
-                      <div className="space-y-1">
-                        {signal.resistance_levels?.slice(0, 2).map((level, i) => (
-                          <div key={i} className="flex items-center justify-between text-sm">
-                            <span className="text-red-600">{formatSignalPrice(level, signal.symbol)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Timeframe Signals */}
-              {signal.timeframes && (
-                <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-                  <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3">Multi-Timeframe Analysis</h4>
-                  <div className="grid grid-cols-3 gap-2">
-                    {Object.entries(signal.timeframes).map(([tf, data]: [string, any]) => (
-                      <div key={tf} className="text-center p-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                        <p className="text-xs text-gray-500">{tf}</p>
-                        <p className={`text-sm font-medium ${
-                          data.trend === 'bullish' ? 'text-emerald-600' :
-                          data.trend === 'bearish' ? 'text-red-600' : 'text-gray-600'
-                        }`}>
-                          {data.trend}
-                        </p>
-                        <p className="text-xs text-gray-500">{data.signal}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Trade Setup */}
-              {signal.trade_setup && (
-                <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-                  <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-2">Trade Setup</h4>
-                  <div className="flex items-center flex-wrap gap-2 text-sm">
-                    <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded">
-                      {signal.trade_setup.type}
-                    </span>
-                    <span className="text-gray-500">{signal.trade_setup.timeframe}</span>
-                    <span className="text-gray-500">→</span>
-                    <span className="text-gray-700 dark:text-gray-300">{signal.trade_setup.best_entry}</span>
-                    {signal.pattern && (
-                      <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded">
-                        {signal.pattern}
-                      </span>
-                    )}
-                    {signal.session && (
-                      <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded capitalize">
-                        {signal.session}
-                      </span>
-                    )}
-                    {signal.risk_level && (
-                      <span className={`px-2 py-1 rounded capitalize ${
-                        signal.risk_level === 'low' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' :
-                        signal.risk_level === 'medium' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300' :
-                        'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
-                      }`}>
-                        risk: {signal.risk_level}
-                      </span>
-                    )}
-                    {signal.adr_percent_used != null && (
-                      <span className={`px-2 py-1 rounded ${signal.adr_percent_used >= 80 ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}>
-                        ADR {signal.adr_percent_used.toFixed(0)}%
-                      </span>
-                    )}
-                    {signal.news_status?.nextEvent && signal.news_status.nextEvent.minutesAway <= 120 && (
-                      <span
-                        className="px-2 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded"
-                        title={`${signal.news_status.nextEvent.name} at ${new Date(signal.news_status.nextEvent.time).toLocaleString()}`}
-                      >
-                        📰 {signal.news_status.nextEvent.name} ({signal.news_status.nextEvent.currency}) in {signal.news_status.nextEvent.minutesAway}m
-                      </span>
-                    )}
-                  </div>
-
-                  {/* TP ladder */}
-                  {(signal.tp1 || signal.tp2 || signal.tp3) && (
-                    <div className="grid grid-cols-3 gap-2 mt-4">
-                      {[
-                        { label: 'TP1', value: signal.tp1 },
-                        { label: 'TP2', value: signal.tp2 },
-                        { label: 'TP3', value: signal.tp3 },
-                      ].map(({ label, value }) => (
-                        <div key={label} className="text-center p-2 bg-emerald-50 dark:bg-emerald-900/10 rounded-lg border border-emerald-100 dark:border-emerald-900/40">
-                          <p className="text-xs text-gray-500">{label}</p>
-                          <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">{formatSignalPrice(value, signal.symbol)}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Score breakdown */}
-                  {signal.score_breakdown && (
-                    <div className="mt-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="text-xs text-gray-500">Score breakdown</p>
-                        {signal.alert_level && (
-                          <span className={`text-xs px-2 py-0.5 rounded capitalize font-medium ${
-                            signal.alert_level === 'strong' ? 'bg-emerald-600 text-white' :
-                            signal.alert_level === 'good' ? 'bg-emerald-400 text-white' :
-                            signal.alert_level === 'watchlist' ? 'bg-yellow-400 text-yellow-900' :
-                            'bg-gray-300 text-gray-800'
-                          }`}>
-                            {signal.alert_level.replace('_', ' ')}
-                          </span>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-                        {Object.entries(signal.score_breakdown).map(([key, value]) => (
-                          <div key={key} className="flex justify-between">
-                            <span className="text-gray-600 dark:text-gray-400 capitalize">{key.replace(/_/g, ' ')}</span>
-                            <span className={`font-medium ${value > 0 ? 'text-emerald-600' : 'text-gray-400'}`}>+{value}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Reasoning */}
-              <div className="p-6">
-                <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-2">AI Analysis</h4>
-                <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
-                  {signal.reasoning || signal.market_summary || 'No analysis available'}
-                </p>
-
-                {/* Meta info & Execute */}
-                <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
-                  <div className="flex items-center space-x-2 text-xs text-gray-500">
-                    <Clock className="w-3 h-3" />
-                    <span>{format(new Date(signal.updated_at || signal.created_at), 'MMM d, HH:mm')}</span>
-                  </div>
-                  {signal.expires_at && (
-                    <div className="text-xs text-gray-500">
-                      Expires {formatDistanceToNow(new Date(signal.expires_at), { addSuffix: true })}
-                    </div>
-                  )}
-                  <button
-                    onClick={() => handleExecuteOnTradeLocker(signal)}
-                    disabled={!tlConnected || tlExecuting === signal.id}
-                    className={`flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
-                      tlConnected
-                        ? 'bg-blue-500 text-white hover:bg-blue-600'
-                        : 'bg-gray-200 dark:bg-gray-700 text-gray-500 cursor-not-allowed'
-                    }`}
-                  >
-                    {tlExecuting === signal.id ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <Zap className="w-3 h-3" />
-                    )}
-                    <span>{tlExecuting === signal.id ? 'Executing...' : 'Trade on TL'}</span>
-                  </button>
-                </div>
-              </div>
-            </div>
+              {directionLabel[d]}
+            </button>
           ))}
         </div>
-      )}
-
-      {/* TradeLocker Connection Modal */}
-      {showTlModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md p-6 relative">
+        <div className="flex items-center gap-1 rounded-xl border border-white/[0.07] bg-black/20 p-1 text-[10px] font-black uppercase tracking-wider">
+          {(['all', 'READY', 'WAIT', 'BLOCKED'] as PlanFilter[]).map((p) => (
             <button
-              onClick={() => setShowTlModal(false)}
-              className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              key={p}
+              onClick={() => setPlanFilter(p)}
+              className={`rounded-lg px-3 py-1.5 transition ${
+                planFilter === p
+                  ? 'bg-violet-400/15 text-violet-200'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
             >
-              <X className="w-5 h-5" />
+              {p}
             </button>
+          ))}
+        </div>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Filter by symbol…"
+          className="rounded-xl border border-white/[0.07] bg-black/20 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:border-cyan-400/30 focus:outline-none"
+        />
+        <div className="ml-auto flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-slate-500">
+          <span>Sort</span>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as SortBy)}
+            className="rounded-lg border border-white/[0.07] bg-black/20 px-2 py-1 text-[10px] font-black text-slate-300"
+          >
+            <option value="score">Score</option>
+            <option value="plan">Plan status</option>
+            <option value="pair">Symbol</option>
+          </select>
+        </div>
+        {lastUpdate && (
+          <span className="ml-2 text-[10px] text-slate-600">
+            <CalendarClock className="mr-1 inline h-3 w-3" />
+            {lastUpdate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+          </span>
+        )}
+      </section>
 
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">TradeLocker Integration</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Connect your TradeLocker account to execute trades directly from signals.</p>
-
-            {tlConnected ? (
-              <div className="space-y-4">
-                <div className="flex items-center space-x-3 p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                  <CheckCircle className="w-8 h-8 text-emerald-500" />
-                  <div>
-                    <p className="font-medium text-emerald-700 dark:text-emerald-300">Connected to TradeLocker</p>
-                    <p className="text-sm text-emerald-600 dark:text-emerald-400">{tlAccount?.name || tlAccount?.id || 'Account'}</p>
-                  </div>
-                </div>
-                {tlAccount && (
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                      <p className="text-gray-500 text-xs">Account ID</p>
-                      <p className="font-mono text-gray-900 dark:text-white">{tlAccount.id}</p>
-                    </div>
-                    <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                      <p className="text-gray-500 text-xs">Currency</p>
-                      <p className="font-medium text-gray-900 dark:text-white">{tlAccount.currency || 'USD'}</p>
-                    </div>
-                  </div>
-                )}
-                <button
-                  onClick={async () => {
-                    await tradeLockerApi.disconnect();
-                    setTlConnected(false);
-                    setTlAccount(null);
-                  }}
-                  className="w-full py-2.5 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition-colors"
-                >
-                  Disconnect
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
-                  <div className="flex items-start space-x-3">
-                    <Settings className="w-5 h-5 text-blue-500 mt-0.5" />
-                    <div className="text-sm">
-                      <p className="font-medium text-blue-700 dark:text-blue-300 mb-1">Server Credentials</p>
-                      <p className="text-blue-600 dark:text-blue-400">
-                        Add TradeLocker API credentials as environment variables on Render so the server can auto-authenticate.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Add these environment variables to <strong>traderslounge-api</strong> on Render:
-                  </p>
-                  <div className="bg-gray-900 dark:bg-gray-900 rounded-lg p-3 font-mono text-xs space-y-1">
-                    <p className="text-gray-400">TRADELOCKER_EMAIL=your@email.com</p>
-                    <p className="text-gray-400">TRADELOCKER_PASSWORD=yourpassword</p>
-                    <p className="text-gray-400">TRADELOCKER_SERVER=YOUR_BROKER_SERVER</p>
-                    <p className="text-gray-400">TRADELOCKER_IS_DEMO=true</p>
-                  </div>
-                  <a
-                    href="https://dashboard.render.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-center space-x-2 w-full py-2.5 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    <span>Open Render Dashboard</span>
-                  </a>
-                </div>
-              </div>
-            )}
-
-            {tlError && (
-              <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
-                <p className="text-sm text-red-700 dark:text-red-300">{tlError}</p>
-              </div>
-            )}
-          </div>
+      {sorted.length === 0 && !refreshing && !globalError && (
+        <div className="rounded-2xl border border-dashed border-white/10 bg-[#090d18] p-12 text-center">
+          <Activity className="mx-auto h-10 w-10 text-slate-700" />
+          <h3 className="mt-4 text-lg font-black text-slate-200">No signals match your filters</h3>
+          <p className="mt-2 text-sm text-slate-500">
+            Widen the direction, plan filter, or clear the symbol search to see more setups.
+          </p>
         </div>
       )}
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        {rows.map((row) => {
+          if (row.loading) {
+            return (
+              <div
+                key={row.pair}
+                className="h-72 animate-pulse rounded-[20px] border border-white/[0.06] bg-[#090d18]"
+              />
+            );
+          }
+          if (row.error || !row.analysis) {
+            return (
+              <div
+                key={row.pair}
+                className="rounded-[20px] border border-white/[0.06] bg-[#090d18] p-5"
+              >
+                <div className="flex justify-between">
+                  <h3 className="text-lg font-black">{row.pair}</h3>
+                  <span className="text-xs text-slate-600">NO DATA</span>
+                </div>
+                <p className="mt-2 text-sm text-slate-500">
+                  {row.error || 'No V2 analysis available.'}
+                </p>
+              </div>
+            );
+          }
+          return (
+            <SetupCard
+              key={row.pair}
+              pair={row.pair}
+              analysis={row.analysis}
+              variant="full"
+              to="/tradingview"
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const Tile: React.FC<{
+  label: string;
+  value: string;
+  icon: React.ElementType;
+  tone?: 'cyan' | 'violet' | 'fuchsia';
+}> = ({ label, value, icon: Icon, tone = 'cyan' }) => {
+  const toneCls =
+    tone === 'violet'
+      ? 'border-violet-400/15 bg-violet-400/[0.07] text-violet-300'
+      : tone === 'fuchsia'
+      ? 'border-fuchsia-400/15 bg-fuchsia-400/[0.07] text-fuchsia-300'
+      : 'border-cyan-400/15 bg-cyan-400/[0.07] text-cyan-300';
+  return (
+    <div className={`flex items-center gap-3 rounded-2xl border ${toneCls} p-3`}>
+      <Icon className="h-5 w-5" />
+      <div>
+        <div className="text-[9px] font-black uppercase tracking-widest text-slate-500">{label}</div>
+        <div className="text-lg font-black text-white">{value}</div>
+      </div>
     </div>
   );
 };

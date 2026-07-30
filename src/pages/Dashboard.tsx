@@ -9,6 +9,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { bwtsApi, planReasonText, type AiSignalAnalysis, type BwtsConfig, type BwtsHealth, type BwtsSignal, type CalendarGateStatus, type CryptoAnalysis, type LifecycleState, type DashboardSnapshot } from '../services/bwtsApi';
 import TriggerDisplay from '../components/TriggerDisplay';
 import EconomicRiskBanner from '../components/EconomicRiskBanner';
+import { SetupCard } from '../components/SetupCard';
 
 const tierStyles: Record<string, string> = {
   STRONG: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
@@ -195,7 +196,7 @@ const Dashboard: React.FC = () => {
           <div>
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/[0.07] px-3 py-1.5 text-[10px] font-black tracking-[0.2em] text-cyan-300">
               <span className="relative flex h-2 w-2"><span className="absolute h-full w-full animate-ping rounded-full bg-cyan-400"/><span className="relative h-2 w-2 rounded-full bg-cyan-300"/></span>
-              INTELLIGENCE FEED {health?.status === 'ok' ? 'ONLINE' : 'CONNECTING'}
+              INTELLIGENCE FEED {health?.status === 'ok' ? `LIVE · ${updatedAt ? Math.max(0, Math.floor((Date.now() - updatedAt.getTime()) / 1000)) + 's ago' : 'CONNECTING'}` : 'CONNECTING'}
             </div>
             <h1 className="text-3xl font-black tracking-[-0.04em] sm:text-5xl">Your edge, <span className="bg-gradient-to-r from-cyan-300 via-violet-400 to-fuchsia-400 bg-clip-text text-transparent">in one view.</span></h1>
             <p className="mt-3 max-w-2xl text-slate-400">Welcome back, {user?.name || 'Trader'}. Start with the strongest confluence, validate the structure, then build the plan.</p>
@@ -230,20 +231,18 @@ const Dashboard: React.FC = () => {
             <Link to="/signals" className="flex items-center gap-1 text-xs font-bold text-slate-400 transition hover:text-cyan-300">All signals <ArrowRight className="h-3.5 w-3.5"/></Link>
           </div>
           <div className="space-y-3">
-            {(rankedSignals.length ? rankedSignals.slice(0, 5) : []).map((signal, index) => {
-              const analysis = analysisByPair[signal.pair];
-              const direction = analysis?.direction || 'NEUTRAL';
-              const tier = v2Tier(analysis);
-              const conflict = signal.direction !== 'NEUTRAL' && direction !== 'NEUTRAL' && signal.direction !== direction;
-              const DirectionIcon = direction === 'BUY' ? TrendingUp : direction === 'SELL' ? TrendingDown : Activity;
-              const lifecycleInfo = getLifecycleDisplay(analysis?.lifecycle_state);
-              return <div key={signal.id} className="group grid items-center gap-4 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition hover:border-cyan-400/20 hover:bg-white/[0.045] sm:grid-cols-[36px_1fr_auto_auto]">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.05] text-xs font-black text-slate-500">0{index + 1}</div>
-                <div><div className="flex items-center gap-2"><span className="font-black">{signal.pair}</span><span className={`rounded-md border px-2 py-0.5 text-[9px] font-black ${tierStyles[tier]}`}>{tier}</span>{conflict && <span className="rounded-md bg-amber-400/10 px-2 py-0.5 text-[9px] font-black text-amber-300">CONFLICT</span>}</div><div className="mt-1 max-w-md truncate text-xs text-slate-500">{lifecycleInfo ? `${lifecycleInfo.icon} ${lifecycleInfo.label}` : (analysis?.scenarios?.primary || 'Full-spectrum analysis loading')}</div></div>
-                <div className={`flex items-center gap-1.5 text-xs font-black ${lifecycleInfo?.color || (direction === 'BUY' ? 'text-emerald-300' : direction === 'SELL' ? 'text-rose-300' : 'text-slate-400')}`}><DirectionIcon className="h-4 w-4"/>{conflict ? (lifecycleInfo ? lifecycleInfo.label : 'WAIT') : direction}</div>
-                <div className="text-right"><div className="text-xl font-black text-white">{analysis?.total_score ?? '—'}<span className="text-xs text-slate-600">/100</span></div><div className="text-[9px] text-slate-600">{formatTime(signal.created_at)}</div></div>
-              </div>;
-            })}
+            {(rankedSignals.length ? rankedSignals.slice(0, 5) : []).map((signal, index) => (
+              <SetupCard
+                key={signal.id}
+                pair={signal.pair}
+                analysis={analysisByPair[signal.pair]}
+                calendar={calendarRisk?.status === 'LOADING' ? null : calendarRisk}
+                variant="row"
+                index={index}
+                timestamp={signal.created_at}
+                reason={analysisByPair[signal.pair]?.scenarios?.primary || 'Full-spectrum analysis loading'}
+              />
+            ))}
             {!loading && latestByPair.length === 0 && <div className="rounded-2xl border border-dashed border-white/10 py-14 text-center"><Radar className="mx-auto h-8 w-8 text-slate-700"/><p className="mt-3 text-sm text-slate-500">The scanner is online. New setups will appear here when the evidence aligns.</p></div>}
             {loading && [1,2,3].map(item => <div key={item} className="h-20 animate-pulse rounded-2xl bg-white/[0.035]"/>)}
           </div>
