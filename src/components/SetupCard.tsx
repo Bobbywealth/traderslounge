@@ -8,7 +8,7 @@ import {
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
-import { type CalendarGateStatus, type CryptoAnalysis } from '../services/bwtsApi';
+import { planReasonText, type CalendarGateStatus, type CryptoAnalysis } from '../services/bwtsApi';
 
 export type SetupCardVariant = 'full' | 'compact' | 'row' | 'highlight';
 
@@ -335,7 +335,7 @@ export const SetupCard: React.FC<SetupCardProps> = ({
           <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/[0.07] p-3 text-xs leading-relaxed text-amber-200">
             <strong>{planStatus}:</strong>{' '}
             {reason ||
-              plan?.reasons?.find(Boolean) ||
+              (plan?.reasons || []).map(planReasonText).find(Boolean) ||
               'V2 has not produced an eligible trade plan.'}
           </div>
         )}
