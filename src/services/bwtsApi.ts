@@ -254,6 +254,20 @@ export interface AiSignalAnalysis {
   educational_note: string;
 }
 
+export interface ChartAiAnalysis {
+  summary: string;
+  visual_bias: string;
+  confidence: number;
+  visible_patterns: string[];
+  key_levels: { label: string; price: number; reason: string }[];
+  confirmations: string[];
+  conflicts: string[];
+  risk_factors: string[];
+  wait_for: string;
+  invalidation: string;
+  educational_note: string;
+}
+
 const responseCache = new Map<string, { expires: number; value: unknown }>();
 const inFlight = new Map<string, Promise<unknown>>();
 
@@ -483,6 +497,18 @@ export const bwtsApi = {
   cryptoAnalysis: (pair: string, timeframe?: string) => getCached<CryptoAnalysis>('/api/analysis', timeframe ? { pair, timeframe } : { pair }, 20_000),
   v2Backtest: (pair: string, timeframe = '1h', limit = 10000) => get<V2BacktestReport>('/api/backtest/v2', { pair, timeframe, limit }),
   analyzeSignal: (pair: string, signal: BwtsSignal, analysis?: CryptoAnalysis) => post<{ configured: boolean; analysis: AiSignalAnalysis; calendar: CalendarGateStatus }>('/api/ai/analyze', { pair, signal, analysis }),
+  chartAnalyze: (payload: {
+    pair: string;
+    timeframe: string;
+    image_data_url: string;
+    chart: {
+      current_price: number;
+      candles: Array<{ time: number; open: number; high: number; low: number; close: number }>;
+      overlays: Record<string, unknown>;
+      manual_drawings: unknown[];
+    };
+    analysis?: CryptoAnalysis | null;
+  }) => post<{ configured: boolean; model?: string; analysis: ChartAiAnalysis; calendar: CalendarGlobalStatus }>('/api/ai/chart-analyze', payload),
 
   getPerformanceStats: (filters?: { assetClass?: string; symbol?: string; direction?: string; scoreBand?: string; confidenceTier?: string; dateFrom?: string; dateTo?: string }) =>
     get<PerformanceStats>('/api/performance/stats', filters as Record<string, string>),

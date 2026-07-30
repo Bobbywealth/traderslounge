@@ -16,6 +16,28 @@ Calendar BLOCKED and POST_NEWS statuses are deterministic no-trade conditions an
 Return valid JSON only with: summary, setup_quality, confirmations, conflicts, calendar_risk, invalidation, wait_for, educational_note.
 Do not provide guaranteed outcomes or execute trades."""
 
+CHART_SYSTEM_PROMPT = """You are ConfluenceX Chart AI, analyzing a trading chart image together with deterministic market context.
+Inspect the visible candles, trend, structure, support/resistance, volume if visible, chart overlays, and the supplied technical context.
+Do not invent a price that is not visible or present in the supplied context. If the image and structured data disagree, call out the conflict.
+Calendar BLOCKED and POST_NEWS statuses are deterministic no-trade conditions and cannot be overridden.
+Do not create execution rules, promise outcomes, or execute trades. Return valid JSON only with:
+summary, visual_bias, confidence, visible_patterns, key_levels, confirmations, conflicts, risk_factors, wait_for, invalidation, educational_note.
+key_levels must be an array of objects with label, price, and reason. Use an empty array when a level cannot be grounded."""
+
+
+def _extract_json(content: str) -> dict[str, Any]:
+    content = (content or "").strip()
+    if "</think>" in content:
+        content = content.rsplit("</think>", 1)[1].strip()
+    content = content.removeprefix("```json").removesuffix("```").strip()
+    start, end = content.find("{"), content.rfind("}")
+    if start < 0 or end <= start:
+        raise RuntimeError("MiniMax returned invalid structured output")
+    try:
+        return json.loads(content[start:end + 1])
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("MiniMax returned invalid structured output") from exc
+
 
 def configured() -> bool:
     return bool(os.environ.get("MINIMAX_API_KEY"))
@@ -45,17 +67,46 @@ def analyze(context: dict[str, Any]) -> dict[str, Any]:
             body = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"MiniMax request failed ({exc.code})") from exc
-    content = body.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-    # MiniMax reasoning models may prefix a <think>...</think> block even
-    # when JSON-only output is requested. Remove it before extracting JSON.
-    if "</think>" in content:
-        content = content.rsplit("</think>", 1)[1].strip()
-    content = content.removeprefix("```json").removesuffix("```").strip()
-    start, end = content.find("{"), content.rfind("}")
-    if start < 0 or end <= start:
-        raise RuntimeError("MiniMax returned invalid structured output")
+    content = body.get("choices", [{}])[0].get("message", {}).get("content", "")
+    return {"configured": True, "model": MODEL, "analysis": _extract_json(content)}
+
+
+def analyze_chart(context: dict[str, Any], image_data_url: str) -> dict[str, Any]:
+    """Analyze a chart screenshot with grounded structured market context."""
+    key = os.environ.get("MINIMAX_API_KEY")
+    if not key:
+        raise RuntimeError("MINIMAX_API_KEY is not configured")
+    if not isinstance(image_data_url, str) or not image_data_url.startswith("data:image/"):
+        raise RuntimeError("chart image must be a data URL")
+    if len(image_data_url) > 10 * 1024 * 1024:
+        raise RuntimeError("chart image exceeds the 10 MB limit")
+
+    user_text = json.dumps({
+        "instruction": "Analyze the supplied chart image and reconcile it with this deterministic context.",
+        "chart_context": context,
+    }, separators=(",", ":"))
+    payload = json.dumps({
+        "model": MODEL,
+        "messages": [
+            {"role": "system", "content": CHART_SYSTEM_PROMPT},
+            {"role": "user", "content": [
+                {"type": "text", "text": user_text},
+                {"type": "image_url", "image_url": {"url": image_data_url, "detail": "high"}},
+            ]},
+        ],
+        "temperature": 0.2,
+        "max_tokens": 1400,
+        "thinking": {"type": "disabled"},
+        "stream": False,
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        ENDPOINT, data=payload, method="POST",
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    )
     try:
-        result = json.loads(content[start:end + 1])
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("MiniMax returned invalid structured output") from exc
-    return {"configured": True, "model": MODEL, "analysis": result}
+        with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"MiniMax chart request failed ({exc.code})") from exc
+    content = body.get("choices", [{}])[0].get("message", {}).get("content", "")
+    return {"configured": True, "model": MODEL, "analysis": _extract_json(content)}

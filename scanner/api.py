@@ -32,7 +32,7 @@ from .crypto_analysis import analyze_crypto
 from .lifecycle_manager import stabilize_direction, map_legacy_state
 from .kill_switch import KillSwitch
 from .metrics import metrics
-from .minimax_client import analyze as minimax_analyze, configured as minimax_configured
+from .minimax_client import analyze as minimax_analyze, analyze_chart as minimax_chart_analyze, configured as minimax_configured
 from .news_filter import NewsFilter
 from .persistence import SignalRepository
 from .trade_planner import build_trade_plan
@@ -265,6 +265,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._request_scan(body)
         if path == "/api/ai/analyze":
             return self._ai_analyze(body)
+        if path == "/api/ai/chart-analyze":
+            return self._ai_chart_analyze(body)
         return self._error(404, f"unknown route: {path}")
 
     # --- handlers -------------------------------------------------------
@@ -442,6 +444,60 @@ class _ApiHandler(BaseHTTPRequestHandler):
             self._json(200, news.evaluate(pair))
         else:
             self._json(200, news.evaluate_global())
+
+    def _ai_chart_analyze(self, body: dict) -> None:
+        pair = str(body.get("pair") or body.get("symbol") or "").upper()[:20]
+        timeframe = str(body.get("timeframe") or "1h")[:10]
+        image_data_url = body.get("image_data_url")
+        if not pair:
+            return self._error(400, "pair is required")
+        if not isinstance(image_data_url, str) or not image_data_url.startswith("data:image/"):
+            return self._error(400, "image_data_url must be a chart image data URL")
+        if len(image_data_url) > 10 * 1024 * 1024:
+            return self._error(413, "chart image exceeds the 10 MB limit")
+
+        news = _STATE.news_filter
+        calendar = news.evaluate(pair) if news else {"status": "UNAVAILABLE", "reason_code": "SOURCE_UNAVAILABLE"}
+        raw_chart = body.get("chart") if isinstance(body.get("chart"), dict) else {}
+        raw_analysis = body.get("analysis") if isinstance(body.get("analysis"), dict) else {}
+        candles = raw_chart.get("candles") if isinstance(raw_chart.get("candles"), list) else []
+        chart_context = {
+            "pair": pair,
+            "timeframe": timeframe,
+            "current_price": raw_chart.get("current_price"),
+            "candles": candles[-120:],
+            "overlays": raw_chart.get("overlays") if isinstance(raw_chart.get("overlays"), dict) else {},
+            "manual_drawings": raw_chart.get("manual_drawings") if isinstance(raw_chart.get("manual_drawings"), list) else [],
+            "v2_analysis": {
+                "direction": raw_analysis.get("direction"),
+                "total_score": raw_analysis.get("total_score"),
+                "category_breakdown": raw_analysis.get("category_breakdown"),
+                "market_context": raw_analysis.get("market_context"),
+                "trade_timing": raw_analysis.get("trade_timing"),
+                "scenarios": raw_analysis.get("scenarios"),
+                "trade_plan": raw_analysis.get("trade_plan"),
+            },
+            "economic_calendar": calendar,
+        }
+        if not minimax_configured():
+            direction = str(raw_analysis.get("direction") or "NEUTRAL")
+            patterns = (chart_context["overlays"] or {}).get("harmonics") or []
+            return self._json(200, {"configured": False, "analysis": {
+                "summary": f"{pair} {timeframe} chart captured. Deterministic V2 direction is {direction}; MiniMax is not configured for visual chart analysis.",
+                "visual_bias": direction,
+                "confidence": int(raw_analysis.get("total_score") or 0),
+                "visible_patterns": [str(pattern.get("type")) for pattern in patterns if isinstance(pattern, dict) and pattern.get("type")],
+                "key_levels": [], "confirmations": [], "conflicts": [], "risk_factors": [],
+                "wait_for": "Scanner confirmation and calendar clearance",
+                "invalidation": "Use the deterministic V2 invalidation when available",
+                "educational_note": "Visual AI is advisory. Deterministic scanner and calendar gates remain authoritative.",
+            }, "calendar": calendar})
+        try:
+            result = minimax_chart_analyze(chart_context, image_data_url)
+        except RuntimeError as exc:
+            return self._error(502, str(exc))
+        result["calendar"] = calendar
+        return self._json(200, result)
 
     def _ai_analyze(self, body: dict) -> None:
         pair = str(body.get("pair") or body.get("symbol") or "").upper()[:20]
