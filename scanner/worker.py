@@ -19,7 +19,7 @@ from .data_provider import TwelveDataClient
 from .multi_source import MultiSourceClient
 from .news_feed import ForexFactoryClient
 from .news_filter import NewsFilter
-from .persistence import SQLiteRepository
+from .repository_factory import create_signal_repository
 from .scheduler import Scanner
 
 
@@ -52,8 +52,7 @@ def main() -> int:
     client = MultiSourceClient(fx=fx, crypto=crypto)
     news = NewsFilter(blackout_minutes=cfg.news_blackout_minutes)
     news_client = ForexFactoryClient()
-    db_path = os.environ.get("SIGNAL_DB_PATH", "scanner.db")
-    repo = SQLiteRepository(db_path)
+    repo = create_signal_repository()
     scanner = Scanner(
         config=cfg,
         client=client,

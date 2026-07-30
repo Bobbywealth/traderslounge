@@ -22,8 +22,8 @@ from .kill_switch import KillSwitch
 from .multi_source import MultiSourceClient
 from .news_feed import ForexFactoryClient, refresh_filter
 from .news_filter import NewsFilter
-from .persistence import SQLiteRepository, SQLiteUserRepository
-from .postgres_repo import PostgresRepository, is_available as pg_available
+from .persistence import SQLiteUserRepository
+from .repository_factory import create_signal_repository
 from .trade_repo import SQLiteClosedTradeRepository, SQLitePositionRepository
 
 
@@ -33,18 +33,7 @@ def main() -> int:
         level=cfg.log_level,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    db_url = os.environ.get("DATABASE_URL", "").strip()
-    if db_url and pg_available():
-        logging.info("using Postgres at %s", _redact(db_url))
-        repo = PostgresRepository(db_url)
-    else:
-        if db_url and not pg_available():
-            logging.warning(
-                "DATABASE_URL set but psycopg not installed — falling back to SQLite"
-            )
-        path = os.environ.get("SIGNAL_DB_PATH", "scanner.db")
-        logging.info("using SQLite at %s", path)
-        repo = SQLiteRepository(path)
+    repo = create_signal_repository()
 
     db_path_for_aux = os.environ.get("SIGNAL_DB_PATH", "scanner.db")
     # Positions + closed trades share the SQLite file the workers write to.

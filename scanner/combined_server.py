@@ -1,9 +1,8 @@
 """Combined entrypoint: scanner loop (background thread) + HTTP read API.
 
-Runs on a SINGLE Render web service and shares one SQLite file on that
-service's filesystem, so the worker that writes signals and the API that
-reads them see the same database without needing Postgres or a shared
-Disk. This is the Path A deployment target (crypto-only, zero API keys).
+Runs on a SINGLE Render web service. In production, DATABASE_URL selects
+managed Postgres so scanner output survives deploys and restarts. Without a
+DATABASE_URL it uses a local SQLite file for development.
 
 Usage (local):
     SCANNER_PAIRS=BTCUSD,ETHUSD python -m scanner.combined_server
@@ -27,7 +26,7 @@ from .kill_switch import KillSwitch
 from .multi_source import MultiSourceClient
 from .news_feed import ForexFactoryClient
 from .news_filter import NewsFilter
-from .persistence import SQLiteRepository
+from .repository_factory import create_signal_repository
 from .scheduler import Scanner
 from .trade_repo import SQLiteClosedTradeRepository, SQLitePositionRepository
 
@@ -40,7 +39,7 @@ def main() -> int:
     )
 
     db_path = os.environ.get("SIGNAL_DB_PATH", "scanner.db")
-    repo = SQLiteRepository(db_path)
+    repo = create_signal_repository()
 
     # --- scanner (background thread) -------------------------------------
     fx = TwelveDataClient(api_key=cfg.twelve_data_api_key)
