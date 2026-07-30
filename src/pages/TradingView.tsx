@@ -176,6 +176,8 @@ const TradingView: React.FC = () => {
   const [draftDrawing, setDraftDrawing] = useState<ManualDrawing | null>(null);
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [showManualDrawings, setShowManualDrawings] = useState(true);
+  const [showChartContext, setShowChartContext] = useState(false);
+  const [showTechnicalControls, setShowTechnicalControls] = useState(false);
   const [drawingRevision, setDrawingRevision] = useState(0);
   const [drawingColor, setDrawingColor] = useState('#22d3ee');
   const [magnetDrawing, setMagnetDrawing] = useState(true);
@@ -1327,7 +1329,7 @@ const TradingView: React.FC = () => {
   }, [selectedSymbol, timeframe, currentPrice, harmonicPatterns, adrData, trendLines, fibonacciLevels, drawings, cryptoAnalysis]);
 
   return (
-    <div ref={workspaceRef} className="h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 text-white flex flex-col">
+    <div ref={workspaceRef} className="relative h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 text-white flex flex-col">
       {/* Enhanced Top Controls */}
       <div className="relative bg-gray-800 border-b border-gray-700 px-4 py-3">
         <div className="flex items-center justify-between">
@@ -1519,8 +1521,16 @@ const TradingView: React.FC = () => {
         <span className="text-[9px] font-bold text-slate-600">{drawings.length} · {selectedSymbol} {timeframe}</span>
       </div>
 
-      {/* Technical Analysis Controls */}
-      <div className="shrink-0 overflow-x-auto bg-gray-800 border-b border-gray-700 px-4 py-2">
+      <div className="flex shrink-0 items-center gap-3 overflow-x-auto border-b border-white/[0.08] bg-[#080d18] px-4 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-500">
+        <span className="text-cyan-300">MARKET CONTEXT</span>
+        {harmonicPatterns.length > 0 && <span className="rounded bg-emerald-400/10 px-2 py-1 text-emerald-300">{harmonicPatterns.length} harmonic</span>}
+        {adrData && <span className={`rounded px-2 py-1 ${adrData.exhausted ? 'bg-rose-400/10 text-rose-300' : 'bg-sky-400/10 text-sky-300'}`}>ADR {adrData.percent_used.toFixed(0)}%</span>}
+        {cryptoAnalysis && <><span className="rounded bg-violet-400/10 px-2 py-1 text-violet-300">V2 {cryptoAnalysis.total_score}/100</span><span className={cryptoAnalysis.direction === 'BUY' ? 'text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.direction}</span><span>{timeframe}</span><span className="text-slate-400">{cryptoAnalysis.trade_timing?.status || 'WAIT'}</span></>}
+        <button onClick={() => setShowTechnicalControls((value) => !value)} className="ml-auto rounded bg-white/[0.06] px-2.5 py-1 text-[9px] text-slate-300 hover:bg-white/[0.1]">{showTechnicalControls ? 'Hide tools' : 'Analysis tools'}</button>
+        <button onClick={() => setShowChartContext((value) => !value)} className="rounded bg-cyan-400/10 px-2.5 py-1 text-[9px] text-cyan-300 hover:bg-cyan-400/20">{showChartContext ? 'Hide details' : 'Details'}</button>
+      </div>
+
+      {showTechnicalControls && <div className="shrink-0 overflow-x-auto bg-gray-800 border-b border-gray-700 px-4 py-2">
         <div className="flex min-w-max items-center justify-between gap-6">
           <div className="flex items-center space-x-4">
             <span className="text-sm text-gray-400">Technical Analysis:</span>
@@ -1601,8 +1611,9 @@ const TradingView: React.FC = () => {
             )}
           </div>
         </div>
-      </div>
+      </div>}
 
+      {showChartContext && <>
       {showHarmonics && (
         <div className={`px-4 py-2 border-b text-sm ${
           harmonicPatterns.length > 0
@@ -1664,8 +1675,10 @@ const TradingView: React.FC = () => {
         </div>
       )}
 
+      </>}
+
       {(chartAiError || chartAiAnalysis) && (
-        <div className="relative z-30 shrink-0 border-b border-violet-500/20 bg-[#0d1020] px-4 py-3 text-xs text-slate-300">
+        <div className="absolute left-4 right-4 top-[160px] z-40 max-h-[min(42vh,380px)] overflow-y-auto rounded-xl border border-violet-500/20 bg-[#0d1020]/95 px-4 py-3 text-xs text-slate-300 shadow-2xl backdrop-blur">
           <div className="flex items-start gap-3">
             <BrainCircuit className="mt-0.5 h-4 w-4 shrink-0 text-violet-300" />
             <div className="min-w-0 flex-1">
