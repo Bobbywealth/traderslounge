@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { ISeriesApi } from 'lightweight-charts';
 import { mergeLiveCandle, type CandlestickData } from './chartData';
 import { createChartApiClient, type ChartApiClient } from './chartApiClient';
@@ -7,7 +7,7 @@ import { ChartRequestController, isAbortError } from './chartRequestController';
 export interface UseCandlesOptions {
   symbol: string;
   timeframe: string;
-  seriesRef: React.RefObject<ISeriesApi<'Candlestick'> | null>;
+  seriesRef: RefObject<ISeriesApi<'Candlestick'> | null>;
   enabled?: boolean;
   maxCandles?: number;
   apiClient?: ChartApiClient;
@@ -55,7 +55,7 @@ export function useCandles({
     if (!enabled || !series) return;
 
     const key = candleKey(symbol, timeframe);
-    const request = controllerRef.current.begin(key);
+    const request = controllerRef.current.begin();
     const useTinyUpdate = incremental && loadedKeyRef.current === key;
     setLoading(!useTinyUpdate);
     setError(null);
@@ -109,8 +109,9 @@ export function useCandles({
     const key = candleKey(symbol, timeframe);
     if (!series || loadedKeyRef.current !== key) return;
 
-    const next = mergeLiveCandle(cacheRef.current[key] ?? [], candle, maxCandles);
-    if (next === cacheRef.current[key]) return;
+    const current = cacheRef.current[key] ?? [];
+    const next = mergeLiveCandle(current, candle, maxCandles);
+    if (next === current) return;
     cacheRef.current[key] = next;
     series.update(next[next.length - 1]);
     setCandles(next);
