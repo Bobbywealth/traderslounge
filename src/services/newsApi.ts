@@ -45,45 +45,47 @@ const API_CONFIG = {
   // Alpha Vantage - Free tier: 5 calls per minute, 500 calls per day
   ALPHA_VANTAGE: {
     baseUrl: 'https://www.alphavantage.co/query',
-    apiKey: localStorage.getItem('api_alphaVantage') || 'N35281CO4LORS4CU',
+    apiKey: localStorage.getItem('api_alphaVantage') || '',
   },
   
   // Finnhub - Free tier: 60 calls per minute
   FINNHUB: {
     baseUrl: 'https://finnhub.io/api/v1',
-    apiKey: localStorage.getItem('api_finnhub') || 'demo',
+    apiKey: localStorage.getItem('api_finnhub') || '',
   },
   
   // NewsAPI - Free tier: 1000 requests per month
   NEWS_API: {
     baseUrl: 'https://newsapi.org/v2',
-    apiKey: localStorage.getItem('api_newsApi') || 'c57dc72d29424da3a896faf4e7fd380b',
+    apiKey: localStorage.getItem('api_newsApi') || '',
   },
   
   // Polygon.io - Free tier: 5 calls per minute
   POLYGON: {
     baseUrl: 'https://api.polygon.io',
-    apiKey: localStorage.getItem('api_polygon') || '31WWhm2uoSkHLi9EMiyLnL5lavXRkA1h',
+    apiKey: localStorage.getItem('api_polygon') || '',
   },
   
   // Economic Calendar API (free)
   TRADING_ECONOMICS: {
     baseUrl: 'https://api.tradingeconomics.com',
-    apiKey: localStorage.getItem('api_trading_economics') || 'demo',
+    apiKey: localStorage.getItem('api_trading_economics') || '',
   }
 };
 
 // Check if API keys are configured
 const isApiConfigured = () =>
-  API_CONFIG.ALPHA_VANTAGE.apiKey !== 'demo' ||
-  API_CONFIG.FINNHUB.apiKey !== 'demo' ||
-  API_CONFIG.NEWS_API.apiKey !== 'demo' ||
-  API_CONFIG.POLYGON.apiKey !== 'demo' ||
-  API_CONFIG.TRADING_ECONOMICS.apiKey !== 'demo';
+  Boolean(
+    API_CONFIG.ALPHA_VANTAGE.apiKey ||
+    API_CONFIG.FINNHUB.apiKey ||
+    API_CONFIG.NEWS_API.apiKey ||
+    API_CONFIG.POLYGON.apiKey ||
+    API_CONFIG.TRADING_ECONOMICS.apiKey
+  );
 
 // Alpha Vantage News API
 export const fetchAlphaVantageNews = async (): Promise<NewsItem[]> => {
-  if (API_CONFIG.ALPHA_VANTAGE.apiKey === 'demo') {
+  if (!API_CONFIG.ALPHA_VANTAGE.apiKey || API_CONFIG.ALPHA_VANTAGE.apiKey === 'demo') {
     console.warn('Alpha Vantage API key not configured. Using mock data.');
     return getMockNews();
   }
@@ -124,7 +126,7 @@ export const fetchAlphaVantageNews = async (): Promise<NewsItem[]> => {
 
 // Finnhub News API
 export const fetchFinnhubNews = async (): Promise<NewsItem[]> => {
-  if (API_CONFIG.FINNHUB.apiKey === 'demo') {
+  if (!API_CONFIG.FINNHUB.apiKey || API_CONFIG.FINNHUB.apiKey === 'demo') {
     console.warn('Finnhub API key not configured. Using mock data.');
     return getMockNews();
   }
@@ -160,7 +162,7 @@ export const fetchFinnhubNews = async (): Promise<NewsItem[]> => {
 
 // NewsAPI for Financial News
 export const fetchNewsAPI = async (): Promise<NewsItem[]> => {
-  if (API_CONFIG.NEWS_API.apiKey === 'demo') {
+  if (!API_CONFIG.NEWS_API.apiKey || API_CONFIG.NEWS_API.apiKey === 'demo') {
     console.warn('NewsAPI key not configured. Using mock data.');
     return getMockNews();
   }
@@ -242,7 +244,7 @@ export const fetchTradingEconomicsCalendar = async (): Promise<EconomicEvent[]> 
 
 // Polygon.io Market Data
 export const fetchPolygonMarketData = async (symbols: string[]): Promise<MarketData[]> => {
-  if (API_CONFIG.POLYGON.apiKey === 'demo') {
+  if (!API_CONFIG.POLYGON.apiKey || API_CONFIG.POLYGON.apiKey === 'demo') {
     console.warn('Polygon API key not configured. Using mock data.');
     return getMockMarketData(symbols);
   }

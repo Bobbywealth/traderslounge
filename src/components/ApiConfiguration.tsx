@@ -10,12 +10,12 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
   type ProviderId = 'alphaVantage' | 'finnhub' | 'newsApi' | 'tradingEconomics' | 'polygon' | 'fcsapi';
 
   const [apiKeys, setApiKeys] = useState({
-    alphaVantage: localStorage.getItem('api_alphaVantage') || 'N35281CO4LORS4CU',
+    alphaVantage: localStorage.getItem('api_alphaVantage') || '',
     finnhub: localStorage.getItem('api_finnhub') || '',
-    newsApi: localStorage.getItem('api_newsApi') || 'c57dc72d29424da3a896faf4e7fd380b',
+    newsApi: localStorage.getItem('api_newsApi') || '',
     tradingEconomics: localStorage.getItem('api_trading_economics') || '',
-    polygon: localStorage.getItem('api_polygon') || '31WWhm2uoSkHLi9EMiyLnL5lavXRkA1h',
-    fcsapi: localStorage.getItem('api_fcsapi') || 'oBvRl6ovyvldsUPhXdoC8ug7',
+    polygon: localStorage.getItem('api_polygon') || '',
+    fcsapi: localStorage.getItem('api_fcsapi') || '',
   });
 
   const [showKeys, setShowKeys] = useState({
@@ -95,7 +95,7 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
       url: 'https://fcsapi.com/register',
       features: ['Economic calendar', 'Forex news', 'Market events'],
       limits: 'Free: 500 calls/month',
-      keyFormat: 'Example: oBvRl6ovyvldsUPhXdoC8ug7',
+      keyFormat: 'Paste your FCS API key',
     },
   ];
 

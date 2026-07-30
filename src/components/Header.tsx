@@ -1,161 +1,52 @@
 import React from 'react';
-import { Bell, Settings, Sun, Moon, Link, Rss, LogOut } from 'lucide-react';
+import { LogOut, Moon, Sun } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
-import BrokerSetup from './BrokerSetup';
-import ApiConfiguration from './ApiConfiguration';
-import { useBroker } from '../contexts/BrokerContext';
 import ConfluenceXLogo from './ConfluenceXLogo';
 
 const Header: React.FC = () => {
   const { isDark, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
-  const { credentials } = useBroker();
-  const [showBrokerSetup, setShowBrokerSetup] = React.useState(false);
-  const [showApiConfig, setShowApiConfig] = React.useState(false);
-  const [showNotifications, setShowNotifications] = React.useState(false);
-  const [showSettings, setShowSettings] = React.useState(false);
 
   return (
-    <>
-      <header className="h-16 glass dark:glass-dark border-b border-gray-200/50 dark:border-gray-700/50 flex items-center justify-between px-6 backdrop-blur-xl">
-        <div className="flex items-center space-x-4">
-          {/* Logo / Brand */}
-          <div className="flex items-center gap-3">
-            <ConfluenceXLogo compact size="sm" />
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-              Welcome back, <span className="gradient-text">{user?.name || 'Trader'}</span>
-            </h2>
-          </div>
-          
-          {credentials.length > 0 && (
-            <div className="flex items-center space-x-2">
-              <div className="relative">
-                <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-                <div className="absolute inset-0 w-2 h-2 bg-emerald-400 rounded-full animate-ping opacity-75"></div>
-              </div>
-              <span className="text-sm text-gray-600 dark:text-gray-400 font-medium">
-                {credentials.length} broker{credentials.length !== 1 ? 's' : ''} connected
-              </span>
-            </div>
-          )}
+    <header className="flex h-16 items-center justify-between border-b border-gray-200/50 px-6 backdrop-blur-xl glass dark:border-gray-700/50 dark:glass-dark">
+      <div className="flex items-center gap-3">
+        <ConfluenceXLogo compact size="sm" />
+        <div>
+          <h2 className="text-sm font-bold text-gray-900 dark:text-white sm:text-lg">
+            Welcome back, <span className="gradient-text">{user?.name || 'Trader'}</span>
+          </h2>
+          <p className="hidden text-[10px] font-bold uppercase tracking-widest text-slate-500 sm:block">Read-only market intelligence</p>
         </div>
+      </div>
 
-        <div className="flex items-center space-x-1">
-          <button
-            onClick={() => setShowApiConfig(true)}
-            className="p-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/80 transition-all duration-200 group"
-            title="API Configuration"
-          >
-            <Rss className="w-5 h-5 text-gray-500 dark:text-gray-400 group-hover:text-emerald-500 transition-colors" />
-          </button>
-          
-          <button
-            onClick={() => setShowBrokerSetup(true)}
-            className="p-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/80 transition-all duration-200 group"
-            title="Broker Connections"
-          >
-            <Link className="w-5 h-5 text-gray-500 dark:text-gray-400 group-hover:text-emerald-500 transition-colors" />
-          </button>
-          
-          <button
-            onClick={toggleTheme}
-            className="p-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/80 transition-all duration-200 group"
-          >
-            {isDark ? (
-              <Sun className="w-5 h-5 text-gray-400 group-hover:text-amber-500 transition-colors" />
-            ) : (
-              <Moon className="w-5 h-5 text-gray-500 group-hover:text-indigo-500 transition-colors" />
-            )}
-          </button>
-          
-          <div className="relative">
-            <button 
-              onClick={() => setShowNotifications(!showNotifications)}
-              className="p-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/80 transition-all duration-200 group"
-            >
-              <Bell className="w-5 h-5 text-gray-500 dark:text-gray-400 group-hover:text-red-500 transition-colors" />
-            </button>
-            <div className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white dark:border-gray-800 animate-pulse"></div>
-            {showNotifications && (
-              <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-4 z-50">
-                <h4 className="font-semibold text-gray-900 dark:text-white mb-3">Notifications</h4>
-                <div className="space-y-3">
-                  <div className="flex items-start space-x-3">
-                    <div className="w-2 h-2 bg-emerald-500 rounded-full mt-2"></div>
-                    <div>
-                      <p className="text-sm text-gray-900 dark:text-white">New trading signal available</p>
-                      <p className="text-xs text-gray-500">2 minutes ago</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start space-x-3">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
-                    <div>
-                      <p className="text-sm text-gray-900 dark:text-white">EURUSD signal updated</p>
-                      <p className="text-xs text-gray-500">15 minutes ago</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start space-x-3">
-                    <div className="w-2 h-2 bg-gray-500 rounded-full mt-2"></div>
-                    <div>
-                      <p className="text-sm text-gray-900 dark:text-white">System maintenance scheduled</p>
-                      <p className="text-xs text-gray-500">1 hour ago</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+      <div className="flex items-center gap-1">
+        <button
+          onClick={toggleTheme}
+          className="rounded-xl p-2.5 transition-all duration-200 hover:bg-gray-100 dark:hover:bg-gray-700/80"
+          title={isDark ? 'Use light theme' : 'Use dark theme'}
+        >
+          {isDark ? <Sun className="h-5 w-5 text-gray-400 hover:text-amber-500" /> : <Moon className="h-5 w-5 text-gray-500 hover:text-indigo-500" />}
+        </button>
+        <button
+          onClick={logout}
+          className="rounded-xl p-2.5 transition-all duration-200 hover:bg-red-50 dark:hover:bg-red-900/20"
+          title="Sign Out"
+        >
+          <LogOut className="h-5 w-5 text-gray-500 hover:text-red-500 dark:text-gray-400" />
+        </button>
+        <div className="mx-2 h-8 w-px bg-gray-200 dark:bg-gray-700" />
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-violet-600 font-bold text-white shadow-lg ring-2 ring-cyan-500/20">
+            {user?.avatar ? <img src={user.avatar} alt={user.name} className="h-full w-full rounded-xl object-cover" /> : user?.name?.charAt(0).toUpperCase() || 'U'}
           </div>
-
-          <button 
-            onClick={() => setShowSettings(!showSettings)}
-            className="p-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/80 transition-all duration-200 group"
-          >
-            <Settings className="w-5 h-5 text-gray-500 dark:text-gray-400 group-hover:text-emerald-500 transition-colors" />
-          </button>
-          
-          <button
-            onClick={logout}
-            className="p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-200 group"
-            title="Sign Out"
-          >
-            <LogOut className="w-5 h-5 text-gray-500 dark:text-gray-400 group-hover:text-red-500 transition-colors" />
-          </button>
-
-          <div className="h-8 w-px bg-gray-200 dark:bg-gray-700 mx-2"></div>
-
-          {/* User Avatar */}
-          <div className="flex items-center space-x-3">
-            <div className="relative">
-              <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center shadow-lg ring-2 ring-emerald-500/20">
-                {user?.avatar ? (
-                  <img src={user.avatar} alt={user.name} className="w-full h-full rounded-xl object-cover" />
-                ) : (
-                  <span className="text-white font-bold text-sm">
-                    {user?.name?.charAt(0).toUpperCase() || 'U'}
-                  </span>
-                )}
-              </div>
-              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white dark:border-gray-800"></div>
-            </div>
-            <div className="hidden md:block">
-              <p className="text-sm font-semibold text-gray-900 dark:text-white">{user?.name || 'User'}</p>
-              <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium capitalize">{user?.plan || 'Free'} Plan</p>
-            </div>
+          <div className="hidden md:block">
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">{user?.name || 'User'}</p>
+            <p className="text-xs font-medium text-cyan-600 dark:text-cyan-400">Intelligence workspace</p>
           </div>
         </div>
-      </header>
-      
-      <BrokerSetup 
-        isOpen={showBrokerSetup} 
-        onClose={() => setShowBrokerSetup(false)} 
-      />
-      
-      <ApiConfiguration 
-        isOpen={showApiConfig} 
-        onClose={() => setShowApiConfig(false)} 
-      />
-    </>
+      </div>
+    </header>
   );
 };
 
