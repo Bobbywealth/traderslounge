@@ -14,6 +14,17 @@ const Calendar: React.FC = () => {
   const [impactFilter, setImpactFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all');
   const [currencyFilter, setCurrencyFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [useLocalTime, setUseLocalTime] = useState(false);
+  const [trackedOnlyNews, setTrackedOnlyNews] = useState(true);
+
+  const TRACKED_CURRENCIES = ['USD', 'GBP', 'JPY', 'EUR', 'CAD', 'CHF', 'AUD', 'NZD'];
+
+  const inferGateStatus = (impact: string, currency: string): 'CLEAR' | 'CAUTION' | 'BLOCKED' | 'POST_NEWS' => {
+    if (!TRACKED_CURRENCIES.includes(currency)) return 'CLEAR';
+    if (impact === 'high') return 'BLOCKED';
+    if (impact === 'medium') return 'CAUTION';
+    return 'CLEAR';
+  };
 
   useEffect(() => {
     loadData();
@@ -110,6 +121,33 @@ const Calendar: React.FC = () => {
 
   const uniqueCurrencies = Array.from(new Set(events.map(event => event.currency)));
 
+  const relevantNews = trackedOnlyNews
+    ? news.filter((n) => (n.relevantCurrencies || []).some((c) => TRACKED_CURRENCIES.includes(c)))
+    : news;
+
+  const gateStyle = (status: 'CLEAR' | 'CAUTION' | 'BLOCKED' | 'POST_NEWS') => {
+    switch (status) {
+      case 'CLEAR':
+        return 'bg-cyan-400/15 text-cyan-300 border-cyan-400/30';
+      case 'CAUTION':
+        return 'bg-amber-400/15 text-amber-300 border-amber-400/30';
+      case 'BLOCKED':
+        return 'bg-rose-400/15 text-rose-300 border-rose-400/30';
+      case 'POST_NEWS':
+        return 'bg-violet-400/15 text-violet-300 border-violet-400/30';
+    }
+  };
+
+  const formatEventTime = (time: string) => {
+    if (!useLocalTime) return `${time} GMT`;
+    // Parse GMT hh:mm and convert to local browser time
+    const match = time.match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return time;
+    const utc = new Date();
+    utc.setUTCHours(Number(match[1]), Number(match[2]), 0, 0);
+    return utc.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -134,7 +172,17 @@ const Calendar: React.FC = () => {
             </span>
           </div>
           <Globe className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-          <span className="text-sm text-gray-600 dark:text-gray-400">GMT +0</span>
+          <button
+            onClick={() => setUseLocalTime((v) => !v)}
+            className={`rounded-md border px-2 py-1 text-xs transition ${
+              useLocalTime
+                ? 'border-cyan-400/30 bg-cyan-400/10 text-cyan-200'
+                : 'border-white/10 bg-white/[0.04] text-gray-400 hover:text-white'
+            }`}
+            title="Toggle between GMT and your local browser time"
+          >
+            {useLocalTime ? 'Local' : 'GMT +0'}
+          </button>
           <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse ml-2"></div>
           <span className="text-sm text-gray-600 dark:text-gray-400">
             {events.some(e => e.source !== 'Mock Data') ? 'Live Data' : 'Demo Data'}
@@ -295,57 +343,81 @@ const Calendar: React.FC = () => {
                   No events scheduled for this date
                 </div>
               ) : (
-                getSelectedDateEvents().map((event) => (
-                  <div key={event.id} className={`border-l-4 pl-4 py-3 rounded-r-lg ${getImpactColor(event.impact)}`}>
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <h4 className="font-medium text-sm mb-1">
-                          {event.title}
-                        </h4>
-                        <div className="flex items-center space-x-4 text-xs mb-2">
-                          <div className="flex items-center space-x-1">
-                            <Clock className="w-3 h-3" />
-                            <span>{event.time} GMT</span>
+                getSelectedDateEvents().map((event) => {
+                  const gate = inferGateStatus(event.impact, event.currency);
+                  return (
+                    <div key={event.id} className={`border-l-4 pl-4 py-3 rounded-r-lg ${getImpactColor(event.impact)}`}>
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-medium text-sm mb-1">
+                              {event.title}
+                            </h4>
+                            <span
+                              className={`rounded-md border px-1.5 py-0.5 text-[9px] font-black ${gateStyle(gate)}`}
+                              title="Calendar gate the scanner will apply"
+                            >
+                              GATE {gate}
+                            </span>
                           </div>
-                          <span className="font-medium">{event.currency}</span>
-                          <span className="capitalize">{event.impact} Impact</span>
-                        </div>
-                        <p className="text-xs opacity-75 mb-2">
-                          {event.description}
-                        </p>
-                        <div className="grid grid-cols-3 gap-2 text-xs">
-                          <div>
-                            <span className="opacity-75">Forecast:</span>
-                            <div className="font-medium">{event.forecast}</div>
-                          </div>
-                          <div>
-                            <span className="opacity-75">Previous:</span>
-                            <div className="font-medium">{event.previous}</div>
-                          </div>
-                          {event.actual && (
-                            <div>
-                              <span className="opacity-75">Actual:</span>
-                              <div className="font-medium">{event.actual}</div>
+                          <div className="flex items-center space-x-4 text-xs mb-2">
+                            <div className="flex items-center space-x-1">
+                              <Clock className="w-3 h-3" />
+                              <span>{formatEventTime(event.time)}</span>
                             </div>
-                          )}
+                            <span className="font-medium">{event.currency}</span>
+                            <span className="capitalize">{event.impact} Impact</span>
+                          </div>
+                          <p className="text-xs opacity-75 mb-2">
+                            {event.description}
+                          </p>
+                          <div className="grid grid-cols-3 gap-2 text-xs">
+                            <div>
+                              <span className="opacity-75">Forecast:</span>
+                              <div className="font-medium">{event.forecast}</div>
+                            </div>
+                            <div>
+                              <span className="opacity-75">Previous:</span>
+                              <div className="font-medium">{event.previous}</div>
+                            </div>
+                            {event.actual && (
+                              <div>
+                                <span className="opacity-75">Actual:</span>
+                                <div className="font-medium">{event.actual}</div>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
 
           {/* Market News */}
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-              <TrendingUp className="w-5 h-5 mr-2" />
-              Market News
-            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+                <TrendingUp className="w-5 h-5 mr-2" />
+                Market News
+              </h3>
+              <button
+                onClick={() => setTrackedOnlyNews((v) => !v)}
+                className={`rounded-md border px-2 py-1 text-[10px] font-black uppercase tracking-wider transition ${
+                  trackedOnlyNews
+                    ? 'border-cyan-400/30 bg-cyan-400/10 text-cyan-200'
+                    : 'border-white/10 bg-white/[0.04] text-slate-400 hover:text-white'
+                }`}
+                title="Show only headlines matching tracked currencies"
+              >
+                {trackedOnlyNews ? 'Tracked only' : 'All news'}
+              </button>
+            </div>
             
             <div className="space-y-4">
-              {news.map((item) => (
+              {relevantNews.map((item) => (
                 <div key={item.id} className="border-b border-gray-200 dark:border-gray-700 pb-4 last:border-b-0">
                   <div className="flex items-start justify-between mb-2">
                     <h4 className="font-medium text-sm text-gray-900 dark:text-white">
