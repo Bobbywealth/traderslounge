@@ -29,6 +29,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from .config import Config
 from .crypto_analysis import analyze_crypto, _build_setup_zones
+from .modules.institutional import build_institutional
 from .lifecycle_manager import stabilize_direction, map_legacy_state
 from .kill_switch import KillSwitch
 from .metrics import metrics
@@ -649,6 +650,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 analysis["zones"]["setup_zones"] = _build_setup_zones(price=float(selected_candles[-1].close), atr_value=analysis.get("indicators", {}).get("atr"), zones=analysis.get("zones", {}), indicators=analysis.get("indicators", {}), direction=analysis.get("direction", "NEUTRAL"), market_context=analysis.get("market_context", {}), trade_timing=analysis.get("trade_timing", {}))
             analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar, primary_candles=selected_candles)
             self._publish_actionable_analysis(analysis)
+            self._attach_institutional_block(analysis, snapshot, selected_timeframe)
         except Exception as exc:
             stale = self._cache_get(cache_key, allow_stale=True)
             if stale is not None:
@@ -659,6 +661,44 @@ class _ApiHandler(BaseHTTPRequestHandler):
         analysis["cache"] = {"stale": False, "ttl_seconds": 20}
         self._cache_set(cache_key, analysis)
         self._json(200, analysis)
+
+    def _attach_institutional_block(
+        self,
+        analysis: dict,
+        snapshot,
+        selected_timeframe,
+    ) -> None:
+        """Attach the Phase 1 institutional report to an analysis dict.
+
+        Pure additive attachment — never mutates canonical fields. Wrapped
+        in a try/except so a failure inside any institutional module can
+        never break the canonical /api/analysis or scanner response; in the
+        worst case the user sees a stub ``available: False`` block.
+        """
+        try:
+            calendar_state = str(
+                (analysis.get("economic_calendar") or {}).get("status")
+                or "CLEAR"
+            ).upper()
+            if calendar_state not in (
+                "CLEAR", "CAUTION", "BLOCKED", "POST_NEWS", "UNAVAILABLE"
+            ):
+                calendar_state = "CLEAR"
+            primary_tf = (
+                selected_timeframe
+                or (analysis.get("data_quality") or {}).get("primary_timeframe")
+            )
+            analysis["institutional"] = build_institutional(
+                analysis,
+                snapshot,
+                calendar_state=calendar_state,
+                primary_timeframe=primary_tf,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            analysis["institutional"] = {
+                "available": False,
+                "reason": f"institutional_modules_error: {exc!r}",
+            }
 
     def _backtest_v2(self, query: dict) -> None:
         client = _STATE.market_client
@@ -1168,6 +1208,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 analysis["zones"]["setup_zones"] = _build_setup_zones(price=float(selected_candles[-1].close), atr_value=analysis.get("indicators", {}).get("atr"), zones=analysis.get("zones", {}), indicators=analysis.get("indicators", {}), direction=analysis.get("direction", "NEUTRAL"), market_context=analysis.get("market_context", {}), trade_timing=analysis.get("trade_timing", {}))
             analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar, primary_candles=selected_candles)
             self._publish_actionable_analysis(analysis)
+            self._attach_institutional_block(analysis, snapshot, "H1")
             return analysis
         except Exception as exc:
             stale = self._cache_get(f"analysis:{pair}:default", allow_stale=True)
