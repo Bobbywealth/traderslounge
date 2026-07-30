@@ -62,6 +62,8 @@ class ApiState:
     response_cache: dict = field(default_factory=dict)
     direction_states: dict = field(default_factory=dict)
     cache_lock: Any = field(default_factory=threading.RLock)
+    # Stale-while-revalidate cache for the expensive dashboard snapshot.
+    dashboard_cache: dict = field(default_factory=lambda: {"payload": None, "built_at": 0.0, "building": False})
     started_at: float = field(default_factory=time.time)
     user_repo: Optional[Any] = None
     # Optional SQLAlchemy-backed repositories — only populated when the
@@ -78,6 +80,7 @@ class ApiState:
 # Module-level state pointer — http.server's handler API doesn't make
 # passing state in clean. Set via make_server() before the server runs.
 _STATE: Optional[ApiState] = None
+_DASHBOARD_PREWARMED = False
 
 
 def set_state(state: ApiState) -> None:
@@ -285,10 +288,27 @@ class _ApiHandler(BaseHTTPRequestHandler):
     # --- handlers -------------------------------------------------------
 
     def _health(self) -> None:
+        # Health checks are the earliest signal the server is up, so use the
+        # first one to pre-warm the dashboard snapshot cache in the background.
+        # The captured handler only calls stateless helpers (they read _STATE,
+        # never request I/O), which is safe after the request completes.
+        self._maybe_prewarm_dashboard()
         return self._json(200, {
             'status': 'ok',
             'timestamp': datetime.now(timezone.utc).isoformat()
         })
+
+    def _maybe_prewarm_dashboard(self) -> None:
+        global _DASHBOARD_PREWARMED
+        if _DASHBOARD_PREWARMED:
+            return
+        with _STATE.cache_lock:
+            already = _STATE.dashboard_cache.get("payload") is not None
+        if already:
+            _DASHBOARD_PREWARMED = True
+            return
+        _DASHBOARD_PREWARMED = True
+        threading.Thread(target=self._refresh_dashboard_cache, name="dashboard-prewarm", daemon=True).start()
 
     def _ready(self) -> None:
         checks = {
@@ -749,9 +769,16 @@ class _ApiHandler(BaseHTTPRequestHandler):
         if timeframe is None:
             return self._error(400, f"unsupported timeframe: {tf_raw}")
         limit = _clamp_int(query.get("limit"), default=250, lo=1, hi=1000)
+        cache_key = f"candles:{pair}:{timeframe}:{limit}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return self._json(200, cached)
         try:
             candles = client.fetch_candles(pair, timeframe, limit=limit)
         except Exception as exc:
+            stale = self._cache_get(cache_key, allow_stale=True)
+            if stale is not None:
+                return self._json(200, stale)
             return self._error(502, f"market data unavailable: {exc}")
         rows = [
             {
@@ -760,10 +787,12 @@ class _ApiHandler(BaseHTTPRequestHandler):
             }
             for c in candles
         ]
-        self._json(200, {
+        body = {
             "pair": pair, "timeframe": timeframe,
             "candles": rows, "count": len(rows),
-        })
+        }
+        self._cache_set(cache_key, body, ttl=15, stale_ttl=120)
+        self._json(200, body)
 
     def _harmonics(self, query: dict) -> None:
         client = _STATE.market_client
@@ -776,31 +805,38 @@ class _ApiHandler(BaseHTTPRequestHandler):
         timeframe = _timeframe_alias(tf_raw)
         if timeframe is None:
             return self._error(400, f"unsupported timeframe: {tf_raw}")
+        cache_key = f"harmonics:{pair}:{timeframe}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return self._json(200, cached)
         try:
             candles = client.fetch_candles(pair, timeframe)
             from .modules.harmonic import detect
             match = detect(candles)
         except Exception as exc:
+            stale = self._cache_get(cache_key, allow_stale=True)
+            if stale is not None:
+                return self._json(200, stale)
             return self._error(502, f"harmonic data unavailable: {exc}")
         if match is None:
-            return self._json(200, {
-                "pair": pair, "timeframe": timeframe,
-                "status": "none", "pattern": None,
-            })
-        points = {
-            label: {"time": swing.time, "price": swing.price}
-            for label, swing in match["points"].items()
-        }
-        prz = float(match["prz"])
-        width = max(abs(prz) * 0.0015, 1e-8)
-        self._json(200, {
-            "pair": pair, "timeframe": timeframe, "status": "completed",
-            "pattern": {
-                "name": match["name"], "direction": match["direction"],
-                "prz": {"price": prz, "low": prz - width, "high": prz + width},
-                "points": points, "ratios": match["ratios"],
-            },
-        })
+            body = {"pair": pair, "timeframe": timeframe, "status": "none", "pattern": None}
+        else:
+            points = {
+                label: {"time": swing.time, "price": swing.price}
+                for label, swing in match["points"].items()
+            }
+            prz = float(match["prz"])
+            width = max(abs(prz) * 0.0015, 1e-8)
+            body = {
+                "pair": pair, "timeframe": timeframe, "status": "completed",
+                "pattern": {
+                    "name": match["name"], "direction": match["direction"],
+                    "prz": {"price": prz, "low": prz - width, "high": prz + width},
+                    "points": points, "ratios": match["ratios"],
+                },
+            }
+        self._cache_set(cache_key, body, ttl=30, stale_ttl=120)
+        self._json(200, body)
 
     def _adr(self, query: dict) -> None:
         client = _STATE.market_client
@@ -809,16 +845,24 @@ class _ApiHandler(BaseHTTPRequestHandler):
         pair = str(query.get("pair") or query.get("symbol") or "").upper()
         if not pair:
             return self._error(400, "pair is required")
+        cache_key = f"adr:{pair}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return self._json(200, cached)
         try:
             candles = client.fetch_candles(pair, "D1")
             from .modules.adr_calculator import snapshot
             adr = snapshot(candles)
         except Exception as exc:
+            stale = self._cache_get(cache_key, allow_stale=True)
+            if stale is not None:
+                return self._json(200, stale)
             return self._error(502, f"ADR data unavailable: {exc}")
         if adr is None:
             return self._error(422, "insufficient daily candles for ADR")
         body = adr.__dict__.copy()
         body.update({"pair": pair, "period": 14, "day_time": candles[-1].time})
+        self._cache_set(cache_key, body, ttl=60, stale_ttl=300)
         self._json(200, body)
 
     def _list_published_signals(self, query: dict) -> None:
@@ -1071,7 +1115,52 @@ class _ApiHandler(BaseHTTPRequestHandler):
             "news_blackout_minutes": cfg.news_blackout_minutes,
         })
 
+    # The dashboard snapshot is expensive to build (full analysis for every
+    # recent market). Serve it stale-while-revalidate so the dashboard always
+    # loads in well under the 12s frontend watchdog: return the last payload
+    # immediately and refresh it in the background when it goes stale.
+    _DASHBOARD_CACHE_TTL = 30.0
+
     def _dashboard_snapshot(self) -> None:
+        now = time.monotonic()
+        with _STATE.cache_lock:
+            payload = _STATE.dashboard_cache.get("payload")
+            stale = payload is not None and (now - _STATE.dashboard_cache.get("built_at", 0.0)) > self._DASHBOARD_CACHE_TTL
+            building = _STATE.dashboard_cache.get("building", False)
+        if payload is not None:
+            self._json(200, payload)
+            if stale and not building:
+                self._spawn_dashboard_refresh()
+            return
+        # First-ever build (pre-warm missed): assemble once synchronously, then
+        # every subsequent load is instant.
+        payload = self._build_dashboard_payload()
+        with _STATE.cache_lock:
+            _STATE.dashboard_cache["payload"] = payload
+            _STATE.dashboard_cache["built_at"] = time.monotonic()
+            _STATE.dashboard_cache["building"] = False
+        self._json(200, payload)
+
+    def _spawn_dashboard_refresh(self) -> None:
+        with _STATE.cache_lock:
+            if _STATE.dashboard_cache.get("building"):
+                return
+            _STATE.dashboard_cache["building"] = True
+        threading.Thread(target=self._refresh_dashboard_cache, name="dashboard-refresh", daemon=True).start()
+
+    def _refresh_dashboard_cache(self) -> None:
+        try:
+            payload = self._build_dashboard_payload()
+            with _STATE.cache_lock:
+                _STATE.dashboard_cache["payload"] = payload
+                _STATE.dashboard_cache["built_at"] = time.monotonic()
+        except Exception:
+            logging.exception("dashboard snapshot background refresh failed")
+        finally:
+            with _STATE.cache_lock:
+                _STATE.dashboard_cache["building"] = False
+
+    def _build_dashboard_payload(self) -> dict:
         snapshot_id = str(uuid.uuid4())
         generated_at = datetime.now(timezone.utc).isoformat()
 
@@ -1092,22 +1181,26 @@ class _ApiHandler(BaseHTTPRequestHandler):
         else:
             market_data_timestamp = generated_at
 
+        # Many recent signals share a pair, so compute each unique analysis
+        # once (also benefits from the analysis result cache) and reuse it.
+        analysis_by_pair: dict = {}
         snapshots = []
         for sig in signals:
             pair = sig.get("pair", "")
             if not pair:
                 continue
-            analysis = self._compute_analysis(pair)
+            if pair not in analysis_by_pair:
+                analysis_by_pair[pair] = self._compute_analysis(pair)
             snapshots.append({
                 "signal": sig,
-                "analysis": analysis,
+                "analysis": analysis_by_pair[pair],
                 "market_info": self._get_market_info(pair),
                 "lifecycle_state": self._get_lifecycle_state(sig.get("id")),
                 "recent_transitions": self._get_recent_transitions(sig.get("id")),
                 "score_history": self._get_score_history(pair),
             })
 
-        self._json(200, {
+        return {
             "snapshot_id": snapshot_id,
             "generated_at": generated_at,
             "market_data_timestamp": market_data_timestamp,
@@ -1118,7 +1211,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
             "markets": snapshots,
             "performance_summary": self._get_performance_summary(),
             "model_version": "v2.1.0",
-        })
+        }
 
     def _get_health_data(self) -> dict:
         try:
@@ -1159,6 +1252,13 @@ class _ApiHandler(BaseHTTPRequestHandler):
         client = _STATE.market_client
         if client is None:
             return {"error": "market data client not configured"}
+        # Cache the full H1 analysis so the dashboard loop and the 30s
+        # auto-refresh reuse work instead of recomputing every market on every
+        # call. Stale values are still served on transient errors.
+        cache_key = f"analysis:{pair}:H1"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         try:
             snapshot_key = f"snapshot:{pair}"
             snapshot = self._cache_get(snapshot_key)
@@ -1211,9 +1311,10 @@ class _ApiHandler(BaseHTTPRequestHandler):
             analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar, primary_candles=selected_candles)
             self._publish_actionable_analysis(analysis)
             self._attach_institutional_block(analysis, snapshot, "H1")
+            self._cache_set(cache_key, analysis, ttl=20, stale_ttl=120)
             return analysis
         except Exception as exc:
-            stale = self._cache_get(f"analysis:{pair}:default", allow_stale=True)
+            stale = self._cache_get(cache_key, allow_stale=True)
             if stale is not None:
                 stale = dict(stale)
                 stale["cache"] = {"stale": True, "reason": str(exc)}
