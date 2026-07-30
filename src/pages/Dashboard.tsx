@@ -49,6 +49,7 @@ const Dashboard: React.FC = () => {
   const [calendarRisk, setCalendarRisk] = useState<CalendarGateStatus | null>(null);
   const [contract, setContract] = useState<SnapshotContract | null>(null);
   const [loading, setLoading] = useState(true);
+  const [connectTimedOut, setConnectTimedOut] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
@@ -120,6 +121,15 @@ const Dashboard: React.FC = () => {
     return () => clearInterval(interval);
   }, [load]);
 
+  useEffect(() => {
+    if (!loading) {
+      setConnectTimedOut(false);
+      return;
+    }
+    const timeout = setTimeout(() => setConnectTimedOut(true), 12_000);
+    return () => clearTimeout(timeout);
+  }, [loading]);
+
   const latestByPair = useMemo(() => {
     const seen = new Set<string>();
     return [...signals]
@@ -181,7 +191,7 @@ const Dashboard: React.FC = () => {
   }, [bestSignal?.id, bestSignal?.pair]);
 
   const feedState: FeedState = loading
-    ? 'CONNECTING'
+    ? connectTimedOut ? 'OFFLINE' : 'CONNECTING'
     : error && !hasMarketData
       ? 'OFFLINE'
       : error || health?.status !== 'ok'
@@ -240,10 +250,10 @@ const Dashboard: React.FC = () => {
         </div>
       </section>
 
-      {error && (
+      {(error || connectTimedOut) && (
         <div className={`flex items-start gap-3 rounded-2xl border px-5 py-4 text-sm ${hasMarketData ? 'border-amber-400/20 bg-amber-400/[0.06] text-amber-200' : 'border-rose-400/20 bg-rose-400/[0.06] text-rose-200'}`}>
           {hasMarketData ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />}
-          <div><strong>{hasMarketData ? 'Degraded feed:' : 'Market data unavailable:'}</strong> {error} {hasMarketData ? 'Last successful results remain visible and are not presented as current.' : 'No zero-value market conclusions are being inferred.'}</div>
+          <div><strong>{hasMarketData ? 'Degraded feed:' : 'Market data unavailable:'}</strong> {error || 'The dashboard snapshot did not respond within 12 seconds.'} {hasMarketData ? 'Last successful results remain visible and are not presented as current.' : 'No zero-value market conclusions are being inferred.'}</div>
         </div>
       )}
 
