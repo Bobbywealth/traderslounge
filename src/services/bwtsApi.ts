@@ -212,6 +212,21 @@ export interface CoverageInfo {
   dataFreshnessSeconds: number;
 }
 
+export interface InstitutionalAnalysis {
+  methodology: string;
+  limitations: string[];
+  market_structure: { timeframes: Record<string, { trend: string; swing_labels: string[]; latest_structure_event: string | null; confidence: string }>; overall: string; confidence: string; support: number[]; resistance: number[] };
+  momentum_detail: { rsi: number | null; rsi_state: string; rsi_divergences: Array<{ type: string; confidence: string }>; macd: number | null; macd_signal: number | null; macd_histogram: number | null; agreement: { supporting: number; evaluated: number; summary: string } };
+  elliott_wave: { classification: string; estimated_wave: number | null; primary_direction: string; alternative_count: string; confidence: string; pivot_count: number };
+  abcd_pattern: { detected: boolean; ab_cd_ratio?: number; bc_retracement?: number; completion_price?: number; direction?: string; confidence: string };
+  volatility_detail: { atr: number | null; historical_volatility_annualized_pct: number | null; bollinger_width: number | null; keltner_width: number | null; compression: boolean; regime: string };
+  scenario_analysis?: { method: string; bull_case: { probability_pct: number; target: number | null }; base_case: { probability_pct: number; expected_range: number[] }; bear_case: { probability_pct: number; target: number | null } };
+  trading_strategies?: Record<string, any>;
+  risk_assessment?: { overall_risk_1_to_10: number; rating: string; largest_risks: string[]; calendar_status: string };
+  monitoring_plan?: Record<string, any>;
+  executive_summary?: { overall_bias: string; conviction_0_to_100: number; confidence: string; best_setup_status: string; recommended_time_horizon: string; entry: number | null; stop: number | null; targets: number[]; clear_invalidation: number | null; plain_english_thesis: string };
+}
+
 export interface CryptoAnalysis {
   version: string;
   asset_class: string;
@@ -256,6 +271,7 @@ export interface CryptoAnalysis {
   missing_categories?: string[];
   stale_categories?: string[];
   data_freshness_seconds?: number;
+  institutional_analysis?: InstitutionalAnalysis;
 }
 
 export interface V2BacktestReport {

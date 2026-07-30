@@ -15,8 +15,9 @@ from .indicators import atr, detect_swings, ema, label_swings, rsi
 from .modules.fibonacci import latest_leg, retracement_pct
 from .modules.harmonic import detect as detect_harmonic
 from .reason_codes import ReasonCode, build_blocking_reason
+from .institutional_analysis import build_technical_assessment
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 CAPS = {
     "structure": 20, "liquidity": 15, "volume": 10, "momentum": 10,
     "moving_averages": 10, "fibonacci": 10, "patterns": 10,
@@ -875,6 +876,17 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
             "missing_categories": missing_categories,
             "stale_categories": stale_categories,
             "data_freshness_seconds": data_freshness_seconds}
+    analysis_result["institutional_analysis"] = build_technical_assessment(
+        bars=bars,
+        frames=frames,
+        trends=trends,
+        indicators=indicators,
+        zones=zones,
+        direction=direction,
+        score=int(_clamp(total, 0, 100)),
+        price=price,
+        timeframe=primary_name,
+    )
     analysis_result["triggers"] = _generate_triggers(analysis_result)
     return analysis_result
 
