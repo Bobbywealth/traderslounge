@@ -1235,6 +1235,54 @@ const TradingView: React.FC = () => {
     return () => { chart.timeScale().unsubscribeVisibleTimeRangeChange(deferredRender); window.removeEventListener('resize', deferredRender); removeOverlay(); };
   }, [cryptoAnalysis, showSetups, chartRevision, currentPrice]);
 
+  // When no directional trade plan is eligible, show conditional areas from
+  // deterministic support/resistance so the chart still explains where a
+  // future buy or sell setup could form.
+  useEffect(() => {
+    const chart = chartRef.current;
+    const priceSeries = candlestickSeriesRef.current;
+    const container = chartContainerRef.current;
+    if (!chart || !priceSeries || !container) return;
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const removeOverlay = () => container.querySelector('[data-conditional-setup-overlay]')?.remove();
+    const renderOverlay = () => {
+      removeOverlay();
+      const plan = cryptoAnalysis?.trade_plan;
+      if (!showSetups || !cryptoAnalysis || (plan?.direction && plan.direction !== 'NEUTRAL' && plan.entry != null)) return;
+      const detailed = Array.isArray(cryptoAnalysis.zones?.support_resistance) ? cryptoAnalysis.zones.support_resistance : [];
+      const atr = Number(cryptoAnalysis.indicators?.atr || 0);
+      const nearby = detailed
+        .filter((zone: any) => ['support', 'resistance'].includes(zone.type) && Number.isFinite(Number(zone.low)) && Number.isFinite(Number(zone.high)))
+        .filter((zone: any) => !atr || Math.abs(Number(zone.level) - currentPrice) <= atr * 2.5)
+        .sort((a: any, b: any) => (Number(a.distance_atr) || 99) - (Number(b.distance_atr) || 99));
+      const zones = ['support', 'resistance'].flatMap((type) => nearby.filter((zone: any) => zone.type === type).slice(0, 1));
+      if (!zones.length) return;
+      const svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('data-conditional-setup-overlay', 'true');
+      svg.setAttribute('width', String(container.clientWidth)); svg.setAttribute('height', String(container.clientHeight));
+      svg.style.position = 'absolute'; svg.style.inset = '0'; svg.style.zIndex = '11'; svg.style.pointerEvents = 'none'; svg.style.overflow = 'visible';
+      zones.forEach((zone: any) => {
+        const bullish = zone.type === 'support';
+        const color = bullish ? '#22c55e' : '#ef4444';
+        const low = priceSeries.priceToCoordinate(Number(zone.low));
+        const high = priceSeries.priceToCoordinate(Number(zone.high));
+        if (low == null || high == null) return;
+        const rect = document.createElementNS(SVG_NS, 'rect');
+        rect.setAttribute('x', '0'); rect.setAttribute('y', String(Math.min(low, high))); rect.setAttribute('width', String(container.clientWidth));
+        rect.setAttribute('height', String(Math.max(10, Math.abs(low - high)))); rect.setAttribute('fill', color); rect.setAttribute('fill-opacity', '0.08');
+        rect.setAttribute('stroke', color); rect.setAttribute('stroke-opacity', '0.7'); rect.setAttribute('stroke-width', '2'); rect.setAttribute('stroke-dasharray', '7 5'); svg.appendChild(rect);
+        const label = document.createElementNS(SVG_NS, 'text');
+        label.setAttribute('x', '10'); label.setAttribute('y', String(Math.max(16, Math.min(low, high) - 7))); label.setAttribute('fill', color); label.setAttribute('font-size', '12'); label.setAttribute('font-weight', '900');
+        label.setAttribute('paint-order', 'stroke'); label.setAttribute('stroke', '#080d18'); label.setAttribute('stroke-width', '4');
+        label.textContent = `${bullish ? 'BUY WATCH' : 'SELL WATCH'} · ${bullish ? 'SUPPORT' : 'RESISTANCE'} ${Number(zone.low).toFixed(2)}–${Number(zone.high).toFixed(2)}`; svg.appendChild(label);
+      });
+      container.appendChild(svg);
+    };
+    const deferredRender = () => requestAnimationFrame(renderOverlay);
+    deferredRender(); chart.timeScale().subscribeVisibleTimeRangeChange(deferredRender); window.addEventListener('resize', deferredRender);
+    return () => { chart.timeScale().unsubscribeVisibleTimeRangeChange(deferredRender); window.removeEventListener('resize', deferredRender); removeOverlay(); };
+  }, [cryptoAnalysis, showSetups, chartRevision, currentPrice]);
+
   // Native-feeling live candles: REST loads history once, then the global
   // public Binance market-data stream updates the active candle trade-by-trade.
   useEffect(() => {
