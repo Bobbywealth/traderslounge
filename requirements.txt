@@ -9,3 +9,5 @@
 #
 # Pin floors loosely so Render can pick a current binary wheel.
 psycopg[binary]>=3.1,<4
+PyJWT>=2.8,<3
+bcrypt>=4.0,<5
