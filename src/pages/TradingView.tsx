@@ -166,6 +166,7 @@ const TradingView: React.FC = () => {
   const [showTrendLines, setShowTrendLines] = useState(true);
   const [showFibonacci, setShowFibonacci] = useState(true);
   const [showSupportResistance, setShowSupportResistance] = useState(true);
+  const [showSetups, setShowSetups] = useState(true);
   const [cryptoAnalysis, setCryptoAnalysis] = useState<CryptoAnalysis | null>(null);
   const [chartAiAnalysis, setChartAiAnalysis] = useState<ChartAiAnalysis | null>(null);
   const [chartAiConfigured, setChartAiConfigured] = useState<boolean | null>(null);
@@ -1158,6 +1159,82 @@ const TradingView: React.FC = () => {
     });
   }, [cryptoAnalysis, showFibonacci, showSupportResistance, chartRevision, currentPrice]);
 
+  // Deterministic possible-setup overlay. It visualizes the BWTS trade plan,
+  // but never turns a blocked or WAIT plan into an actionable signal.
+  useEffect(() => {
+    const chart = chartRef.current;
+    const priceSeries = candlestickSeriesRef.current;
+    const container = chartContainerRef.current;
+    if (!chart || !priceSeries || !container) return;
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const removeOverlay = () => container.querySelector('[data-setup-overlay]')?.remove();
+
+    const renderOverlay = () => {
+      removeOverlay();
+      const plan = cryptoAnalysis?.trade_plan;
+      if (!showSetups || !cryptoAnalysis || !plan || plan.direction === 'NEUTRAL' || plan.entry == null) return;
+      const entry = Number(plan.entry);
+      if (!Number.isFinite(entry)) return;
+      const atr = Number(plan.atr || cryptoAnalysis.indicators?.atr || 0);
+      const halfBand = Math.max(atr > 0 ? atr * 0.2 : 0, Math.abs(entry) * 0.0005);
+      const yEntryLow = priceSeries.priceToCoordinate(entry - halfBand);
+      const yEntryHigh = priceSeries.priceToCoordinate(entry + halfBand);
+      if (yEntryLow == null || yEntryHigh == null) return;
+
+      const calendarStatus = String(plan.calendar_status || cryptoAnalysis.economic_calendar?.status || '').toUpperCase();
+      const timingStatus = String(plan.timing_status || cryptoAnalysis.trade_timing?.status || 'WAIT').toUpperCase();
+      const hardBlocked = ['BLOCKED', 'POST_NEWS', 'UNAVAILABLE'].includes(calendarStatus);
+      const actionable = Boolean(plan.eligible) && timingStatus === 'READY' && !hardBlocked;
+      const directionColor = plan.direction === 'BUY' ? '#22c55e' : '#ef4444';
+      const statusColor = actionable ? directionColor : '#f59e0b';
+      const status = actionable ? 'READY' : hardBlocked ? 'BLOCKED' : timingStatus;
+      const svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('data-setup-overlay', 'true');
+      svg.setAttribute('width', String(container.clientWidth));
+      svg.setAttribute('height', String(container.clientHeight));
+      svg.style.position = 'absolute'; svg.style.inset = '0'; svg.style.zIndex = '11';
+      svg.style.pointerEvents = 'none'; svg.style.overflow = 'visible';
+
+      const rect = document.createElementNS(SVG_NS, 'rect');
+      rect.setAttribute('x', '0'); rect.setAttribute('y', String(Math.min(yEntryLow, yEntryHigh)));
+      rect.setAttribute('width', String(container.clientWidth));
+      rect.setAttribute('height', String(Math.max(8, Math.abs(yEntryLow - yEntryHigh))));
+      rect.setAttribute('fill', directionColor); rect.setAttribute('fill-opacity', actionable ? '0.16' : '0.07');
+      rect.setAttribute('stroke', statusColor); rect.setAttribute('stroke-width', '2');
+      rect.setAttribute('stroke-dasharray', actionable ? 'none' : '7 5');
+      svg.appendChild(rect);
+
+      const addLine = (price: number | null | undefined, color: string, label: string, dash = '7 5') => {
+        if (price == null || !Number.isFinite(Number(price))) return;
+        const y = priceSeries.priceToCoordinate(Number(price));
+        if (y == null) return;
+        const line = document.createElementNS(SVG_NS, 'line');
+        line.setAttribute('x1', '0'); line.setAttribute('x2', String(container.clientWidth));
+        line.setAttribute('y1', String(y)); line.setAttribute('y2', String(y));
+        line.setAttribute('stroke', color); line.setAttribute('stroke-width', '2'); line.setAttribute('stroke-dasharray', dash);
+        line.setAttribute('stroke-opacity', actionable ? '0.9' : '0.55'); svg.appendChild(line);
+        const text = document.createElementNS(SVG_NS, 'text');
+        text.setAttribute('x', '10'); text.setAttribute('y', String(Math.max(14, Number(y) - 5)));
+        text.setAttribute('fill', color); text.setAttribute('font-size', '11'); text.setAttribute('font-weight', '800');
+        text.setAttribute('paint-order', 'stroke'); text.setAttribute('stroke', '#080d18'); text.setAttribute('stroke-width', '4');
+        text.textContent = `${label} ${Number(price).toFixed(2)}`; svg.appendChild(text);
+      };
+      addLine(entry, statusColor, `${plan.direction} ENTRY`, 'none');
+      addLine(plan.stop ?? plan.invalidation, '#fb7185', 'INVALIDATION');
+      plan.targets?.slice(0, 3).forEach((target, index) => addLine(target.price, '#67e8f9', target.label || `TP${index + 1}`));
+
+      const zoneLabel = document.createElementNS(SVG_NS, 'text');
+      zoneLabel.setAttribute('x', '10'); zoneLabel.setAttribute('y', String(Math.max(16, Math.min(yEntryLow, yEntryHigh) - 8)));
+      zoneLabel.setAttribute('fill', statusColor); zoneLabel.setAttribute('font-size', '12'); zoneLabel.setAttribute('font-weight', '900');
+      zoneLabel.setAttribute('paint-order', 'stroke'); zoneLabel.setAttribute('stroke', '#080d18'); zoneLabel.setAttribute('stroke-width', '4');
+      zoneLabel.textContent = `${plan.direction} SETUP ZONE · ${status}`; svg.appendChild(zoneLabel);
+      container.appendChild(svg);
+    };
+    const deferredRender = () => requestAnimationFrame(renderOverlay);
+    deferredRender(); chart.timeScale().subscribeVisibleTimeRangeChange(deferredRender); window.addEventListener('resize', deferredRender);
+    return () => { chart.timeScale().unsubscribeVisibleTimeRangeChange(deferredRender); window.removeEventListener('resize', deferredRender); removeOverlay(); };
+  }, [cryptoAnalysis, showSetups, chartRevision, currentPrice]);
+
   // Native-feeling live candles: REST loads history once, then the global
   // public Binance market-data stream updates the active candle trade-by-trade.
   useEffect(() => {
@@ -1497,7 +1574,7 @@ const TradingView: React.FC = () => {
             </button>
           </div>
         </div>
-        {showSettings && <div className="absolute right-4 top-14 z-50 w-56 rounded-xl border border-white/10 bg-[#0b1020] p-3 shadow-2xl"><div className="mb-2 text-[9px] font-black tracking-widest text-slate-500">OVERLAYS</div>{[[showHarmonics,setShowHarmonics,'Harmonics'],[showSupportResistance,setShowSupportResistance,'Support / resistance'],[showFibonacci,setShowFibonacci,'Fibonacci'],[showManualDrawings,setShowManualDrawings,'Manual drawings']].map(([checked,setChecked,label]) => <label key={String(label)} className="flex items-center justify-between py-1.5 text-xs text-slate-300"><span>{String(label)}</span><input type="checkbox" checked={Boolean(checked)} onChange={(event) => (setChecked as React.Dispatch<React.SetStateAction<boolean>>)(event.target.checked)}/></label>)}</div>}
+        {showSettings && <div className="absolute right-4 top-14 z-50 w-56 rounded-xl border border-white/10 bg-[#0b1020] p-3 shadow-2xl"><div className="mb-2 text-[9px] font-black tracking-widest text-slate-500">OVERLAYS</div>{[[showHarmonics,setShowHarmonics,'Harmonics'],[showSupportResistance,setShowSupportResistance,'Support / resistance'],[showFibonacci,setShowFibonacci,'Fibonacci'],[showSetups,setShowSetups,'Possible setups'],[showManualDrawings,setShowManualDrawings,'Manual drawings']].map(([checked,setChecked,label]) => <label key={String(label)} className="flex items-center justify-between py-1.5 text-xs text-slate-300"><span>{String(label)}</span><input type="checkbox" checked={Boolean(checked)} onChange={(event) => (setChecked as React.Dispatch<React.SetStateAction<boolean>>)(event.target.checked)}/></label>)}</div>}
       </div>
 
       {/* Manual drawing toolbar. Drawings persist independently per symbol and timeframe. */}
@@ -1525,7 +1602,7 @@ const TradingView: React.FC = () => {
         <span className="text-cyan-300">MARKET CONTEXT</span>
         {harmonicPatterns.length > 0 && <span className="rounded bg-emerald-400/10 px-2 py-1 text-emerald-300">{harmonicPatterns.length} harmonic</span>}
         {adrData && <span className={`rounded px-2 py-1 ${adrData.exhausted ? 'bg-rose-400/10 text-rose-300' : 'bg-sky-400/10 text-sky-300'}`}>ADR {adrData.percent_used.toFixed(0)}%</span>}
-        {cryptoAnalysis && <><span className="rounded bg-violet-400/10 px-2 py-1 text-violet-300">V2 {cryptoAnalysis.total_score}/100</span><span className={cryptoAnalysis.direction === 'BUY' ? 'text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.direction}</span><span>{timeframe}</span><span className="text-slate-400">{cryptoAnalysis.trade_timing?.status || 'WAIT'}</span></>}
+        {cryptoAnalysis && <><span className="rounded bg-violet-400/10 px-2 py-1 text-violet-300">V2 {cryptoAnalysis.total_score}/100</span><span className={cryptoAnalysis.direction === 'BUY' ? 'text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.direction}</span><span>{timeframe}</span><span className="text-slate-400">{cryptoAnalysis.trade_timing?.status || 'WAIT'}</span>{cryptoAnalysis.trade_plan && <span className={`rounded px-2 py-1 ${cryptoAnalysis.trade_plan.direction === 'BUY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.trade_plan.direction === 'SELL' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 text-slate-400'}`}>{cryptoAnalysis.trade_plan.direction} SETUP {cryptoAnalysis.trade_plan.eligible ? 'ELIGIBLE' : 'WATCH'}</span>}</>}
         <button onClick={() => setShowTechnicalControls((value) => !value)} className="ml-auto rounded bg-white/[0.06] px-2.5 py-1 text-[9px] text-slate-300 hover:bg-white/[0.1]">{showTechnicalControls ? 'Hide tools' : 'Analysis tools'}</button>
         <button onClick={() => setShowChartContext((value) => !value)} className="rounded bg-cyan-400/10 px-2.5 py-1 text-[9px] text-cyan-300 hover:bg-cyan-400/20">{showChartContext ? 'Hide details' : 'Details'}</button>
       </div>
@@ -1674,6 +1751,15 @@ const TradingView: React.FC = () => {
           {(cryptoAnalysis.trade_timing?.status === 'AVOID' ? cryptoAnalysis.trade_timing.avoid_reasons?.[0] : cryptoAnalysis.trade_timing?.wait_for?.[0]) && <span className="normal-case tracking-normal text-slate-500">{cryptoAnalysis.trade_timing.status === 'AVOID' ? 'Avoid: ' : 'Wait: '}{String(cryptoAnalysis.trade_timing.status === 'AVOID' ? cryptoAnalysis.trade_timing.avoid_reasons?.[0] : cryptoAnalysis.trade_timing.wait_for[0]).replace(/_/g, ' ')}</span>}
         </div>
       )}
+
+      {cryptoAnalysis?.trade_plan && <div className="flex flex-wrap items-center gap-4 border-b border-emerald-500/15 bg-[#091611] px-4 py-2 text-[11px] text-slate-300">
+        <span className="font-black tracking-wider text-emerald-300">POSSIBLE SETUP</span>
+        <span className={cryptoAnalysis.trade_plan.direction === 'BUY' ? 'text-emerald-300' : cryptoAnalysis.trade_plan.direction === 'SELL' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.trade_plan.direction}</span>
+        {cryptoAnalysis.trade_plan.entry != null && <span>Entry {Number(cryptoAnalysis.trade_plan.entry).toLocaleString()}</span>}
+        {cryptoAnalysis.trade_plan.stop != null && <span className="text-rose-300">Invalidation {Number(cryptoAnalysis.trade_plan.stop).toLocaleString()}</span>}
+        {cryptoAnalysis.trade_plan.targets?.slice(0, 3).map((target) => <span key={target.label} className="text-cyan-300">{target.label} {Number(target.price).toLocaleString()}</span>)}
+        <span className={`ml-auto rounded px-2 py-1 text-[9px] font-black ${cryptoAnalysis.trade_plan.eligible ? 'bg-emerald-400/10 text-emerald-300' : 'bg-amber-400/10 text-amber-300'}`}>{cryptoAnalysis.trade_plan.eligible ? 'ELIGIBLE' : 'WATCH / WAIT'}</span>
+      </div>}
 
       </>}
 
