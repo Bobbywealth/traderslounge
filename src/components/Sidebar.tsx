@@ -113,24 +113,36 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
         ))}
       </nav>
 
-      {/* Footer - Upgrade CTA */}
-      {!collapsed && (
-        <div className="absolute bottom-4 left-4 right-4">
-          <div className="bg-gradient-to-br from-emerald-500/10 to-teal-500/10 rounded-xl p-4 border border-emerald-500/20">
-            <div className="flex items-center gap-2 mb-2">
-              <Sparkles className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wide">Upgrade Available</span>
-            </div>
-            <p className="text-xs text-gray-400 mb-3">Unlock advanced features and priority support</p>
-            <button 
+      {/* Footer - Upgrade CTA (collapsed pill / expanded card) */}
+      <div className="absolute bottom-4 left-3 right-3">
+        {collapsed ? (
+          <button
+            onClick={handleUpgrade}
+            title="Upgrade available"
+            className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/10 text-cyan-300 transition hover:bg-cyan-400/15"
+          >
+            <Sparkles className="h-4 w-4" />
+          </button>
+        ) : (
+          <div className="relative rounded-xl border border-cyan-400/15 bg-gradient-to-br from-cyan-500/[0.07] to-violet-500/[0.07] p-3 transition hover:border-cyan-400/30">
+            <button
               onClick={handleUpgrade}
-              className="w-full py-2 px-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-sm font-semibold rounded-lg hover:shadow-lg hover:shadow-emerald-500/25 transition-all duration-200"
+              className="flex w-full items-center justify-between gap-2"
             >
-              Upgrade Now
+              <div className="flex min-w-0 items-center gap-2">
+                <Sparkles className="h-4 w-4 shrink-0 text-cyan-300" />
+                <div className="min-w-0 text-left">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-cyan-300">Pro · Upgrade</div>
+                  <div className="truncate text-[10px] text-slate-400">Unlock advanced features</div>
+                </div>
+              </div>
+              <span className="rounded-md bg-gradient-to-r from-cyan-400 to-violet-500 px-2 py-1 text-[10px] font-black text-[#05070d]">
+                Go
+              </span>
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
