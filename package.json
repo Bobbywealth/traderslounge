@@ -1,7 +1,8 @@
 {
-  "name": "vite-react-typescript-starter",
+  "name": "traders-lounge",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "Decision-first trading analysis, validation, and risk dashboard.",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,7 +13,8 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "check": "npm run lint && npm run test:run && npm run build"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.1.1",
@@ -32,8 +34,8 @@
     "@tailwindcss/postcss": "^4.0.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.20",
     "eslint": "^9.19.0",
