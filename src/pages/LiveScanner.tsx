@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, ArrowRight, CalendarClock, FlaskConical, RefreshCw, ShieldAlert, TrendingDown, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { bwtsApi, type CryptoAnalysis, type V2BacktestReport } from '../services/bwtsApi';
+import { bwtsApi, planReasonText, type CryptoAnalysis, type V2BacktestReport } from '../services/bwtsApi';
 
 type PairRow = { pair: string; analysis?: CryptoAnalysis; loading: boolean; error?: string };
 const planRank = (analysis?: CryptoAnalysis) => ({ STRONG: 5, VALID: 4, WATCHLIST: 3, WAIT: 2, BLOCKED: 1 }[analysis?.trade_plan?.status || ''] || 0);
@@ -59,7 +59,7 @@ const PairCard: React.FC<{ row: PairRow }> = ({ row }) => {
   const caps: Record<string, number> = { structure: 20, liquidity: 15, volume: 10, momentum: 10, moving_averages: 10, fibonacci: 10, patterns: 10, volatility: 10, relative_strength: 5 };
   const topCategories = Object.entries(analysis.category_breakdown || {}).sort((a, b) => b[1] - a[1]).slice(0, 3);
   const timingReasons = analysis.trade_timing?.status === 'AVOID' ? analysis.trade_timing.avoid_reasons || [] : analysis.trade_timing?.wait_for || [];
-  const additionalPlanReason = plan?.reasons?.find((reason) => !reason.startsWith('Trade timing'));
+  const additionalPlanReason = plan?.reasons?.map(planReasonText).find((reason) => Boolean(reason) && !reason.startsWith('Trade timing'));
   return <article className="rounded-[20px] border border-white/[0.08] bg-[#090d18] p-5 transition hover:border-cyan-400/20">
     <div className="flex items-start justify-between"><div><div className="flex items-center gap-2"><h2 className="text-xl font-black text-white">{row.pair}</h2><span className={`rounded-md border px-2 py-1 text-[9px] font-black ${planStyle[plan?.status || 'WAIT']}`}>{plan?.status || 'WAIT'}</span>{analysis.direction_stability && <span title={analysis.direction_stability.reason} className="rounded-md bg-white/[0.05] px-2 py-1 text-[9px] font-black text-slate-300">{analysis.direction_stability.lifecycle}{analysis.direction_stability.raw_direction !== analysis.direction_stability.confirmed_direction ? ` · RAW ${analysis.direction_stability.raw_direction}` : ''}</span>}</div><div className="mt-1 text-xs capitalize text-slate-500">{analysis.scenarios?.primary || 'Scenario pending'}</div></div><div className="text-right"><div className="text-3xl font-black text-cyan-300">{analysis.total_score}<span className="text-xs text-cyan-700">/100</span></div><div className={`mt-1 flex items-center justify-end gap-1 text-xs font-black ${analysis.direction === 'BUY' ? 'text-emerald-300' : analysis.direction === 'SELL' ? 'text-rose-300' : 'text-slate-500'}`}><Icon className="h-3.5 w-3.5"/>{analysis.direction}</div></div></div>
     <div className="mt-4 grid grid-cols-3 gap-2">{topCategories.map(([name, value]) => <div key={name} className="rounded-lg border border-white/[0.05] bg-white/[0.025] p-2"><div className="truncate text-[8px] font-black uppercase tracking-wider text-slate-600">{name.replace('_',' ')}</div><div className="mt-1 text-xs font-black text-slate-300">{value}/{caps[name] || 10}</div></div>)}</div>

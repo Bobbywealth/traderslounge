@@ -121,6 +121,22 @@ export interface CalendarGlobalStatus {
   };
 }
 
+export type PlanReason = string | {
+  code?: string;
+  message?: string;
+  severity?: string;
+  blocks_trading?: boolean;
+  data?: unknown;
+};
+
+export const planReasonText = (reason: PlanReason | unknown): string => {
+  if (typeof reason === 'string') return reason;
+  if (reason && typeof reason === 'object' && 'message' in reason && typeof (reason as { message?: unknown }).message === 'string') {
+    return (reason as { message: string }).message;
+  }
+  return '';
+};
+
 export interface CryptoTradePlan {
   version: string;
   status: 'STRONG' | 'VALID' | 'WATCHLIST' | 'WAIT' | 'BLOCKED';
@@ -155,7 +171,7 @@ export interface CryptoTradePlan {
   calendar_status: string;
   timing_status?: string;
   timing?: CryptoAnalysis['trade_timing'];
-  reasons: string[];
+  reasons: PlanReason[];
   triggers: Trigger[];
   blocking_reasons: BlockingReason[];
 }
