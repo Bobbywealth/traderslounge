@@ -28,7 +28,7 @@ from typing import Any, Optional, Tuple
 from urllib.parse import parse_qs, urlsplit
 
 from .config import Config
-from .crypto_analysis import analyze_crypto
+from .crypto_analysis import analyze_crypto, _build_setup_zones
 from .lifecycle_manager import stabilize_direction, map_legacy_state
 from .kill_switch import KillSwitch
 from .metrics import metrics
@@ -62,6 +62,15 @@ class ApiState:
     cache_lock: Any = field(default_factory=threading.RLock)
     started_at: float = field(default_factory=time.time)
     user_repo: Optional[Any] = None
+    # Optional SQLAlchemy-backed repositories — only populated when the
+    # API server is wired to a Postgres-backed database. Existing call
+    # sites default to None and fall back to the legacy SQLite paths.
+    signal_repo: Optional[Any] = None
+    alert_repo: Optional[Any] = None
+    perf_repo: Optional[Any] = None
+    market_event_repo: Optional[Any] = None
+    trade_setup_repo: Optional[Any] = None
+    trade_outcome_repo: Optional[Any] = None
 
 
 # Module-level state pointer — http.server's handler API doesn't make
@@ -633,6 +642,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 analysis["direction_stability"]["lifecycle"] = "READY"
                 lifecycle_state = "ready"
             analysis["lifecycle_state"] = lifecycle_state
+            if selected_candles:
+                analysis["zones"]["setup_zones"] = _build_setup_zones(price=float(selected_candles[-1].close), atr_value=analysis.get("indicators", {}).get("atr"), zones=analysis.get("zones", {}), indicators=analysis.get("indicators", {}), direction=analysis.get("direction", "NEUTRAL"), market_context=analysis.get("market_context", {}), trade_timing=analysis.get("trade_timing", {}))
             analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar, primary_candles=selected_candles)
         except Exception as exc:
             stale = self._cache_get(cache_key, allow_stale=True)
@@ -1131,6 +1142,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
             analysis["trade_timing"] = timing
             if timing.get("status") == "READY" and signal_stable:
                 analysis["direction_stability"]["lifecycle"] = "READY"
+            if selected_candles:
+                analysis["zones"]["setup_zones"] = _build_setup_zones(price=float(selected_candles[-1].close), atr_value=analysis.get("indicators", {}).get("atr"), zones=analysis.get("zones", {}), indicators=analysis.get("indicators", {}), direction=analysis.get("direction", "NEUTRAL"), market_context=analysis.get("market_context", {}), trade_timing=analysis.get("trade_timing", {}))
             analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar, primary_candles=selected_candles)
             return analysis
         except Exception as exc:
