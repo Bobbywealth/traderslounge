@@ -9,6 +9,7 @@ import {
   Play, 
   Pause,
   BarChart3,
+  BrainCircuit,
   Activity,
   Target,
   Zap,
@@ -38,7 +39,7 @@ import { liveDataService, HarmonicPattern, TrendLine, FibonacciLevel } from '../
 import { tradeLockerService, TradeLockerConfig } from '../services/tradeLockerService';
 import { tradeLockerApi } from '../services/apiService';
 import ConfluenceXLogo from '../components/ConfluenceXLogo';
-import { bwtsApi, type CryptoAnalysis } from '../services/bwtsApi';
+import { bwtsApi, type ChartAiAnalysis, type CryptoAnalysis } from '../services/bwtsApi';
 
 interface CandlestickData {
   time: UTCTimestamp;
@@ -166,6 +167,10 @@ const TradingView: React.FC = () => {
   const [showFibonacci, setShowFibonacci] = useState(true);
   const [showSupportResistance, setShowSupportResistance] = useState(true);
   const [cryptoAnalysis, setCryptoAnalysis] = useState<CryptoAnalysis | null>(null);
+  const [chartAiAnalysis, setChartAiAnalysis] = useState<ChartAiAnalysis | null>(null);
+  const [chartAiConfigured, setChartAiConfigured] = useState<boolean | null>(null);
+  const [chartAiLoading, setChartAiLoading] = useState(false);
+  const [chartAiError, setChartAiError] = useState<string | null>(null);
   const [drawingTool, setDrawingTool] = useState<DrawingTool>('pan');
   const [drawings, setDrawings] = useState<ManualDrawing[]>([]);
   const [draftDrawing, setDraftDrawing] = useState<ManualDrawing | null>(null);
@@ -188,6 +193,9 @@ const TradingView: React.FC = () => {
     }
     let active = true;
     setCryptoAnalysis(null);
+    setChartAiAnalysis(null);
+    setChartAiConfigured(null);
+    setChartAiError(null);
     bwtsApi.cryptoAnalysis(selectedSymbol, timeframe)
       .then((analysis) => { if (active) setCryptoAnalysis(analysis); })
       .catch(() => { if (active) setCryptoAnalysis(null); });
@@ -1232,6 +1240,46 @@ const TradingView: React.FC = () => {
     setIsFullscreen(Boolean(document.fullscreenElement));
   };
 
+  const analyzeChartWithAi = useCallback(async () => {
+    const screenshot = chartRef.current?.takeScreenshot();
+    const candles = (candleCacheRef.current[`${selectedSymbol}:${timeframe}`] || []).slice(-120).map((candle) => ({
+      time: Number(candle.time), open: candle.open, high: candle.high, low: candle.low, close: candle.close,
+    }));
+    if (!screenshot || candles.length === 0) {
+      setChartAiError('The chart is still loading. Wait for candles, then try again.');
+      return;
+    }
+    setChartAiLoading(true);
+    setChartAiError(null);
+    try {
+      const overlays = {
+        harmonics: harmonicPatterns.map((pattern) => ({
+          type: pattern.type,
+          direction: pattern.direction,
+          confidence: pattern.confidence,
+          prz: pattern.prz,
+          points: Object.fromEntries(Object.entries(pattern.points).map(([label, point]) => [label, { price: point.price, time: point.time.getTime() / 1000 }])),
+        })),
+        adr: adrData,
+        trend_lines: trendLines.map((line) => ({ type: line.type, slope: line.slope, strength: line.strength, touches: line.touches, currentPrice: line.currentPrice, distance: line.distance, points: line.points.map((point) => ({ price: point.price, time: point.time.getTime() / 1000 })) })),
+        fibonacci: fibonacciLevels,
+      };
+      const result = await bwtsApi.chartAnalyze({
+        pair: selectedSymbol,
+        timeframe,
+        image_data_url: screenshot.toDataURL('image/png'),
+        chart: { current_price: currentPrice, candles, overlays, manual_drawings: drawings },
+        analysis: cryptoAnalysis,
+      });
+      setChartAiAnalysis(result.analysis);
+      setChartAiConfigured(result.configured);
+    } catch (error: unknown) {
+      setChartAiError(error instanceof Error ? error.message : 'Chart AI analysis failed');
+    } finally {
+      setChartAiLoading(false);
+    }
+  }, [selectedSymbol, timeframe, currentPrice, harmonicPatterns, adrData, trendLines, fibonacciLevels, drawings, cryptoAnalysis]);
+
   return (
     <div ref={workspaceRef} className="h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 text-white flex flex-col">
       {/* Enhanced Top Controls */}
@@ -1351,6 +1399,16 @@ const TradingView: React.FC = () => {
             >
               {isLive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
               <span>{isLive ? 'LIVE' : 'PAUSED'}</span>
+            </button>
+
+            <button
+              onClick={analyzeChartWithAi}
+              disabled={chartAiLoading}
+              className="flex items-center space-x-2 rounded bg-violet-600 px-3 py-2 transition-colors hover:bg-violet-700 disabled:cursor-wait disabled:opacity-60"
+              title="Analyze the visible chart with ConfluenceX AI"
+            >
+              <BrainCircuit className={`h-4 w-4 ${chartAiLoading ? 'animate-pulse' : ''}`} />
+              <span>{chartAiLoading ? 'Reading chart…' : 'AI Analyze Chart'}</span>
             </button>
 
             {/* Connection Status */}
@@ -1557,6 +1615,32 @@ const TradingView: React.FC = () => {
           <span>Alignment <b className="text-slate-200">{cryptoAnalysis.market_context.alignment_score}%</b></span>
           <span className={`ml-auto rounded px-2 py-1 ${cryptoAnalysis.trade_timing?.status === 'READY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.trade_timing?.status === 'AVOID' ? 'bg-rose-400/10 text-rose-300' : 'bg-amber-400/10 text-amber-300'}`}>TIMING {cryptoAnalysis.trade_timing?.status || 'WAIT'}</span>
           {(cryptoAnalysis.trade_timing?.status === 'AVOID' ? cryptoAnalysis.trade_timing.avoid_reasons?.[0] : cryptoAnalysis.trade_timing?.wait_for?.[0]) && <span className="normal-case tracking-normal text-slate-500">{cryptoAnalysis.trade_timing.status === 'AVOID' ? 'Avoid: ' : 'Wait: '}{String(cryptoAnalysis.trade_timing.status === 'AVOID' ? cryptoAnalysis.trade_timing.avoid_reasons?.[0] : cryptoAnalysis.trade_timing.wait_for[0]).replace(/_/g, ' ')}</span>}
+        </div>
+      )}
+
+      {(chartAiError || chartAiAnalysis) && (
+        <div className="relative z-30 shrink-0 border-b border-violet-500/20 bg-[#0d1020] px-4 py-3 text-xs text-slate-300">
+          <div className="flex items-start gap-3">
+            <BrainCircuit className="mt-0.5 h-4 w-4 shrink-0 text-violet-300" />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-black tracking-widest text-violet-300">AI CHART ANALYSIS</span>
+                {chartAiConfigured !== null && <span className="rounded bg-white/[0.06] px-2 py-0.5 text-[9px] font-black text-slate-500">{chartAiConfigured ? 'MINIMAX VISION' : 'DETERMINISTIC FALLBACK'}</span>}
+                {chartAiAnalysis && <span className="rounded bg-cyan-400/10 px-2 py-0.5 text-[9px] font-black text-cyan-300">{chartAiAnalysis.visual_bias} · {chartAiAnalysis.confidence}/100</span>}
+              </div>
+              {chartAiError && <p className="mt-1 text-rose-300">{chartAiError}</p>}
+              {chartAiAnalysis && <>
+                <p className="mt-1 max-w-5xl leading-relaxed text-slate-300">{chartAiAnalysis.summary}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {chartAiAnalysis.visible_patterns?.slice(0, 3).map((pattern) => <span key={pattern} className="rounded bg-emerald-400/10 px-2 py-1 text-[10px] text-emerald-300">{pattern}</span>)}
+                  {chartAiAnalysis.key_levels?.slice(0, 4).map((level) => <span key={`${level.label}-${level.price}`} className="rounded bg-cyan-400/10 px-2 py-1 text-[10px] text-cyan-200">{level.label}: {Number(level.price).toLocaleString()}</span>)}
+                  {chartAiAnalysis.conflicts?.slice(0, 2).map((conflict) => <span key={conflict} className="rounded bg-amber-400/10 px-2 py-1 text-[10px] text-amber-200">Conflict: {conflict}</span>)}
+                </div>
+                <div className="mt-2 grid gap-2 text-[10px] text-slate-500 md:grid-cols-3"><span><b className="text-slate-300">Wait for:</b> {chartAiAnalysis.wait_for}</span><span><b className="text-slate-300">Invalidation:</b> {chartAiAnalysis.invalidation}</span><span><b className="text-slate-300">Risk:</b> {chartAiAnalysis.risk_factors?.slice(0, 2).join(' · ') || 'No additional visual risk flagged'}</span></div>
+              </>}
+            </div>
+            <button onClick={() => { setChartAiAnalysis(null); setChartAiError(null); }} className="rounded px-2 py-1 text-[10px] font-black text-slate-500 hover:bg-white/[0.06] hover:text-slate-200">CLOSE</button>
+          </div>
         </div>
       )}
 
