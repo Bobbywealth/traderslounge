@@ -109,4 +109,24 @@ def analyze_chart(context: dict[str, Any], image_data_url: str) -> dict[str, Any
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"MiniMax chart request failed ({exc.code})") from exc
     content = body.get("choices", [{}])[0].get("message", {}).get("content", "")
-    return {"configured": True, "model": MODEL, "analysis": _extract_json(content)}
+    try:
+        result = _extract_json(content)
+    except RuntimeError:
+        # Vision models can occasionally ignore JSON-only output. Preserve the
+        # useful visual response instead of turning a successful AI call into
+        # a UI error; deterministic context remains the authority.
+        visual_bias = str((context.get("v2_analysis") or {}).get("direction") or "NEUTRAL")
+        score = int((context.get("v2_analysis") or {}).get("total_score") or 0)
+        overlays = context.get("overlays") or {}
+        patterns = overlays.get("harmonics") if isinstance(overlays, dict) else []
+        result = {
+            "summary": str(content or "MiniMax returned no chart explanation")[:4000],
+            "visual_bias": visual_bias,
+            "confidence": score,
+            "visible_patterns": [str(item.get("type")) for item in patterns if isinstance(item, dict) and item.get("type")],
+            "key_levels": [], "confirmations": [], "conflicts": [], "risk_factors": [],
+            "wait_for": "Use deterministic scanner confirmation and calendar clearance",
+            "invalidation": "Use the deterministic V2 invalidation when available",
+            "educational_note": "The model response was returned as narrative text. AI is advisory; deterministic scanner and calendar gates remain authoritative.",
+        }
+    return {"configured": True, "model": MODEL, "analysis": result}
