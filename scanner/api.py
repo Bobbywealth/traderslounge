@@ -668,7 +668,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
         snapshot,
         selected_timeframe,
     ) -> None:
-        """Attach the Phase 1 institutional report to an analysis dict.
+        """Attach the Phase 1 + Phase 2 institutional report to an
+        analysis dict.
 
         Pure additive attachment — never mutates canonical fields. Wrapped
         in a try/except so a failure inside any institutional module can
@@ -693,6 +694,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 snapshot,
                 calendar_state=calendar_state,
                 primary_timeframe=primary_tf,
+                market_client=_STATE.market_client,
             )
         except Exception as exc:  # pragma: no cover - defensive
             analysis["institutional"] = {

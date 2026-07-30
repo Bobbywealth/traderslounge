@@ -32,15 +32,29 @@ class TestPackageContract(unittest.TestCase):
 
     def test_build_institutional_returns_all_sections(self):
         result = build_institutional(_stub_analysis(), _empty_snapshot())
+        # Phase 1 + Phase 2 sections must all be present.
         expected = {
             "version",
             "schema_disclaimer",
+            # Phase 1 — OHLCV-only.
             "market_structure_mtf",
             "hidden_divergence",
             "macd_interpret",
             "elliott",
             "ab_cd",
             "historical_volatility",
+            # Phase 2 — surfaced inline modules.
+            "volume",
+            "liquidity_institutional",
+            "additional_indicators",
+            "candlestick_patterns",
+            # Phase 2 — provider-dependent.
+            "onchain",
+            "fundamentals",
+            "sentiment",
+            "correlation",
+            "relative_strength",
+            # Composite sections (unchanged).
             "scenarios",
             "trade_plans",
             "risk_rating",

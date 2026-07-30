@@ -30,16 +30,25 @@ from scanner.data_types import MarketSnapshot
 
 from . import (
     ab_cd,
+    additional_indicators,
+    candlestick_patterns,
+    correlation,
     elliott,
     executive_summary,
+    fundamentals,
     hidden_divergence,
     historical_volatility,
+    liquidity_institutional,
     macd_interpret,
     market_structure_mtf,
     monitoring,
+    onchain,
+    relative_strength,
     risk_rating,
     scenarios,
+    sentiment,
     trade_plans,
+    volume,
 )
 from .market_structure_mtf import DEFAULT_TIMEFRAMES
 
@@ -57,13 +66,19 @@ def build_institutional(
     calendar_state: Optional[str] = None,
     primary_timeframe: Optional[str] = None,
     timeframes: Optional[List[str]] = None,
+    market_client: Any = None,
 ) -> Dict[str, Any]:
-    """Run every Phase 1 module against an existing analysis dict.
+    """Run every Phase 1 + Phase 2 module against an existing analysis dict.
 
     ``analysis`` is the dict produced by
     :func:`scanner.crypto_analysis.analyze_crypto`. We never mutate it
     directly — we return a new dict under ``analysis['institutional']``
     that the caller may merge.
+
+    ``market_client`` (optional) is forwarded to correlation + relative
+    strength so they can fetch candle history for the benchmark asset.
+    When omitted, those two sections return ``available: False`` with
+    an explicit reason rather than fabricated values.
     """
     tf_list = timeframes or DEFAULT_TIMEFRAMES
     primary_tf = primary_timeframe or (
@@ -71,12 +86,15 @@ def build_institutional(
     )
 
     sections: Dict[str, Any] = {
-        "version": "phase1-1",
+        "version": "phase2-1",
         "schema_disclaimer": (
-            "Estimate-only fields are tagged kind='estimate'. "
-            "No field in this block feeds the BWTS score or Signals "
-            "publication gate."
+            "Estimate-only fields are tagged kind='estimate'. No field "
+            "in this block feeds the BWTS score or Signals publication "
+            "gate. Provider-required metrics that are geo-blocked, "
+            "auth-walled, or paywalled are reported as unavailable "
+            "rather than fabricated."
         ),
+        # Phase 1 modules — OHLCV-only.
         "market_structure_mtf": market_structure_mtf.compute(
             snapshot, timeframes=tf_list
         ),
@@ -86,6 +104,27 @@ def build_institutional(
         "ab_cd": ab_cd.compute(snapshot, primary_tf),
         "historical_volatility": historical_volatility.compute(
             snapshot, primary_tf
+        ),
+        # Phase 2 — surface existing inline modules as institutional.
+        "volume": volume.compute(analysis, primary_tf),
+        "liquidity_institutional": liquidity_institutional.compute(
+            analysis, primary_tf
+        ),
+        "additional_indicators": additional_indicators.compute(
+            analysis, primary_tf
+        ),
+        "candlestick_patterns": candlestick_patterns.compute(
+            analysis, primary_tf
+        ),
+        # Phase 2 — provider-dependent modules.
+        "onchain": onchain.compute(analysis, snapshot),
+        "fundamentals": fundamentals.compute(analysis, snapshot),
+        "sentiment": sentiment.compute(analysis, snapshot),
+        "correlation": correlation.compute(
+            analysis, snapshot, market_client=market_client
+        ),
+        "relative_strength": relative_strength.compute(
+            analysis, snapshot, market_client=market_client
         ),
     }
 
@@ -126,13 +165,15 @@ def analyze_with_institutional(
     primary_timeframe: Optional[str] = None,
     calendar_state: Optional[str] = None,
     timeframes: Optional[List[str]] = None,
+    market_client: Any = None,
 ) -> Dict[str, Any]:
     """Wrapper around :func:`scanner.crypto_analysis.analyze_crypto`.
 
     Returns the canonical analysis dict with an added
-    ``"institutional"`` key containing the Phase 1 outputs. The
-    canonical fields (score, direction, trade_plan, ...) are byte-for-byte
-    identical to the wrapped call's result; only the new block is added.
+    ``"institutional"`` key containing the Phase 1 + Phase 2 outputs.
+    The canonical fields (score, direction, trade_plan, ...) are
+    byte-for-byte identical to the wrapped call's result; only the
+    new block is added.
     """
     # Imported lazily to avoid an import cycle between the package and
     # the analyzer (crypto_analysis already imports scanner.modules.*).
@@ -150,5 +191,6 @@ def analyze_with_institutional(
         calendar_state=calendar_state,
         primary_timeframe=primary_timeframe,
         timeframes=timeframes,
+        market_client=market_client,
     )
     return analysis
