@@ -282,14 +282,19 @@ def attach_decision_quality(analysis: Mapping[str, Any], calendar: Optional[Mapp
     components = _component_scores(original, ledger, risk)
     result = dict(original)
     plan = _trade_plan(original)
-    if plan:
-        plan_copy = dict(plan)
-        existing_risk_pct = _number(plan_copy.get("account_risk_percent"), 0.0) or 0.0
-        risk_cap = _number(risk.get("max_recommended_account_exposure_pct"), 0.0) or 0.0
-        plan_copy["account_risk_percent"] = round(min(existing_risk_pct, risk_cap), 2)
-        plan_copy["risk_cap_source"] = "financial_risk_profile_without_scenario_weights"
-        plan_copy["scenario_weights_used_for_sizing"] = False
-        result["trade_plan"] = plan_copy
+    # Report-only contract: the canonical trade_plan is never modified here.
+    # The recommended risk cap is reported inside decision_quality below;
+    # canonical sizing stays with risk_manager / trade_planner.
+    plan_risk_pct = _number(plan.get("account_risk_percent"), 0.0) or 0.0
+    risk_cap = _number(risk.get("max_recommended_account_exposure_pct"), 0.0) or 0.0
+    recommended_risk_cap = {
+        "plan_account_risk_percent": round(plan_risk_pct, 2),
+        "recommended_account_risk_percent": round(min(plan_risk_pct, risk_cap), 2),
+        "cap_pct": round(risk_cap, 2),
+        "cap_applied": risk_cap < plan_risk_pct,
+        "source": "financial_risk_profile_without_scenario_weights",
+        "scenario_weights_used_for_sizing": False,
+    }
     timing = _mapping(original.get("trade_timing"))
     alert_status = "TRIGGERED" if plan.get("eligible") and _status(timing, "WAIT") == "READY" else "ARMED" if plan.get("entry") is not None else "MONITORING"
     result["decision_quality"] = {
@@ -300,6 +305,7 @@ def attach_decision_quality(analysis: Mapping[str, Any], calendar: Optional[Mapp
         "execution_readiness": components["execution_readiness"],
         "evidence_ledger": ledger,
         "financial_risk_profile": risk,
+        "recommended_risk_cap": recommended_risk_cap,
         "entry_alert": {
             "status": alert_status,
             "entry": plan.get("entry"),

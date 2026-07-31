@@ -165,51 +165,46 @@ class RiskManager:
         direction: str,
         asset_class: str = 'forex'
     ) -> dict:
+        """Size a position from the canonical per-pair pip tables.
+
+        PIP_SIZE / PIP_VALUE_PER_LOT_USD are the single source of truth
+        (spec §6.1). ASSET_PARAMS only supplies min/max lot bounds.
+        A pair missing from the pip-value table returns lot_size 0 with
+        pip_value_per_lot None so plan_trade can reject it explicitly.
+        """
         params = ASSET_PARAMS.get(asset_class, ASSET_PARAMS['forex'])
         stop_distance = abs(entry - stop)
 
-        if asset_class == 'forex':
-            sl_pips = stop_distance / symbol_pip_size(symbol)
-            pip_value = params['pip_value_per_lot']
-            risk_amount = account_balance_usd * self.risk_pct
-            raw_lots = risk_amount / (sl_pips * pip_value)
-            stop_distance_pips = sl_pips
+        pip_value = PIP_VALUE_PER_LOT_USD.get(symbol)
+        pip_size = pip_size_for(symbol)
+        risk_amount = account_balance_usd * self.risk_pct
 
-        elif asset_class == 'forex_jpy':
-            sl_pips = stop_distance / symbol_pip_size(symbol)
-            pip_value = params['pip_value_per_lot']
-            risk_amount = account_balance_usd * self.risk_pct
-            raw_lots = risk_amount / (sl_pips * pip_value)
-            stop_distance_pips = sl_pips
+        if pip_value is None or stop_distance == 0:
+            return {
+                'lot_size': 0.0,
+                'risk_amount_usd': risk_amount,
+                'stop_distance': stop_distance,
+                'stop_distance_pips': stop_distance / pip_size if stop_distance else 0.0,
+                'pip_value_per_lot': pip_value,
+                'min_lot': params.get('min_lot', 0.01),
+                'asset_class': asset_class,
+            }
 
-        elif asset_class == 'metals':
-            sl_points = stop_distance / params['point_size']
-            risk_amount = account_balance_usd * self.risk_pct
-            raw_lots = risk_amount / (sl_points * params['point_value_per_lot'])
-            stop_distance_pips = sl_points
+        sl_pips = stop_distance / pip_size
+        raw_lots = risk_amount / (sl_pips * pip_value)
 
-        elif asset_class == 'cryptocurrency':
-            sl_ticks = stop_distance / params['tick_size']
-            risk_amount = account_balance_usd * self.risk_pct
-            raw_lots = risk_amount / (sl_ticks * params['tick_value_per_lot'])
-            stop_distance_pips = sl_ticks
-
-        else:
-            sl_pips = stop_distance / symbol_pip_size(symbol)
-            pip_value = params['pip_value_per_lot']
-            risk_amount = account_balance_usd * self.risk_pct
-            raw_lots = risk_amount / (sl_pips * pip_value)
-            stop_distance_pips = sl_pips
-
-        lot_size = math.floor(raw_lots * 100) / 100
+        # Floor to 2dp with a float-error guard: 0.01 lots must not become
+        # 0.00 because raw_lots * 100 evaluated to 0.999999….
+        lot_size = math.floor(round(raw_lots * 100, 9)) / 100
 
         return {
             'lot_size': lot_size,
             'risk_amount_usd': risk_amount,
             'stop_distance': stop_distance,
-            'stop_distance_pips': stop_distance_pips,
-            'pip_value_per_lot': pip_value if asset_class in ('forex', 'forex_jpy') else params.get('point_value_per_lot', params.get('tick_value_per_lot', 10.0)),
-            'asset_class': asset_class
+            'stop_distance_pips': sl_pips,
+            'pip_value_per_lot': pip_value,
+            'min_lot': params.get('min_lot', 0.01),
+            'asset_class': asset_class,
         }
 
     def plan_trade(
@@ -237,6 +232,10 @@ class RiskManager:
         )
 
         sl_pips = position['stop_distance_pips']
+        if position['pip_value_per_lot'] is None:
+            return TradeRejection(
+                f"No pip value configured for pair {sig.pair}"
+            )
         if sl_pips < self.min_sl_pips:
             return TradeRejection(
                 f"SL distance {sl_pips:.1f} pips below minimum {self.min_sl_pips}"

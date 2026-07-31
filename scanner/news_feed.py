@@ -25,11 +25,26 @@ FOREXFACTORY_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
 
 # Currency → list of pairs that touch it. Used to fan a "USD high-impact"
 # event out to every pair containing USD.
+#
+# IMPORTANT: this map must mirror the scanned universe in config.Config.pairs
+# (plus the index CFDs supported by SYMBOL_MAP). A scanned pair missing here
+# silently trades straight through red-folder news.
 CURRENCY_TO_PAIRS: Dict[str, List[str]] = {
-    "USD": ["BTCUSD", "ETHUSD", "SOLUSD", "XAUUSD", "GBPUSD", "EURUSD", "USDJPY", "NAS100", "US30"],
+    "USD": [
+        # FX majors + gold — every scanned pair containing USD.
+        "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD", "NZDUSD", "XAUUSD",
+        # Index CFDs.
+        "NAS100", "US30",
+        # Crypto — all X/USD; FOMC-class events move the whole book.
+        "BTCUSD", "ETHUSD", "XRPUSD", "LTCUSD", "DOTUSD", "XLMUSD", "BATUSD", "NEOUSD",
+    ],
     "EUR": ["EURUSD"],
     "GBP": ["GBPUSD", "GBPJPY"],
     "JPY": ["USDJPY", "GBPJPY"],
+    "CHF": ["USDCHF"],
+    "CAD": ["USDCAD"],
+    "AUD": ["AUDUSD"],
+    "NZD": ["NZDUSD"],
     "XAU": ["XAUUSD"],
 }
 

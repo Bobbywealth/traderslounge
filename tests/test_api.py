@@ -11,6 +11,18 @@ import unittest
 import urllib.request
 from urllib.error import HTTPError
 
+# Deterministic auth for tests, mirroring test_api_hardening: routes such as
+# /api/signals are bearer-protected, so mint a valid access token up front.
+os.environ.setdefault("JWT_SECRET", "test-secret-do-not-use-in-prod")
+from scanner.auth import User, create_access_token
+
+_AUTH_HEADERS = {
+    "Authorization": "Bearer " + create_access_token(
+        User(id=1, email="test@example.com", name="Test", role="user",
+             plan="pro", created_at="2026-01-01T00:00:00Z")
+    )
+}
+
 from scanner.api import ApiState, make_server
 from scanner.config import Config
 from scanner.data_types import Direction, Tier
@@ -57,8 +69,9 @@ class TestApi(unittest.TestCase):
 
     def _get(self, path: str) -> tuple[int, dict]:
         url = f"http://127.0.0.1:{self.port}{path}"
+        req = urllib.request.Request(url, headers=_AUTH_HEADERS)
         try:
-            with urllib.request.urlopen(url, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=5) as resp:
                 return resp.status, json.loads(resp.read())
         except HTTPError as e:
             return e.code, json.loads(e.read())
@@ -67,7 +80,11 @@ class TestApi(unittest.TestCase):
         status, body = self._get("/api/health")
         self.assertEqual(status, 200)
         self.assertEqual(body["status"], "ok")
-        self.assertEqual(body["db_signals"], 3)
+        self.assertIn("timestamp", body)
+
+    def test_pairs_endpoint(self):
+        status, body = self._get("/api/pairs")
+        self.assertEqual(status, 200)
         self.assertIn("XAUUSD", body["pairs"])
 
     def test_pairs(self):

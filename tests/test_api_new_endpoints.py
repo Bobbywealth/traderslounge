@@ -17,6 +17,18 @@ import urllib.request
 from pathlib import Path
 from urllib.error import HTTPError
 
+# Deterministic auth for tests: journal/positions/kill-switch routes are
+# bearer-protected, mirroring test_api_hardening.
+os.environ.setdefault("JWT_SECRET", "test-secret-do-not-use-in-prod")
+from scanner.auth import User, create_access_token
+
+_AUTH_HEADERS = {
+    "Authorization": "Bearer " + create_access_token(
+        User(id=1, email="test@example.com", name="Test", role="user",
+             plan="pro", created_at="2026-01-01T00:00:00Z")
+    )
+}
+
 from scanner.api import ApiState, make_server
 from scanner.broker import Position
 from scanner.config import Config
@@ -95,8 +107,9 @@ class TestNewEndpoints(unittest.TestCase):
 
     def _get(self, path: str) -> tuple[int, dict]:
         url = f"http://127.0.0.1:{self.port}{path}"
+        req = urllib.request.Request(url, headers=_AUTH_HEADERS)
         try:
-            with urllib.request.urlopen(url, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=5) as resp:
                 return resp.status, json.loads(resp.read())
         except HTTPError as e:
             return e.code, json.loads(e.read())
@@ -105,7 +118,7 @@ class TestNewEndpoints(unittest.TestCase):
         data = json.dumps(body or {}).encode()
         req = urllib.request.Request(
             f"http://127.0.0.1:{self.port}{path}", data=data, method="POST",
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **_AUTH_HEADERS},
         )
         try:
             with urllib.request.urlopen(req, timeout=5) as resp:
