@@ -48,7 +48,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       try {
         const userData = JSON.parse(savedUser);
-        let restored = await bwtsAuth.restore();
+        const restored = await bwtsAuth.restore();
         if (!restored && userData.email === 'demo@trader.com') {
           const backendUser = await bwtsAuth.login('demo@trader.com', 'demo123');
           if (backendUser) {
