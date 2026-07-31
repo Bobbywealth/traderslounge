@@ -150,6 +150,12 @@ export interface BwtsHealth {
   status: string;
   db_signals: number;
   pairs: string[];
+  ready?: boolean;
+  timestamp?: string;
+  uptime_seconds?: number;
+  dependencies?: Record<string, string>;
+  cache?: { entries: number; analysis_ttl_seconds: number };
+  engine?: { minimum_score?: number; minimum_rr?: number; actionable_status?: string };
 }
 
 export interface BwtsConfig {
@@ -633,7 +639,7 @@ export interface DashboardSnapshot {
   market_data_timestamp: string;
   scanner_health: BwtsHealth;
   config: BwtsConfig;
-  provider_health: Record<string, ProviderHealth>;
+  provider_health: ProviderHealth;
   economic_event_risk: EconomicRisk;
   markets: MarketSnapshot[];
   performance_summary: PerformanceSummary;

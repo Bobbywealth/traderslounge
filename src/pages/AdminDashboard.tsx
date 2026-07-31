@@ -43,6 +43,7 @@ import {
 import { format } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import AdminDiagnostics from './AdminDiagnostics';
 
 interface AdminUser {
   id: string;
@@ -343,6 +344,7 @@ const AdminDashboard: React.FC = () => {
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
     { id: 'support', label: 'Support', icon: MessageSquare },
+    { id: 'diagnostics', label: 'Diagnostics', icon: Activity },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
@@ -729,6 +731,8 @@ const AdminDashboard: React.FC = () => {
         return <div className="text-center py-12 text-gray-500">Subscription management coming soon...</div>;
       case 'support':
         return <div className="text-center py-12 text-gray-500">Support tickets coming soon...</div>;
+      case 'diagnostics':
+        return <AdminDiagnostics />;
       case 'settings':
         return <div className="text-center py-12 text-gray-500">Admin settings coming soon...</div>;
       default:

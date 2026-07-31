@@ -51,7 +51,8 @@ const API_CONFIG = {
   // Finnhub - Free tier: 60 calls per minute
   FINNHUB: {
     baseUrl: 'https://finnhub.io/api/v1',
-    apiKey: localStorage.getItem('api_finnhub') || '',
+    // localStorage lets users override; the env var is what production sets.
+    apiKey: localStorage.getItem('api_finnhub') || import.meta.env.VITE_FINNHUB_API_KEY || '',
   },
   
   // NewsAPI - Free tier: 1000 requests per month
@@ -86,8 +87,7 @@ const isApiConfigured = () =>
 // Alpha Vantage News API
 export const fetchAlphaVantageNews = async (): Promise<NewsItem[]> => {
   if (!API_CONFIG.ALPHA_VANTAGE.apiKey || API_CONFIG.ALPHA_VANTAGE.apiKey === 'demo') {
-    console.warn('Alpha Vantage API key not configured. Using mock data.');
-    return getMockNews();
+    return [];
   }
 
   try {
@@ -120,15 +120,14 @@ export const fetchAlphaVantageNews = async (): Promise<NewsItem[]> => {
     })) || [];
   } catch (error) {
     console.error('Alpha Vantage News API error:', error);
-    return getMockNews();
+    return [];
   }
 };
 
 // Finnhub News API
 export const fetchFinnhubNews = async (): Promise<NewsItem[]> => {
   if (!API_CONFIG.FINNHUB.apiKey || API_CONFIG.FINNHUB.apiKey === 'demo') {
-    console.warn('Finnhub API key not configured. Using mock data.');
-    return getMockNews();
+    return [];
   }
 
   try {
@@ -156,15 +155,14 @@ export const fetchFinnhubNews = async (): Promise<NewsItem[]> => {
     }));
   } catch (error) {
     console.error('Finnhub News API error:', error);
-    return getMockNews();
+    return [];
   }
 };
 
 // NewsAPI for Financial News
 export const fetchNewsAPI = async (): Promise<NewsItem[]> => {
   if (!API_CONFIG.NEWS_API.apiKey || API_CONFIG.NEWS_API.apiKey === 'demo') {
-    console.warn('NewsAPI key not configured. Using mock data.');
-    return getMockNews();
+    return [];
   }
 
   try {
@@ -197,15 +195,14 @@ export const fetchNewsAPI = async (): Promise<NewsItem[]> => {
     }));
   } catch (error) {
     console.error('NewsAPI error:', error);
-    return getMockNews();
+    return [];
   }
 };
 
 // Trading Economics Calendar API
 export const fetchTradingEconomicsCalendar = async (): Promise<EconomicEvent[]> => {
   if (API_CONFIG.TRADING_ECONOMICS.apiKey === 'demo' || !API_CONFIG.TRADING_ECONOMICS.apiKey) {
-    console.warn('Trading Economics API key not configured. Using mock data.');
-    return getMockEconomicEvents();
+    return [];
   }
 
   try {
@@ -238,15 +235,14 @@ export const fetchTradingEconomicsCalendar = async (): Promise<EconomicEvent[]> 
     }));
   } catch (error) {
     console.error('Trading Economics API error:', error);
-    return getMockEconomicEvents();
+    return [];
   }
 };
 
 // Polygon.io Market Data
 export const fetchPolygonMarketData = async (symbols: string[]): Promise<MarketData[]> => {
   if (!API_CONFIG.POLYGON.apiKey || API_CONFIG.POLYGON.apiKey === 'demo') {
-    console.warn('Polygon API key not configured. Using mock data.');
-    return getMockMarketData(symbols);
+    return [];
   }
 
   try {
@@ -275,7 +271,7 @@ export const fetchPolygonMarketData = async (symbols: string[]): Promise<MarketD
     return await Promise.all(promises);
   } catch (error) {
     console.error('Polygon Market Data API error:', error);
-    return getMockMarketData(symbols);
+    return [];
   }
 };
 
@@ -333,10 +329,10 @@ export const fetchNews = async (): Promise<NewsItem[]> => {
       .sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime())
       .slice(0, 25);
     
-    return uniqueNews.length > 0 ? uniqueNews : getMockNews();
+    return uniqueNews;
   } catch (error) {
     console.error('Failed to fetch news:', error);
-    return getMockNews();
+    return [];
   }
 };
 
@@ -389,116 +385,6 @@ const getImpactLevel = (importance: string | number): 'low' | 'medium' | 'high' 
   return 'low';
 };
 
-// Mock data functions (fallback when APIs are not configured)
-const getMockNews = (): NewsItem[] => {
-  return [
-    {
-      id: 'mock_1',
-      title: 'Federal Reserve Signals Potential Rate Changes Ahead',
-      summary: 'Fed officials hint at monetary policy adjustments in response to recent economic indicators and inflation data.',
-      url: 'https://example.com/news/1',
-      publishedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
-      source: 'Reuters',
-      sentiment: 'neutral',
-      relevantCurrencies: ['USD'],
-      imageUrl: 'https://images.pexels.com/photos/6801648/pexels-photo-6801648.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 'mock_2',
-      title: 'European Central Bank Maintains Dovish Stance',
-      summary: 'ECB continues accommodative monetary policy amid ongoing inflation concerns and economic uncertainty.',
-      url: 'https://example.com/news/2',
-      publishedAt: new Date(Date.now() - 4 * 60 * 60 * 1000),
-      source: 'Bloomberg',
-      sentiment: 'negative',
-      relevantCurrencies: ['EUR'],
-      imageUrl: 'https://images.pexels.com/photos/7567565/pexels-photo-7567565.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 'mock_3',
-      title: 'Gold Prices Surge on Safe Haven Demand',
-      summary: 'Precious metals rally as investors seek safety amid market volatility and geopolitical tensions.',
-      url: 'https://example.com/news/3',
-      publishedAt: new Date(Date.now() - 6 * 60 * 60 * 1000),
-      source: 'MarketWatch',
-      sentiment: 'positive',
-      relevantCurrencies: ['USD', 'EUR', 'GBP'],
-      imageUrl: 'https://images.pexels.com/photos/6765363/pexels-photo-6765363.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-  ];
-};
-
-const getMockEconomicEvents = (): EconomicEvent[] => {
-  const events: EconomicEvent[] = [];
-  const now = new Date();
-  
-  const eventTemplates = [
-    {
-      title: 'Non-Farm Payrolls',
-      country: 'United States',
-      currency: 'USD',
-      impact: 'high' as const,
-      category: 'Employment',
-      description: 'Monthly change in the number of employed people during the previous month, excluding the farming industry.',
-      source: 'Bureau of Labor Statistics'
-    },
-    {
-      title: 'Consumer Price Index',
-      country: 'United States',
-      currency: 'USD',
-      impact: 'high' as const,
-      category: 'Inflation',
-      description: 'Measures changes in the price level of consumer goods and services purchased by households.',
-      source: 'Bureau of Labor Statistics'
-    },
-    {
-      title: 'GDP Growth Rate',
-      country: 'Euro Area',
-      currency: 'EUR',
-      impact: 'high' as const,
-      category: 'Economic Growth',
-      description: 'The annualized change in the inflation-adjusted value of all goods and services produced by the economy.',
-      source: 'Eurostat'
-    },
-  ];
-
-  // Generate events for the next 30 days
-  for (let i = 0; i < 30; i++) {
-    const eventDate = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
-    const numEvents = Math.floor(Math.random() * 3) + 1;
-    
-    for (let j = 0; j < numEvents; j++) {
-      const template = eventTemplates[Math.floor(Math.random() * eventTemplates.length)];
-      const hour = Math.floor(Math.random() * 12) + 8;
-      const minute = Math.floor(Math.random() * 4) * 15;
-      
-      events.push({
-        id: `mock_event_${i}_${j}`,
-        ...template,
-        date: eventDate,
-        time: `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`,
-        forecast: '2.1%',
-        previous: '1.8%',
-        actual: i < 7 ? '2.3%' : undefined,
-      });
-    }
-    
-  }
-
-  return events.sort((a, b) => a.date.getTime() - b.date.getTime());
-};
-
-const getMockMarketData = (symbols: string[]): MarketData[] => {
-  return symbols.map(symbol => ({
-    symbol,
-    price: 1.0850 + (Math.random() - 0.5) * 0.1,
-    change: (Math.random() - 0.5) * 0.01,
-    changePercent: (Math.random() - 0.5) * 2,
-    volume: Math.floor(Math.random() * 1000000) + 500000,
-    timestamp: new Date(),
-  }));
-};
-
 // API Configuration Helper
 export const getApiInstructions = () => {
   return {
@@ -525,7 +411,7 @@ To get real financial data, you need to configure API keys from these providers:
    - Sign up: https://polygon.io/
    - Replace API_CONFIG.POLYGON.apiKey with your key
 
-Without API keys, the system will use realistic mock data.
+Without API keys, news headlines and alternative calendar sources are simply omitted — the economic calendar itself always comes from the scanner backend (ForexFactory feed).
     `,
     providers: [
       { name: 'Alpha Vantage', url: 'https://www.alphavantage.co/', features: ['News', 'Market Data'] },

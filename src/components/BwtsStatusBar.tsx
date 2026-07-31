@@ -62,7 +62,7 @@ const BwtsStatusBar: React.FC = () => {
           <div>
             <p className="text-xs uppercase tracking-wide text-gray-500">BWTS Scanner</p>
             <p className="text-sm font-medium text-white">
-              {health ? `${health.status.toUpperCase()} · ${health.pairs.length} pairs tracked` : 'Loading…'}
+              {health ? `${(health.status || 'unknown').toUpperCase()} · ${(health.pairs ?? []).length} pairs tracked` : 'Loading…'}
             </p>
           </div>
         </div>
