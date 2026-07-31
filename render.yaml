@@ -47,6 +47,8 @@ services:
     envVars:
       - key: VITE_API_URL
         value: https://traderslounge-bwts-api.onrender.com
+      - key: VITE_LEGACY_API_URL
+        value: https://traderslounge-api.onrender.com
       - key: VITE_DATABASE_URL
         sync: false
       - key: VITE_PERPLEXITY_API_KEY

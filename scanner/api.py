@@ -366,7 +366,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
             
             # API routes
             if path == "/api/health":
-                return self._health()
+                return self._api_health()
             if path == "/api/pairs":
                 return self._json(200, {"pairs": list(_STATE.config.pairs)})
             if path == "/api/config":
@@ -501,7 +501,10 @@ class _ApiHandler(BaseHTTPRequestHandler):
         except Exception:
             return False
 
-    def _legacy_health(self) -> None:
+    def _api_health(self) -> None:
+        # Rich health payload consumed by the dashboard (BwtsStatusBar,
+        # Admin Diagnostics). Keep /health as the cheap liveness probe.
+        self._maybe_prewarm_dashboard()
         try:
             n = _count(_STATE.repository)
         except Exception as exc:  # pragma: no cover
@@ -509,8 +512,9 @@ class _ApiHandler(BaseHTTPRequestHandler):
         calendar_health = getattr(_STATE.news_filter, "source_health", "unconfigured") if _STATE.news_filter else "unconfigured"
         ready = _STATE.market_client is not None and calendar_health not in ("unavailable", "unconfigured")
         self._json(200, {
-            "status": "ok" if ready else "degraded",
+            "status": "ok",
             "ready": ready,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "db_signals": n,
             "pairs": list(_STATE.config.pairs),
             "uptime_seconds": int(time.time()-_STATE.started_at),

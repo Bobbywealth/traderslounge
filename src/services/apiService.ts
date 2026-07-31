@@ -1,7 +1,15 @@
 // API Service for communicating with backend server
 import { applyHtfBiasPenalty, evaluateHtfBias, type BiasStatus } from '../strategy/htfBias';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://traderslounge.onrender.com';
+// The TradeLocker proxy and the legacy signal engine live on the Node API
+// service (server/), NOT on the Python scanner API that VITE_API_URL points
+// at in production. Routing them through VITE_API_URL 404s every call.
+export const LEGACY_API_BASE_URL =
+  import.meta.env.VITE_LEGACY_API_URL ||
+  import.meta.env.VITE_TRADELOCKER_API_URL ||
+  'https://traderslounge-api.onrender.com';
+
+const API_BASE_URL = LEGACY_API_BASE_URL;
 
 const buildTradeLockerUrl = (path: string, params: Record<string, string | null | undefined> = {}): string => {
   const query = new URLSearchParams();

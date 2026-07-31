@@ -30,7 +30,8 @@ import {
   Hand
 } from 'lucide-react';
 import { liveDataService, HarmonicPattern, TrendLine, FibonacciLevel } from '../services/liveDataService';
-import { tradeLockerApi } from '../services/apiService';
+import { tradeLockerService, TradeLockerConfig } from '../services/tradeLockerService';
+import { tradeLockerApi, LEGACY_API_BASE_URL } from '../services/apiService';
 import ConfluenceXLogo from '../components/ConfluenceXLogo';
 import ChartAiAnalysisPanel from '../components/ChartAiAnalysisPanel';
 import { bwtsApi, type ChartAiAnalysis, type CryptoAnalysis } from '../services/bwtsApi';
@@ -213,6 +214,408 @@ const TradingView: React.FC = () => {
   const [drawingRailCollapsed, setDrawingRailCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const normalizeHistoryCandle = (candle: TradeLockerHistoryCandle | (number | string)[]): CandlestickData | null => {
+    const isTuple = Array.isArray(candle);
+    const tuple = isTuple ? candle : null;
+
+    const timeRaw = tuple?.[0] ?? (candle as TradeLockerHistoryCandle).t ?? (candle as TradeLockerHistoryCandle).time ?? (candle as TradeLockerHistoryCandle).timestamp;
+    const openRaw = tuple?.[1] ?? (candle as TradeLockerHistoryCandle).o ?? (candle as TradeLockerHistoryCandle).open;
+    const highRaw = tuple?.[2] ?? (candle as TradeLockerHistoryCandle).h ?? (candle as TradeLockerHistoryCandle).high;
+    const lowRaw = tuple?.[3] ?? (candle as TradeLockerHistoryCandle).l ?? (candle as TradeLockerHistoryCandle).low;
+    const closeRaw = tuple?.[4] ?? (candle as TradeLockerHistoryCandle).c ?? (candle as TradeLockerHistoryCandle).close;
+
+    if (timeRaw == null || openRaw == null || highRaw == null || lowRaw == null || closeRaw == null) {
+      return null;
+    }
+
+    const rawTime = Number(timeRaw);
+    const normalizedTime = rawTime > 1_000_000_000_000 ? Math.floor(rawTime / 1000) : Math.floor(rawTime);
+
+    const open = Number(openRaw);
+    const high = Number(highRaw);
+    const low = Number(lowRaw);
+    const close = Number(closeRaw);
+    if (![normalizedTime, open, high, low, close].every(Number.isFinite)) {
+      return null;
+    }
+
+    return {
+      time: normalizedTime as UTCTimestamp,
+      open,
+      high,
+      low,
+      close,
+    };
+  };
+
+  const fetchBwtsCandles = useCallback(async (
+    symbol: string, tf: string, limit?: number
+  ): Promise<CandlestickData[]> => {
+    const params = new URLSearchParams({
+      pair: symbol,
+      timeframe: tf,
+      ...(limit ? { limit: String(limit) } : {}),
+    });
+    const API_BASE = import.meta.env.VITE_BWTS_API_URL || import.meta.env.VITE_API_URL || '';
+    const response = await fetch(`${API_BASE}/api/candles?${params.toString()}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch BWTS candles: ${response.status}`);
+    }
+    const payload = await response.json();
+    const rawCandles: Array<TradeLockerHistoryCandle | (number | string)[]> = payload?.candles || [];
+    return rawCandles
+      .map(normalizeHistoryCandle)
+      .filter((candle): candle is CandlestickData => candle !== null)
+      .sort((a, b) => a.time - b.time);
+  }, []);
+
+  const fetchBwtsHarmonics = useCallback(async (symbol: string, tf: string): Promise<HarmonicPattern[]> => {
+    const params = new URLSearchParams({ pair: symbol, timeframe: tf });
+    const API_BASE = import.meta.env.VITE_BWTS_API_URL || import.meta.env.VITE_API_URL || '';
+    const response = await fetch(`${API_BASE}/api/harmonics?${params.toString()}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch BWTS harmonics: ${response.status}`);
+    }
+    const payload = await response.json();
+    const pattern = payload?.pattern;
+    if (!pattern) return [];
+    const point = (label: 'X' | 'A' | 'B' | 'C' | 'D') => ({
+      price: Number(pattern.points[label].price),
+      time: new Date(Number(pattern.points[label].time) * 1000),
+    });
+    return [{
+      id: `${symbol}-${tf}-${pattern.name}-${pattern.points.D.time}`,
+      symbol,
+      type: pattern.name as HarmonicPattern['type'],
+      direction: pattern.direction,
+      completion: 100,
+      points: { X: point('X'), A: point('A'), B: point('B'), C: point('C'), D: point('D') },
+      ratios: {
+        AB_XA: Number(pattern.ratios.ab_xa),
+        BC_AB: Number(pattern.ratios.bc_ab),
+        CD_BC: Number(pattern.ratios.cd_bc),
+        AD_XA: Number(pattern.ratios.ad_xa),
+      },
+      prz: { min: Number(pattern.prz.low), max: Number(pattern.prz.high) },
+      confidence: 100,
+      status: 'completed',
+    }];
+  }, []);
+
+  const fetchBwtsAdr = useCallback(async (symbol: string): Promise<ChartAdr> => {
+    const params = new URLSearchParams({ pair: symbol });
+    const API_BASE = import.meta.env.VITE_BWTS_API_URL || import.meta.env.VITE_API_URL || '';
+    const response = await fetch(`${API_BASE}/api/adr?${params.toString()}`);
+    if (!response.ok) throw new Error(`Failed to fetch ADR: ${response.status}`);
+    return response.json();
+  }, []);
+  // TradeLocker connection function
+  const connectToTradeLocker = async () => {
+    if (!tradeLockerCredentials.email || !tradeLockerCredentials.password) {
+      alert('Please enter your TradeLocker credentials');
+      return;
+    }
+
+    try {
+      console.log('🔌 Connecting to TradeLocker...');
+      
+      // Authenticate with TradeLocker
+      const authResponse = await tradeLockerService.authenticate({
+        email: tradeLockerCredentials.email,
+        password: tradeLockerCredentials.password,
+        server: tradeLockerCredentials.server,
+        isDemo: tradeLockerCredentials.isDemo,
+      });
+
+      console.log('✅ TradeLocker authenticated:', authResponse.accessToken ? 'Token received' : 'No token');
+      setTradeLockerConnected(true);
+      setIsConnected(true);
+      setShowLoginModal(false);
+      await loadTradeLockerInstruments();
+
+      // Initialize WebSocket for real-time data
+      initializeTradeLockerWebSocket();
+      
+    } catch (error) {
+      console.error('❌ TradeLocker connection failed:', error);
+      alert('Failed to connect to TradeLocker. Please check your credentials.');
+      setTradeLockerConnected(false);
+      setIsConnected(false);
+    }
+  };
+
+  // Initialize WebSocket connection to TradeLocker
+  const initializeTradeLockerWebSocket = () => {
+    const wsUrl = tradeLockerCredentials.isDemo 
+      ? 'wss://demo.tradelocker.com/streaming-api' 
+      : 'wss://live.tradelocker.com/streaming-api';
+
+    try {
+      console.log(`🔗 Connecting to WebSocket: ${wsUrl}`);
+      
+      // Note: TradeLocker may use different WebSocket URL format
+      // This is a placeholder - you'll need to check TradeLocker's actual WebSocket API
+      const ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        console.log('✅ WebSocket connected');
+        setIsConnected(true);
+        
+        // Subscribe to symbol data
+        ws.send(JSON.stringify({
+          type: 'subscribe',
+          symbol: selectedSymbol,
+          timeframe: timeframe
+        }));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          if (data.type === 'quote' || data.type === 'candlestick') {
+            // Update chart with real data
+            const newCandle = {
+              time: Math.floor(new Date(data.timestamp).getTime() / 1000) as any,
+              open: data.open,
+              high: data.high,
+              low: data.low,
+              close: data.close,
+            };
+            
+            if (candlestickSeriesRef.current) {
+              candlestickSeriesRef.current.update(newCandle);
+            }
+            
+            setCurrentPrice(data.close);
+          }
+        } catch (error) {
+          console.warn('WebSocket data parse error:', error);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+
+      ws.onclose = () => {
+        console.log('🔌 WebSocket disconnected');
+        setIsConnected(false);
+        // Attempt reconnection after 5 seconds
+        setTimeout(() => {
+          if (tradeLockerConnected) {
+            initializeTradeLockerWebSocket();
+          }
+        }, 5000);
+      };
+
+      wsRef.current = ws;
+    } catch (error) {
+      console.error('Failed to initialize WebSocket:', error);
+    }
+  };
+
+  // Disconnect from TradeLocker
+  const disconnectFromTradeLocker = () => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    tradeLockerService.disconnect();
+    setTradeLockerConnected(false);
+    setIsConnected(false);
+  };
+
+  // Subscribe to symbol changes
+  useEffect(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'unsubscribe',
+        symbol: selectedSymbol,
+      }));
+      wsRef.current.send(JSON.stringify({
+        type: 'subscribe',
+        symbol: selectedSymbol,
+        timeframe: timeframe
+      }));
+    }
+  }, [selectedSymbol, timeframe]);
+
+  // Symbol search functionality
+  const updateSymbolSuggestions = useCallback((term: string) => {
+    const normalizedTerm = term.trim().toLowerCase();
+    const filtered = availableSymbols
+      .filter((symbol) =>
+        normalizedTerm.length === 0 ||
+        symbol.symbol.toLowerCase().includes(normalizedTerm) ||
+        symbol.name.toLowerCase().includes(normalizedTerm)
+      )
+      .slice(0, 20);
+
+    setSymbolSuggestions(filtered);
+    setShowSuggestions(filtered.length > 0);
+  }, [availableSymbols]);
+
+  const handleSymbolSearch = (term: string) => {
+    setSearchTerm(term);
+    updateSymbolSuggestions(term);
+  };
+
+  const selectSymbol = (symbol: SymbolInfo) => {
+    setSelectedSymbol(symbol.symbol);
+    setSearchTerm(symbol.symbol);
+    setShowSuggestions(false);
+    loadSymbolData(symbol.symbol);
+  };
+
+  // Load symbol data and technical analysis
+  const loadSymbolData = async (symbol: string) => {
+    try {
+      console.log(`🔄 Loading data for ${symbol}...`);
+      
+      // Harmonics are loaded independently from the BWTS Python scanner so
+      // they refresh whenever the symbol or timeframe changes.
+
+      // Load trendlines
+      if (showTrendLines) {
+        const trendlines = await liveDataService.detectTrendLines(symbol);
+        setTrendLines(trendlines);
+        console.log(`📈 Loaded ${trendlines.length} trendlines`);
+      }
+
+      // Load fibonacci levels
+      if (showFibonacci) {
+        const priceHistory = await liveDataService.getPriceHistory(symbol, 50);
+        if (priceHistory.length > 10) {
+          const recentHigh = Math.max(...priceHistory.slice(-20).map(p => p.high));
+          const recentLow = Math.min(...priceHistory.slice(-20).map(p => p.low));
+          const fibLevels = await liveDataService.calculateFibonacciLevels(symbol, recentHigh, recentLow);
+          setFibonacciLevels(fibLevels);
+          console.log(`🔢 Loaded ${fibLevels.length} fibonacci levels`);
+        }
+      }
+
+      setIsConnected(true);
+    } catch (error) {
+      console.error('Failed to load symbol data:', error);
+      setIsConnected(false);
+    }
+  };
+
+  const loadCandlesForSymbol = useCallback(async (
+    symbol: string, tf: string, incremental = false
+  ) => {
+    const series = candlestickSeriesRef.current;
+    if (!series) return;
+    const key = `${symbol}:${tf}`;
+    const requestId = ++candleRequestRef.current;
+    try {
+      const useTinyUpdate = incremental && loadedChartKeyRef.current === key;
+      const candles = await fetchBwtsCandles(symbol, tf, useTinyUpdate ? 2 : undefined);
+      if (requestId !== candleRequestRef.current || candles.length === 0) return;
+      const previous = candleCacheRef.current[key] || [];
+      const last = candles[candles.length - 1];
+      if (loadedChartKeyRef.current !== key || previous.length === 0) {
+        // Full history is loaded only for a new symbol/timeframe.
+        series.setData(candles);
+        loadedChartKeyRef.current = key;
+        setChartRevision((revision) => revision + 1);
+      } else {
+        // Polls only update the newest candle, preserving zoom and overlays.
+        const oldLast = previous[previous.length - 1];
+        if (!oldLast || oldLast.time !== last.time || oldLast.close !== last.close ||
+            oldLast.high !== last.high || oldLast.low !== last.low) {
+          series.update(last);
+        }
+      }
+      candleCacheRef.current[key] = candles;
+      setCurrentPrice(last.close);
+      setIsConnected(true);
+    } catch (error) {
+      if (requestId !== candleRequestRef.current) return;
+      console.error('Failed to load BWTS candles:', error);
+      setIsConnected(false);
+      // Keep already-rendered candles visible during a transient API failure.
+      if (loadedChartKeyRef.current !== key) series.setData([]);
+    }
+  }, [fetchBwtsCandles]);
+
+  const loadTradeLockerInstruments = useCallback(async () => {
+    try {
+      const sessionId = localStorage.getItem('tl_session_id');
+      const params = new URLSearchParams(sessionId ? { sessionId } : {});
+      const response = await fetch(`${LEGACY_API_BASE_URL}/api/tradelocker/instruments?${params.toString()}`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch instruments: ${response.status}`);
+      }
+
+      const payload = await response.json();
+      const instruments = parseTradeLockerInstruments(payload);
+      setAvailableSymbols(instruments);
+
+      if (!searchTerm && selectedSymbol) {
+        setSearchTerm(selectedSymbol);
+      }
+
+      updateSymbolSuggestions(searchTerm || selectedSymbol);
+
+      const selectedExists = instruments.some((item) => item.symbol === selectedSymbol);
+      if (!selectedExists && instruments.length > 0) {
+        const defaultSymbol = instruments[0].symbol;
+        setSelectedSymbol(defaultSymbol);
+        setSearchTerm(defaultSymbol);
+        loadCandlesForSymbol(defaultSymbol, timeframe);
+        loadSymbolData(defaultSymbol);
+      }
+    } catch (error) {
+      console.error('Failed to load TradeLocker instruments:', error);
+      setAvailableSymbols([]);
+    }
+  }, [loadCandlesForSymbol, selectedSymbol, timeframe]);
+
+
+
+  const checkExistingTradeLockerConnection = useCallback(async () => {
+    try {
+      const status = await tradeLockerApi.connect();
+      if (!status.connected) {
+        setTradeLockerConnected(false);
+        return;
+      }
+
+      setTradeLockerConnected(true);
+      setIsConnected(true);
+      setSelectedBroker('tradelocker');
+      await loadTradeLockerInstruments();
+    } catch (error) {
+      console.error('Failed to restore TradeLocker session:', error);
+      setTradeLockerConnected(false);
+    }
+  }, [loadTradeLockerInstruments]);
+
+  const getSymbolVolatility = (symbol: string): number => {
+    // No mock volatility - return 0, real data should come from broker
+    return 0;
+  };
+
+  const getDecimalPlaces = (symbol: string): number => {
+    if (symbol.includes('JPY')) return 3;
+    if (symbol.includes('BTC') || symbol.includes('ETH')) return 2;
+    if (['AAPL', 'GOOGL', 'MSFT', 'TSLA'].includes(symbol)) return 2;
+    if (symbol.includes('XAU')) return 2;
+    return 5;
+  };
+
+  const getTimeframeMs = (timeframe: string): number => {
+    const timeframes: Record<string, number> = {
+      '1m': 60 * 1000, '5m': 5 * 60 * 1000, '15m': 15 * 60 * 1000,
+      '30m': 30 * 60 * 1000, '1h': 60 * 60 * 1000, '4h': 4 * 60 * 60 * 1000,
+      '1d': 24 * 60 * 60 * 1000, '1w': 7 * 24 * 60 * 60 * 1000,
+      '1M': 30 * 24 * 60 * 60 * 1000,
+    };
+    return timeframes[timeframe] || 60 * 60 * 1000;
+  };
 
   // Initialize chart. Declared before useCandles so the series exists by the
   // time the candle hook's first refresh runs on mount.
