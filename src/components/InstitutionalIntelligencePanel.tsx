@@ -114,7 +114,8 @@ export const InstitutionalIntelligencePanel: React.FC<{
   intelligence?: InstitutionalIntelligenceV2 | null;
   canonicalEligible: boolean;
   timingStatus?: string;
-}> = ({ intelligence, canonicalEligible, timingStatus }) => {
+  symbol?: string;
+}> = ({ intelligence, canonicalEligible, timingStatus, symbol }) => {
   const state = getIntelligenceDecisionState(intelligence, canonicalEligible, timingStatus);
   const consensus = intelligence?.multi_agent_consensus;
   const grade = intelligence?.trade_grade;
@@ -144,7 +145,10 @@ export const InstitutionalIntelligencePanel: React.FC<{
         <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
           <div>
             <div className="flex items-center gap-2 text-[10px] font-black tracking-[0.2em] text-violet-300"><BrainCircuit className="h-4 w-4" /> INSTITUTIONAL INTELLIGENCE V2</div>
-            <h2 className="mt-2 text-2xl font-black">Explainable consensus and trade quality</h2>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <h2 className="text-2xl font-black">Explainable consensus and trade quality</h2>
+              {symbol && <span className="rounded-lg bg-white/[0.05] px-3 py-1 text-sm font-black text-slate-300">{symbol}</span>}
+            </div>
             <p className="mt-2 max-w-3xl text-sm text-slate-500">Advisory evidence only. Canonical eligibility, calendar blocks, risk caps, and execution gates remain authoritative.</p>
           </div>
           <div className={`inline-flex w-fit items-center gap-2 rounded-xl border px-3 py-2 text-xs font-black ${stateStyle[state]}`}>

@@ -417,11 +417,12 @@ const Dashboard: React.FC = () => {
         )}
       </section>
 
-      {bestAnalysis && (
+      {bestAnalysis && bestSignal && (
         <InstitutionalIntelligencePanel
           intelligence={bestAnalysis.institutional_intelligence_v2}
           canonicalEligible={Boolean(bestPlan?.eligible)}
           timingStatus={bestAnalysis.trade_timing?.status}
+          symbol={bestSignal.pair}
         />
       )}
 
