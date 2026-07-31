@@ -17,6 +17,7 @@ import LiveScanner from './pages/LiveScanner';
 import Positions from './pages/Positions';
 import Journal from './pages/Journal';
 import Backtester from './pages/Backtester';
+import Performance from './pages/Performance';
 import Settings from './pages/Settings';
 import AIAssistant from './components/AIAssistant';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -88,6 +89,7 @@ const AppContent: React.FC = () => {
                 <Route path="/positions" element={<Positions />} />
                 <Route path="/journal" element={<Journal />} />
                 <Route path="/backtester" element={<Backtester />} />
+                <Route path="/performance" element={<Performance />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/trades" element={<TradingTable />} />
                 <Route path="/tradingview" element={<TradingView />} />

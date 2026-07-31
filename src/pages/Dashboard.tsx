@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Activity, AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, Clock3,
-  Crosshair, Gauge, Radar, RefreshCw, ShieldAlert, Zap,
+  Activity, AlertTriangle, ArrowRight, Briefcase, CalendarClock, CheckCircle2,
+  Clock3, Crosshair, Gauge, Radar, RefreshCw, ShieldAlert, Zap,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -10,6 +10,7 @@ import {
   planReasonText,
   type BwtsConfig,
   type BwtsHealth,
+  type BwtsPosition,
   type BwtsSignal,
   type CalendarGateStatus,
   type CryptoAnalysis,
@@ -33,9 +34,8 @@ type SnapshotContract = {
 
 type FeedState = 'CONNECTING' | 'LIVE' | 'DEGRADED' | 'OFFLINE';
 
-const planRank = (analysis?: CryptoAnalysis) => (
-  { STRONG: 5, VALID: 4, WATCHLIST: 3, WAIT: 2, BLOCKED: 1 }[analysis?.trade_plan?.status || ''] || 0
-);
+const PLAN_RANKS: Record<string, number> = { STRONG: 5, VALID: 4, WATCHLIST: 3, WAIT: 2, BLOCKED: 1 };
+const planRank = (analysis?: CryptoAnalysis) => PLAN_RANKS[analysis?.trade_plan?.status || ''] || 0;
 
 const isRenderableMarket = (market: unknown): market is DashboardSnapshot['markets'][number] => {
   if (!market || typeof market !== 'object') return false;
@@ -47,12 +47,82 @@ const isRenderableMarket = (market: unknown): market is DashboardSnapshot['marke
   );
 };
 
+// ---- Trading session clock -------------------------------------------------
+// Approximate UTC windows for the three major FX sessions.
+const SESSIONS = [
+  { name: 'Asia', startUtc: 23, endUtc: 8 },
+  { name: 'London', startUtc: 7, endUtc: 16 },
+  { name: 'New York', startUtc: 12, endUtc: 21 },
+] as const;
+
+const sessionIsOpen = (session: (typeof SESSIONS)[number], utcHour: number) =>
+  session.startUtc < session.endUtc
+    ? utcHour >= session.startUtc && utcHour < session.endUtc
+    : utcHour >= session.startUtc || utcHour < session.endUtc;
+
+const hoursUntil = (targetUtcHour: number, now: Date) => {
+  const nowH = now.getUTCHours() + now.getUTCMinutes() / 60;
+  let diff = targetUtcHour - nowH;
+  if (diff <= 0) diff += 24;
+  return diff;
+};
+
+const formatHours = (hours: number) => {
+  const h = Math.floor(hours);
+  const m = Math.round((hours - h) * 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+};
+
+const SessionClock: React.FC<{ now: Date }> = ({ now }) => {
+  const utcHour = now.getUTCHours();
+  const open = SESSIONS.filter((session) => sessionIsOpen(session, utcHour));
+  const isOverlap = open.length > 1;
+
+  let statusLine: string;
+  if (open.length === 0) {
+    const next = [...SESSIONS].sort((a, b) => hoursUntil(a.startUtc, now) - hoursUntil(b.startUtc, now))[0];
+    statusLine = `Markets quiet · ${next.name} opens in ${formatHours(hoursUntil(next.startUtc, now))}`;
+  } else if (isOverlap) {
+    statusLine = `${open.map((s) => s.name).join(' + ')} overlap · highest liquidity window`;
+  } else {
+    const session = open[0];
+    statusLine = `${session.name} session · closes in ${formatHours(hoursUntil(session.endUtc, now))}`;
+  }
+
+  return (
+    <div className="flex flex-col items-start gap-2 sm:items-end">
+      <div className="flex gap-1.5">
+        {SESSIONS.map((session) => {
+          const active = sessionIsOpen(session, utcHour);
+          return (
+            <span
+              key={session.name}
+              className={`rounded-lg px-2.5 py-1 text-[10px] font-black tracking-wide ${
+                active
+                  ? 'bg-cyan-400/15 text-cyan-300 ring-1 ring-cyan-400/30'
+                  : 'bg-white/[0.04] text-slate-600'
+              }`}
+            >
+              {active && <span className="mr-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-300 align-middle" />}
+              {session.name.toUpperCase()}
+            </span>
+          );
+        })}
+      </div>
+      <div className="text-[11px] text-slate-500">{statusLine}</div>
+    </div>
+  );
+};
+
+// ---- Dashboard -------------------------------------------------------------
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const [health, setHealth] = useState<BwtsHealth | null>(null);
   const [config, setConfig] = useState<BwtsConfig | null>(null);
   const [signals, setSignals] = useState<BwtsSignal[]>([]);
   const [analysisByPair, setAnalysisByPair] = useState<Record<string, IntelligenceAnalysis>>({});
+  const [positions, setPositions] = useState<BwtsPosition[]>([]);
+  const [positionsError, setPositionsError] = useState(false);
   const [calendarRisk, setCalendarRisk] = useState<CalendarGateStatus | null>(null);
   const [contract, setContract] = useState<SnapshotContract | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,12 +130,25 @@ const Dashboard: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [now, setNow] = useState(() => new Date());
   const loadInFlight = useRef(false);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   const load = useCallback(async (manual = false) => {
     if (loadInFlight.current) return;
     loadInFlight.current = true;
     if (manual) setRefreshing(true);
+
+    bwtsApi.positions()
+      .then(({ positions: open }) => {
+        setPositions(open.filter((position) => !position.closed_at));
+        setPositionsError(false);
+      })
+      .catch(() => setPositionsError(true));
 
     try {
       const snapshot = await bwtsApi.dashboardSnapshot();
@@ -153,9 +236,6 @@ const Dashboard: React.FC = () => {
   const watching = analyses.filter((analysis) => !analysis.trade_plan?.eligible);
   const bullish = analyses.filter((analysis) => analysis.direction === 'BUY').length;
   const bearish = analyses.filter((analysis) => analysis.direction === 'SELL').length;
-  const averageScore = hasMarketData
-    ? Math.round(analyses.reduce((total, analysis) => total + analysis.total_score, 0) / analyses.length)
-    : null;
 
   const rankedSignals = [...latestByPair].sort((a, b) => {
     const aa = analysisByPair[a.pair];
@@ -199,12 +279,6 @@ const Dashboard: React.FC = () => {
     : error && !hasMarketData ? 'OFFLINE'
       : error || health?.status !== 'ok' ? 'DEGRADED' : 'LIVE';
 
-  const primaryTimeframes = Array.from(new Set(
-    analyses.map((analysis) => analysis.data_quality?.primary_timeframe).filter(Boolean)
-  ));
-  const timeframe = primaryTimeframes.length === 1
-    ? primaryTimeframes[0]
-    : primaryTimeframes.length > 1 ? 'Mixed' : 'Unavailable';
   const calendarStatus = calendarRisk?.status || (hasMarketData ? 'CHECKING' : 'UNAVAILABLE');
   const marketTimestamp = contract?.marketDataTimestamp
     ? new Date(contract.marketDataTimestamp)
@@ -213,33 +287,36 @@ const Dashboard: React.FC = () => {
       : null;
   const waitReason = bestPlan?.reasons?.map(planReasonText).find(Boolean)
     || bestAnalysis?.trade_timing?.wait_for?.[0]
-    || 'No market currently passes direction, timing, structure, calendar, data-quality, and minimum movement gates.';
+    || 'No market currently passes every entry rule. The scanner keeps checking automatically.';
+
+  const openPnl = positions.reduce((total, position) => total + (position.closed_pnl_usd || 0), 0);
 
   return (
-    <div className="space-y-6 pb-8 text-slate-100">
-      <section className="relative overflow-hidden rounded-[28px] border border-white/[0.08] bg-[#080d1a] p-6 shadow-2xl shadow-black/20 sm:p-8">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_0%,rgba(34,211,238,0.14),transparent_30%),radial-gradient(circle_at_90%_30%,rgba(139,92,246,0.18),transparent_34%)]" />
-        <div className="relative z-10 flex flex-col justify-between gap-7 xl:flex-row xl:items-end">
-          <div>
-            <StatusBadge state={feedState} />
-            <h1 className="mt-4 text-3xl font-black tracking-[-0.04em] sm:text-5xl">
-              What is <span className="bg-gradient-to-r from-cyan-300 via-violet-400 to-fuchsia-400 bg-clip-text text-transparent">actionable now?</span>
+    <div className="space-y-5 pb-8 text-slate-100">
+      {/* Header: who / feed status / session clock */}
+      <section className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-black tracking-tight sm:text-3xl">
+              Good {now.getHours() < 12 ? 'morning' : now.getHours() < 18 ? 'afternoon' : 'evening'}, {user?.name || 'Trader'}
             </h1>
-            <p className="mt-3 max-w-2xl text-slate-400">Welcome back, {user?.name || 'Trader'}. Canonical readiness first, with transparent institutional-grade decision support underneath.</p>
+            <StatusBadge state={feedState} />
           </div>
-          <div className="flex flex-wrap gap-3">
-            <button onClick={() => { bwtsApi.clearCache(); load(true); }} disabled={refreshing} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold text-slate-300 transition hover:bg-white/[0.08] disabled:opacity-50">
-              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
-            </button>
-            <Link to="/scanner" className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-5 py-3 text-sm font-black text-[#05070d]"><Radar className="h-4 w-4" /> Open scanner</Link>
-          </div>
+          <p className="mt-1 text-sm text-slate-500">
+            {hasMarketData
+              ? `${analyses.length} markets scanned · ${bullish} leaning buy · ${bearish} leaning sell`
+              : 'Waiting for the first scan to complete.'}
+          </p>
         </div>
-        <div className="relative z-10 mt-7 grid gap-3 border-t border-white/[0.07] pt-5 text-xs sm:grid-cols-2 xl:grid-cols-5">
-          <ContractItem label="Engine" value={contract?.modelVersion || `V${bestAnalysis?.version || '2'}`} />
-          <ContractItem label="Timeframe" value={timeframe || 'Unavailable'} />
-          <ContractItem label="Completed data" value={formatDateTime(marketTimestamp)} />
-          <ContractItem label="Calendar gate" value={calendarStatus} tone={calendarTone(calendarStatus)} />
-          <ContractItem label="Snapshot" value={contract?.id ? contract.id.slice(0, 10) : updatedAt ? 'Legacy fallback' : 'Unavailable'} />
+        <div className="flex flex-col gap-3 sm:items-end">
+          <SessionClock now={now} />
+          <button
+            onClick={() => { bwtsApi.clearCache(); load(true); }}
+            disabled={refreshing}
+            className="flex w-fit items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2 text-xs font-bold text-slate-300 transition hover:bg-white/[0.08] disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
+          </button>
         </div>
       </section>
 
@@ -250,38 +327,94 @@ const Dashboard: React.FC = () => {
         </div>
       )}
 
-      <section className={`rounded-[24px] border p-6 ${planReady ? 'border-emerald-400/20 bg-emerald-400/[0.045]' : 'border-amber-400/20 bg-[#090d18]'}`}>
+      {/* Decision Now */}
+      <section className={`rounded-[24px] border p-6 ${planReady ? 'border-emerald-400/20 bg-emerald-400/[0.045]' : 'border-white/[0.08] bg-[#090d18]'}`}>
         <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
           <div className="max-w-3xl">
-            <div className={`text-[10px] font-black tracking-[0.2em] ${planReady ? 'text-emerald-300' : 'text-amber-300'}`}>DECISION NOW</div>
+            <div className={`text-[10px] font-black tracking-[0.2em] ${planReady ? 'text-emerald-300' : 'text-slate-500'}`}>DECISION NOW</div>
             {!hasMarketData ? (
-              <><h2 className="mt-2 text-2xl font-black">Market intelligence unavailable</h2><p className="mt-2 text-sm text-slate-400">No trustworthy market snapshot is available.</p></>
+              <>
+                <h2 className="mt-2 text-2xl font-black">No market data yet</h2>
+                <p className="mt-2 text-sm text-slate-400">The scanner has not delivered a snapshot. Check that the backend is running, then refresh.</p>
+              </>
             ) : planReady && bestSignal && bestAnalysis && bestPlan ? (
               <>
                 <div className="mt-2 flex flex-wrap items-center gap-3">
                   <h2 className="text-3xl font-black">{bestSignal.pair}</h2>
                   <span className={`rounded-lg px-3 py-1 text-xs font-black ${bestAnalysis.direction === 'BUY' ? 'bg-emerald-400/10 text-emerald-300' : 'bg-rose-400/10 text-rose-300'}`}>{bestAnalysis.direction} · READY</span>
-                  <span className="rounded-lg bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-300">{bestAnalysis.total_score}/100</span>
+                  <span className="rounded-lg bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-300">{bestAnalysis.total_score}/100 confluence</span>
                 </div>
-                <p className="mt-2 text-sm capitalize text-slate-300">{bestAnalysis.scenarios?.primary || 'Qualified V2 setup'}</p>
+                <p className="mt-2 text-sm capitalize text-slate-300">{bestAnalysis.scenarios?.primary || 'Setup passed every entry rule'}</p>
                 <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                  <DecisionPoint label="Entry trigger" value={formatPrice(bestPlan.entry)} />
-                  <DecisionPoint label="Invalidation" value={formatPrice(bestPlan.stop ?? bestPlan.invalidation)} />
+                  <DecisionPoint label="Enter at" value={formatPrice(bestPlan.entry)} />
+                  <DecisionPoint label="Wrong below/above" value={formatPrice(bestPlan.stop ?? bestPlan.invalidation)} />
                   <DecisionPoint label="First target" value={formatPrice(bestPlan.targets?.[0]?.price ?? bestPlan.tp1)} />
                 </div>
               </>
             ) : (
               <>
-                <div className="mt-2 flex flex-wrap items-center gap-3"><h2 className="text-3xl font-black">No Active Setup</h2>{bestSignal && bestAnalysis && <span className="rounded-lg bg-white/[0.05] px-3 py-1 text-xs font-black text-slate-300">Closest: {bestSignal.pair} · {bestAnalysis.total_score}/100</span>}</div>
-                <p className="mt-3 text-sm text-slate-300"><strong className="text-amber-200">Wait for:</strong> {waitReason}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <h2 className="text-3xl font-black">No trade right now</h2>
+                  {bestSignal && bestAnalysis && <span className="rounded-lg bg-white/[0.05] px-3 py-1 text-xs font-black text-slate-300">Closest: {bestSignal.pair} · {bestAnalysis.total_score}/100</span>}
+                </div>
+                <p className="mt-3 text-sm text-slate-300"><strong className="text-amber-200">Waiting for:</strong> {waitReason}</p>
               </>
             )}
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
-            {bestSignal && <Link to="/tradingview" className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-4 py-3 text-xs font-black"><Crosshair className="h-4 w-4" /> Validate chart</Link>}
-            <Link to="/signals" className="flex items-center gap-2 rounded-xl border border-violet-400/20 bg-violet-400/10 px-4 py-3 text-xs font-black text-violet-200">Qualified signals <ArrowRight className="h-4 w-4" /></Link>
+            {bestSignal && <Link to="/tradingview" className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-4 py-3 text-xs font-black"><Crosshair className="h-4 w-4" /> View on chart</Link>}
+            <Link to="/scanner" className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 px-4 py-3 text-xs font-black text-[#05070d]"><Radar className="h-4 w-4" /> Open scanner</Link>
           </div>
         </div>
+      </section>
+
+      {/* Open positions — the trade manager, surfaced */}
+      <section className="rounded-[24px] border border-white/[0.08] bg-[#090d18] p-5 sm:p-6">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[10px] font-black tracking-[0.2em] text-emerald-300">OPEN POSITIONS</div>
+            <h2 className="mt-1 text-xl font-black">
+              {positions.length > 0 ? `${positions.length} trade${positions.length > 1 ? 's' : ''} running` : 'No trades open'}
+            </h2>
+          </div>
+          <div className="flex items-center gap-4">
+            {positions.length > 0 && (
+              <div className={`text-sm font-black ${openPnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                {openPnl >= 0 ? '+' : ''}{openPnl.toFixed(2)} USD
+              </div>
+            )}
+            <Link to="/positions" className="flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-slate-200">
+              Manage <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        </div>
+        {positionsError ? (
+          <div className="rounded-2xl border border-dashed border-white/10 px-5 py-6 text-sm text-slate-500">
+            Position feed unavailable. The execution worker may be offline — open positions still exist at your broker.
+          </div>
+        ) : positions.length === 0 ? (
+          <div className="flex items-center gap-3 rounded-2xl border border-dashed border-white/10 px-5 py-6 text-sm text-slate-500">
+            <Briefcase className="h-5 w-5 shrink-0 text-slate-600" />
+            When the execution worker opens a trade, its size, entry, stop, and live result show here.
+          </div>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {positions.slice(0, 6).map((position) => (
+              <div key={position.id} className="rounded-2xl border border-white/[0.07] bg-black/20 p-4">
+                <div className="flex items-center justify-between">
+                  <span className="font-black">{position.pair}</span>
+                  <span className={`rounded-md px-2 py-0.5 text-[10px] font-black ${position.direction === 'BUY' ? 'bg-emerald-400/10 text-emerald-300' : 'bg-rose-400/10 text-rose-300'}`}>{position.direction}</span>
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
+                  <div><div className="text-slate-600">Size</div><div className="font-mono font-bold text-slate-300">{position.lot_size}</div></div>
+                  <div><div className="text-slate-600">Entry</div><div className="font-mono font-bold text-slate-300">{formatPrice(position.entry)}</div></div>
+                  <div><div className="text-slate-600">Stop</div><div className="font-mono font-bold text-slate-300">{formatPrice(position.stop_loss)}</div></div>
+                </div>
+                {position.half_closed > 0 && <div className="mt-2 text-[10px] font-bold text-cyan-300">TP1 banked · stop at breakeven</div>}
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       {bestAnalysis && (
@@ -293,15 +426,18 @@ const Dashboard: React.FC = () => {
       )}
 
       <section className="grid gap-4 md:grid-cols-3">
-        <IntelCard icon={Zap} label="Actionable setups" value={hasMarketData ? String(actionable.length) : 'Unavailable'} detail={hasMarketData ? `${analyses.length} markets evaluated` : 'No trustworthy snapshot'} color="emerald" />
-        <IntelCard icon={Gauge} label="Markets being watched" value={hasMarketData ? String(watching.length) : 'Unavailable'} detail={hasMarketData ? `Average ${averageScore}/100 · ${bullish} buy · ${bearish} sell` : 'No score or bias inferred'} color="cyan" />
-        <IntelCard icon={CalendarClock} label="Calendar risk" value={calendarStatus} detail={calendarRisk?.next_event ? `${calendarRisk.next_event.title}${calendarRisk.minutes_to_event !== null ? ` in ${calendarRisk.minutes_to_event}m` : ''}` : 'Deterministic gate status'} color="violet" />
+        <IntelCard icon={Zap} label="Ready to trade" value={hasMarketData ? String(actionable.length) : 'Unavailable'} detail={hasMarketData ? 'Setups that passed every entry rule' : 'No trustworthy snapshot'} color="emerald" />
+        <IntelCard icon={Gauge} label="Building up" value={hasMarketData ? String(watching.length) : 'Unavailable'} detail={hasMarketData ? 'Markets partway to qualifying' : 'No score or bias inferred'} color="cyan" />
+        <IntelCard icon={CalendarClock} label="News risk" value={calendarStatus} detail={calendarRisk?.next_event ? `${calendarRisk.next_event.title}${calendarRisk.minutes_to_event !== null ? ` in ${calendarRisk.minutes_to_event}m` : ''}` : 'High-impact events pause trading automatically'} color="violet" />
       </section>
 
       <section className="rounded-[24px] border border-white/[0.08] bg-[#090d18] p-5 sm:p-6">
         <div className="mb-5 flex items-center justify-between gap-3">
-          <div><div className="text-[10px] font-black tracking-[0.2em] text-cyan-300">CURRENT WATCHLIST</div><h2 className="mt-1 text-xl font-black">Markets closest to qualification</h2></div>
-          <Link to="/scanner" className="flex items-center gap-1 text-xs font-bold text-slate-400">View all markets <ArrowRight className="h-3.5 w-3.5" /></Link>
+          <div>
+            <div className="text-[10px] font-black tracking-[0.2em] text-cyan-300">WATCHLIST</div>
+            <h2 className="mt-1 text-xl font-black">Closest to a trade</h2>
+          </div>
+          <Link to="/scanner" className="flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-slate-200">All markets <ArrowRight className="h-3.5 w-3.5" /></Link>
         </div>
         <div className="space-y-3">
           {rankedSignals.slice(0, 5).map((signal, index) => (
@@ -313,9 +449,11 @@ const Dashboard: React.FC = () => {
       </section>
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-1 text-[11px] text-slate-600">
-        <span className="flex items-center gap-2"><Clock3 className="h-3.5 w-3.5" />Last successful refresh: {updatedAt ? updatedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'Unavailable'}</span>
-        <span>{config ? `${config.scan_interval_seconds}s scan cycle` : 'Scan cadence unavailable'}</span>
-        <span>Read-only market intelligence. No broker execution.</span>
+        <span className="flex items-center gap-2"><Clock3 className="h-3.5 w-3.5" />Refreshed {updatedAt ? updatedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'never'}</span>
+        <span>Data as of {formatDateTime(marketTimestamp)}</span>
+        <span>{config ? `Scans every ${Math.round(config.scan_interval_seconds / 60)} min` : ''}</span>
+        <span>Engine {contract?.modelVersion || `V${bestAnalysis?.version || '2'}`}{contract?.id ? ` · ${contract.id.slice(0, 10)}` : ''}</span>
+        <span>Decision support only — not financial advice.</span>
       </div>
     </div>
   );
@@ -329,14 +467,10 @@ const statusStyles: Record<FeedState, string> = {
 };
 
 const StatusBadge: React.FC<{ state: FeedState }> = ({ state }) => (
-  <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-black tracking-[0.2em] ${statusStyles[state]}`}>
-    {state === 'LIVE' ? <CheckCircle2 className="h-3.5 w-3.5" /> : state === 'CONNECTING' ? <Activity className="h-3.5 w-3.5 animate-pulse" /> : <AlertTriangle className="h-3.5 w-3.5" />}
-    INTELLIGENCE FEED · {state}
+  <div className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[9px] font-black tracking-[0.18em] ${statusStyles[state]}`}>
+    {state === 'LIVE' ? <CheckCircle2 className="h-3 w-3" /> : state === 'CONNECTING' ? <Activity className="h-3 w-3 animate-pulse" /> : <AlertTriangle className="h-3 w-3" />}
+    {state}
   </div>
-);
-
-const ContractItem: React.FC<{ label: string; value: string; tone?: string }> = ({ label, value, tone = 'text-slate-300' }) => (
-  <div className="rounded-xl bg-black/20 px-3 py-2.5"><div className="text-[8px] font-black uppercase tracking-[0.16em] text-slate-600">{label}</div><div className={`mt-1 truncate font-bold ${tone}`}>{value}</div></div>
 );
 
 const DecisionPoint: React.FC<{ label: string; value: string }> = ({ label, value }) => (
@@ -355,19 +489,11 @@ const IntelCard: React.FC<{ icon: React.ElementType; label: string; value: strin
 
 const formatDateTime = (date: Date | null) => date && !Number.isNaN(date.getTime())
   ? date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-  : 'Unavailable';
+  : 'unavailable';
 
 const formatPrice = (value: number | null | undefined) => {
   if (value === null || value === undefined || !Number.isFinite(value)) return 'Unavailable';
   return value >= 100 ? value.toFixed(2) : value.toFixed(5);
 };
-
-const calendarTone = (status: string) => status === 'CLEAR'
-  ? 'text-emerald-300'
-  : status === 'CAUTION' || status === 'CHECKING'
-    ? 'text-amber-300'
-    : status === 'BLOCKED' || status === 'POST_NEWS'
-      ? 'text-rose-300'
-      : 'text-slate-400';
 
 export default Dashboard;

@@ -2,8 +2,8 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import ConfluenceXLogo from './ConfluenceXLogo';
 import {
-  Activity, BarChart3, BookOpen, Calendar, ChevronLeft, ChevronRight,
-  FlaskConical, LayoutDashboard, Zap, Newspaper,
+  Activity, BarChart3, BookOpen, Briefcase, ChevronLeft, ChevronRight,
+  FlaskConical, History, LayoutDashboard, LineChart, Newspaper, Settings as SettingsIcon, Zap,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -11,21 +11,61 @@ interface SidebarProps {
   onToggle: () => void;
 }
 
-const navigation = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Live Scanner', href: '/scanner', icon: Activity },
-  { name: 'Signals', href: '/signals', icon: Zap },
-  { name: 'Chart', href: '/tradingview', icon: BarChart3 },
-  { name: 'Validation', href: '/backtester', icon: FlaskConical },
-  { name: 'Economic News', href: '/calendar', icon: Newspaper },
-  { name: 'Journal', href: '/journal', icon: BookOpen },
+type NavItem = { name: string; href: string; icon: React.ElementType };
+type NavGroup = { label: string; items: NavItem[] };
+
+const groups: NavGroup[] = [
+  {
+    label: 'Trade',
+    items: [
+      { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+      { name: 'Signals', href: '/signals', icon: Zap },
+      { name: 'Positions', href: '/positions', icon: Briefcase },
+      { name: 'Trade History', href: '/trades', icon: History },
+    ],
+  },
+  {
+    label: 'Analyze',
+    items: [
+      { name: 'Live Scanner', href: '/scanner', icon: Activity },
+      { name: 'Chart', href: '/tradingview', icon: BarChart3 },
+      { name: 'Economic News', href: '/calendar', icon: Newspaper },
+    ],
+  },
+  {
+    label: 'Track',
+    items: [
+      { name: 'Performance', href: '/performance', icon: LineChart },
+      { name: 'Journal', href: '/journal', icon: BookOpen },
+      { name: 'Backtest & Accuracy', href: '/backtester', icon: FlaskConical },
+    ],
+  },
 ];
 
 const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
   const location = useLocation();
 
+  const renderItem = (item: NavItem) => {
+    const isActive = location.pathname === item.href;
+    return (
+      <Link
+        key={item.name}
+        to={item.href}
+        title={collapsed ? item.name : undefined}
+        className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all duration-200 ${
+          isActive
+            ? 'bg-gradient-to-r from-cyan-400/15 to-violet-500/15 text-cyan-300'
+            : 'text-gray-400 hover:bg-white/[0.06] hover:text-gray-200'
+        } ${collapsed ? 'justify-center px-2' : ''}`}
+      >
+        <item.icon className={`h-5 w-5 shrink-0 ${isActive ? 'text-cyan-300' : 'text-gray-500 group-hover:text-gray-300'}`} />
+        {!collapsed && <span className="truncate">{item.name}</span>}
+      </Link>
+    );
+  };
+
   return (
-    <div className={`fixed left-0 top-0 z-40 h-full border-r border-gray-700/50 backdrop-blur-xl glass-dark transition-all duration-300 ${collapsed ? 'w-16' : 'w-72'}`}>
+    <div className={`fixed left-0 top-0 z-40 flex h-full flex-col border-r border-gray-700/50 backdrop-blur-xl glass-dark transition-all duration-300 ${collapsed ? 'w-16' : 'w-72'}`}>
       <div className={`${collapsed ? 'flex flex-col items-center gap-1 p-2' : 'flex items-center justify-between p-4'} border-b border-gray-700/50`}>
         <ConfluenceXLogo compact={collapsed} size={collapsed ? 'sm' : 'md'} showTagline={!collapsed} />
         <button onClick={onToggle} className="rounded-xl p-2 transition-all duration-200 hover:bg-white/10" title={collapsed ? 'Expand navigation' : 'Collapse navigation'}>
@@ -33,32 +73,20 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
         </button>
       </div>
 
-      <nav className="mt-6 px-3">
-        {!collapsed && <h3 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Intelligence workflow</h3>}
-        {navigation.map((item) => {
-          const isActive = location.pathname === item.href;
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.name}
-              to={item.href}
-              title={collapsed ? item.name : undefined}
-              className={`group relative mb-1 flex items-center rounded-xl px-3 py-3 text-sm font-medium transition-all duration-200 ${isActive ? 'bg-gradient-to-r from-cyan-500 to-violet-500 text-white shadow-lg shadow-cyan-500/20' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}
-            >
-              <Icon className={`h-5 w-5 ${collapsed ? '' : 'mr-3'} ${isActive ? 'text-white' : 'group-hover:text-cyan-400'}`} />
-              {!collapsed && <span>{item.name}</span>}
-              {collapsed && isActive && <div className="absolute right-2 h-1.5 w-1.5 rounded-full bg-white" />}
-            </Link>
-          );
-        })}
+      <nav className="mt-4 flex-1 space-y-5 overflow-y-auto px-3 pb-4">
+        {groups.map((group) => (
+          <div key={group.label}>
+            {!collapsed && (
+              <h3 className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-gray-600">{group.label}</h3>
+            )}
+            <div className="space-y-1">{group.items.map(renderItem)}</div>
+          </div>
+        ))}
       </nav>
 
-      {!collapsed && (
-        <div className="absolute bottom-5 left-4 right-4 rounded-xl border border-cyan-400/10 bg-cyan-400/[0.04] p-3 text-[10px] leading-relaxed text-slate-500">
-          <strong className="block font-black uppercase tracking-widest text-cyan-300">Decision support only</strong>
-          No broker connections or order execution.
-        </div>
-      )}
+      <div className="border-t border-gray-700/50 p-3">
+        {renderItem({ name: 'Settings', href: '/settings', icon: SettingsIcon })}
+      </div>
     </div>
   );
 };
