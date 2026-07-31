@@ -50,6 +50,11 @@ SYMBOL_MAP: Dict[str, str] = {
 
 # (interval, outputsize) per timeframe — sized to give modules enough history.
 TF_MAP: Dict[str, tuple[str, int]] = {
+    # Higher timeframes feed the monthly/weekly/daily S/R overlays. Monthly
+    # history is capped lower because most symbols simply do not have 250
+    # months of data.
+    "MN1": ("1month", 120),
+    "W1":  ("1week", 250),
     "D1":  ("1day", 250),   # 200+ bars for EMA200 in HTF bias
     "H4":  ("4h",   250),
     "H1":  ("1h",   250),
@@ -62,6 +67,8 @@ TF_MAP: Dict[str, tuple[str, int]] = {
 # have rolled, so a 5-minute scan cadence does not multiply API usage.
 # At these TTLs, 8 FX pairs on D1/H4/H1 cost ~34 calls/day/pair (~270/day).
 TF_CACHE_TTL: Dict[str, int] = {
+    "MN1": 24 * 3600,
+    "W1":  12 * 3600,
     "D1":  6 * 3600,
     "H4":  4 * 3600,
     "H1":      3600,

@@ -75,6 +75,16 @@ interface TradeLockerHistoryCandle {
 }
 
 type ChartType = 'candlestick' | 'line' | 'area';
+
+// Higher-timeframe support/resistance drawn beneath the working timeframe, so
+// an intraday chart still shows where the monthly and weekly levels sit.
+type HtfLevel = {
+  timeframe: 'monthly' | 'weekly' | 'daily';
+  type: 'support' | 'resistance';
+  level: number;
+  strengthScore: number;
+  distanceAtr: number;
+};
 type DrawingTool = 'pan' | 'select' | 'trend' | 'horizontal' | 'sr' | 'rectangle' | 'fib' | 'text';
 type DrawingPoint = { time: number; price: number };
 type ManualDrawing = { id: string; type: Exclude<DrawingTool, 'select' | 'pan'>; points: DrawingPoint[]; text?: string; color?: string; locked?: boolean; lineStyle?: 'solid' | 'dashed'; showPrice?: boolean };
@@ -133,6 +143,7 @@ const TradingView: React.FC = () => {
   const harmonicSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
   const adrSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
   const trendSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
+  const htfSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
   const v2LevelSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
   const candleCacheRef = useRef<Record<string, CandlestickData[]>>({});
   const loadedChartKeyRef = useRef('');
@@ -183,6 +194,8 @@ const TradingView: React.FC = () => {
   const [drawingRevision, setDrawingRevision] = useState(0);
   const [drawingColor, setDrawingColor] = useState('#22d3ee');
   const [magnetDrawing, setMagnetDrawing] = useState(true);
+  const [htfLevels, setHtfLevels] = useState<HtfLevel[]>([]);
+  const [showHtfLevels, setShowHtfLevels] = useState(true);
   // Chart lifecycle/feedback. Without these the page had no way to report a
   // failed init (blank panel forever) or an in-flight symbol switch (frozen
   // stale chart that reads as a hang).
@@ -407,6 +420,30 @@ const TradingView: React.FC = () => {
       .map(normalizeHistoryCandle)
       .filter((candle): candle is CandlestickData => candle !== null)
       .sort((a, b) => a.time - b.time);
+  }, []);
+
+  const fetchBwtsHtfLevels = useCallback(async (symbol: string): Promise<HtfLevel[]> => {
+    const params = new URLSearchParams({ pair: symbol });
+    const API_BASE = import.meta.env.VITE_BWTS_API_URL || import.meta.env.VITE_API_URL || '';
+    const response = await fetch(`${API_BASE}/api/htf-levels?${params.toString()}`);
+    if (!response.ok) throw new Error(`Failed to fetch HTF levels: ${response.status}`);
+    const payload = await response.json();
+    const groups = payload?.timeframes || {};
+    const out: HtfLevel[] = [];
+    (['monthly', 'weekly', 'daily'] as const).forEach((tf) => {
+      (Array.isArray(groups[tf]) ? groups[tf] : []).forEach((zone: any) => {
+        const level = Number(zone.level);
+        if (!Number.isFinite(level)) return;
+        out.push({
+          timeframe: tf,
+          type: zone.type === 'resistance' ? 'resistance' : 'support',
+          level,
+          strengthScore: Number(zone.strength_score) || 0,
+          distanceAtr: Number(zone.distance_atr) || 0,
+        });
+      });
+    });
+    return out;
   }, []);
 
   // Trendlines come from the scanner alongside harmonics. The previous source
@@ -684,6 +721,7 @@ const TradingView: React.FC = () => {
     setFibonacciLevels([]);
     setCryptoAnalysis(null);
     setAdrData(null);
+    setHtfLevels([]);
     // loadSymbolData previously ran only on mount and on an explicit symbol
     // pick, so trendlines and fibonacci were never recomputed for a new
     // timeframe — the chart kept 1h levels while displaying 15m candles.
@@ -1108,6 +1146,62 @@ const TradingView: React.FC = () => {
       removeOverlay();
     };
   }, [chartRevision, harmonicPatterns, showHarmonics, cryptoAnalysis]);
+
+  // Monthly / weekly / daily support and resistance.
+  useEffect(() => {
+    let active = true;
+    if (!showHtfLevels) { setHtfLevels([]); return; }
+    fetchBwtsHtfLevels(selectedSymbol)
+      .then((levels) => { if (active) setHtfLevels(levels); })
+      .catch((error) => { console.warn('HTF levels unavailable:', error); if (active) setHtfLevels([]); });
+    return () => { active = false; };
+  }, [fetchBwtsHtfLevels, selectedSymbol, showHtfLevels]);
+
+  const HTF_STYLE = {
+    monthly: { color: '#a855f7', width: 3, label: 'M' },
+    weekly:  { color: '#38bdf8', width: 2, label: 'W' },
+    daily:   { color: '#94a3b8', width: 1, label: 'D' },
+  } as const;
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    for (const series of htfSeriesRefs.current) {
+      try { chart.removeSeries(series); } catch { /* chart was rebuilt */ }
+    }
+    htfSeriesRefs.current = [];
+    if (!showHtfLevels || htfLevels.length === 0) return;
+
+    const candles = candleCacheRef.current[`${selectedSymbol}:${timeframe}`] || [];
+    if (candles.length === 0) return;
+    const start = Number(candles[0].time) as UTCTimestamp;
+    const end = Number(candles[candles.length - 1].time) as UTCTimestamp;
+
+    // Nearest levels only. Every level is a line and an axis tag, and the far
+    // ones are not decision-relevant on an intraday chart.
+    const perTimeframe: Record<string, number> = { monthly: 0, weekly: 0, daily: 0 };
+    const limits: Record<string, number> = { monthly: 3, weekly: 3, daily: 2 };
+    const ordered = [...htfLevels].sort((a, b) => a.distanceAtr - b.distanceAtr);
+
+    for (const item of ordered) {
+      if (perTimeframe[item.timeframe] >= limits[item.timeframe]) continue;
+      perTimeframe[item.timeframe] += 1;
+      const style = HTF_STYLE[item.timeframe];
+      const series = chart.addSeries(LineSeries, {
+        color: style.color,
+        lineWidth: style.width as any,
+        lineStyle: item.type === 'resistance' ? LineStyle.Solid : LineStyle.Dashed,
+        title: `${style.label} ${item.type === 'support' ? 'S' : 'R'}`,
+        priceLineVisible: false,
+        lastValueVisible: true,
+      });
+      series.setData([
+        { time: start, value: item.level },
+        { time: end, value: item.level },
+      ]);
+      htfSeriesRefs.current.push(series);
+    }
+  }, [htfLevels, showHtfLevels, chartRevision, selectedSymbol, timeframe]);
 
   // ADR(14) high, low, and day-open reference lines.
   useEffect(() => {
@@ -1810,6 +1904,21 @@ const TradingView: React.FC = () => {
                 className="rounded border-gray-600 text-cyan-500 focus:ring-cyan-500"
               />
               <span className="text-sm text-white">Support / Resistance</span>
+            </label>
+
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={showHtfLevels}
+                onChange={(e) => setShowHtfLevels(e.target.checked)}
+                className="rounded border-gray-600 text-cyan-500 focus:ring-cyan-500"
+              />
+              <span className="text-sm text-white">Monthly / Weekly / Daily S&amp;R</span>
+              {htfLevels.length > 0 && (
+                <span className="rounded bg-violet-400/15 px-1.5 text-[10px] font-black text-violet-300">
+                  {htfLevels.length}
+                </span>
+              )}
             </label>
 
             <label className="flex items-center space-x-2">

@@ -385,6 +385,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 return self._backtest_v2(query)
             if path == "/api/candles":
                 return self._candles(query)
+            if path == "/api/htf-levels":
+                return self._htf_levels(query)
             if path == "/api/harmonics":
                 return self._harmonics(query)
             if path == "/api/adr":
@@ -986,6 +988,65 @@ class _ApiHandler(BaseHTTPRequestHandler):
             "candles": rows, "count": len(rows),
         }
         self._cache_set(cache_key, body, ttl=15, stale_ttl=120)
+        self._json(200, body)
+
+    def _htf_levels(self, query: dict) -> None:
+        """Monthly, weekly and daily support/resistance for the chart.
+
+        Reuses the same clustering the primary analysis uses, run against
+        higher-timeframe candles. Each timeframe degrades independently: a
+        symbol with no monthly history still returns weekly and daily.
+        """
+        client = _STATE.market_client
+        if client is None:
+            return self._error(503, "market data client not configured")
+        pair = str(query.get("pair") or query.get("symbol") or "").upper()
+        if not pair:
+            return self._error(400, "pair is required")
+
+        cache_key = f"htf_levels:{pair}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return self._json(200, cached)
+
+        from .crypto_analysis import _cluster_support_resistance
+        from .indicators import atr as _atr
+
+        timeframes = (("MN1", "monthly"), ("W1", "weekly"), ("D1", "daily"))
+        body = {"pair": pair, "timeframes": {}, "unavailable": []}
+        price = None
+        for tf, label in timeframes:
+            try:
+                candles = client.fetch_candles(pair, tf)
+            except Exception as exc:
+                # One timeframe missing must not lose the other two.
+                logging.info("HTF levels: %s unavailable for %s (%s)", tf, pair, exc)
+                body["unavailable"].append({"timeframe": label, "reason": str(exc)})
+                continue
+            if not candles or len(candles) < 12:
+                body["unavailable"].append({"timeframe": label, "reason": "insufficient history"})
+                continue
+            if price is None:
+                price = float(candles[-1].close)
+            atr_value = _atr(list(candles)) if len(candles) >= 16 else None
+            zones = _cluster_support_resistance(candles, price, atr_value)
+            body["timeframes"][label] = [
+                {
+                    "timeframe": label,
+                    "type": zone["type"],
+                    "level": zone["level"],
+                    "low": zone["low"],
+                    "high": zone["high"],
+                    "strength": zone["strength"],
+                    "strength_score": zone["strength_score"],
+                    "touches": zone["touches"],
+                    "distance_atr": zone["distance_atr"],
+                }
+                for zone in zones[:6]
+            ]
+        body["price"] = price
+        # HTF levels move slowly; a long TTL keeps this off the provider budget.
+        self._cache_set(cache_key, body, ttl=900, stale_ttl=3600)
         self._json(200, body)
 
     def _harmonics(self, query: dict) -> None:
@@ -1715,6 +1776,7 @@ def _timeframe_alias(value: str) -> Optional[str]:
         "4h": "H4", "h4": "H4",
         "1d": "D1", "d1": "D1",
         "1w": "W1", "w1": "W1",
+        "1mn": "MN1", "mn1": "MN1", "1month": "MN1", "monthly": "MN1",
     }.get(value.lower())
 
 
