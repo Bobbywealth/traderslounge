@@ -58,6 +58,93 @@ def build_technical_assessment(*, bars, frames, trends, indicators, zones, direc
     }
 
 
+_DIRECTIONAL_CATEGORIES = ("structure", "trend", "momentum", "moving_averages", "relative_strength")
+
+
+def _number(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number == number else None  # reject NaN
+
+
+def _scenario_split(
+    analysis: dict[str, Any],
+    direction: str,
+    score: int,
+    calendar: str,
+    issues: list,
+    opposing: list,
+) -> tuple[int, int, int]:
+    """Split 100 across bull/base/bear from evidence specific to this market.
+
+    The previous formula read only `direction` and `total_score`, so any two
+    pairs sharing those produced identical weights — and every NEUTRAL pair
+    returned a literal 33/34/33 no matter what the market was doing. These are
+    still deterministic rule-based weights, never calibrated probabilities, but
+    they now move with per-pair evidence that the analysis already computes.
+    """
+    context = analysis.get("market_context") or {}
+    frames = context.get("timeframes") or {}
+    indicators = analysis.get("indicators") or {}
+    categories = analysis.get("category_breakdown") or {}
+    quality = analysis.get("data_quality") or {}
+    regime = (analysis.get("trade_timing") or {}).get("regime") or {}
+
+    # --- Directional tilt in [-1, +1], from real per-pair evidence ----------
+    votes = []
+    for name, weight in (("mn1", 1.5), ("w1", 1.3), ("d1", 1.1), ("h4", 0.9), ("h1", 0.7)):
+        trend = str((frames.get(name) or {}).get("trend") or "neutral")
+        if trend == "bullish":
+            votes.append(weight)
+        elif trend == "bearish":
+            votes.append(-weight)
+    trend_tilt = sum(votes) / 5.5 if votes else 0.0  # 5.5 = sum of weights
+
+    strength = _number(indicators.get("directional_strength")) or 0.0
+    strength_tilt = max(-1.0, min(1.0, strength / 100.0))
+
+    # Confluence that only accrues in the signalled direction.
+    directional_points = sum(_number(categories.get(key)) or 0.0 for key in _DIRECTIONAL_CATEGORIES)
+    conviction = max(0.0, min(1.0, directional_points / 45.0))
+    sign = 1.0 if direction == "BUY" else -1.0 if direction == "SELL" else 0.0
+    conviction_tilt = sign * conviction
+
+    tilt = max(-1.0, min(1.0, 0.40 * trend_tilt + 0.25 * strength_tilt + 0.35 * conviction_tilt))
+
+    # --- Uncertainty in [0, 1] drives how much mass the base case holds -----
+    uncertainty = 0.0
+    uncertainty += min(0.30, 0.10 * len(opposing))          # conflicting higher timeframes
+    uncertainty += 0.15 if issues else 0.0                  # known data gaps
+    uncertainty += 0.10 if regime.get("unstable_volatility") else 0.0
+    uncertainty += 0.10 if calendar in {"BLOCKED", "POST_NEWS", "UNAVAILABLE"} else 0.0
+    uncertainty += 0.20 * (1.0 - max(0.0, min(1.0, score / 100.0)))
+    coverage = _number(quality.get("coverage"))
+    if coverage is not None and coverage < 100:
+        uncertainty += 0.15 * (1.0 - max(0.0, min(1.0, coverage / 100.0)))
+    # No directional edge is itself uncertainty: a market with no trend on any
+    # frame belongs mostly in the base case, not split evenly across the tails.
+    uncertainty += 0.25 * (1.0 - abs(tilt))
+    uncertainty = max(0.0, min(1.0, uncertainty))
+
+    base = 15.0 + 50.0 * uncertainty          # 15 when everything agrees, 65 when nothing does
+    directional_mass = 100.0 - base
+
+    # Never publish a near-zero tail. Price can always go the other way, and a
+    # 2-3% bear weight on a leveraged product reads as certainty we do not have.
+    # Bounding the tilt keeps the floor exact and the split summing to 100.
+    floor = 8.0
+    max_tilt = max(0.0, 1.0 - 2.0 * floor / directional_mass)
+    tilt = max(-max_tilt, min(max_tilt, tilt))
+
+    bullish = directional_mass * (0.5 + 0.5 * tilt)
+    bearish = directional_mass * (0.5 - 0.5 * tilt)
+
+    bull_i, bear_i = round(bullish), round(bearish)
+    return int(bull_i), int(bear_i), int(100 - bull_i - bear_i)
+
+
 def enrich_with_plan(analysis: dict[str, Any]) -> dict[str, Any]:
     """Add scenarios, horizon plans, risk score, and executive summary."""
     institutional = analysis.setdefault("institutional_analysis", {})
@@ -75,16 +162,7 @@ def enrich_with_plan(analysis: dict[str, Any]) -> dict[str, Any]:
     risk_points += 1 if (analysis.get("trade_timing") or {}).get("regime", {}).get("unstable_volatility") else 0
     risk_score = max(1, min(10, risk_points))
 
-    bullish = 50 + (score - 50) * .6 if direction == "BUY" else 28 - max(0, score - 50) * .25 if direction == "SELL" else 33
-    bearish = 50 + (score - 50) * .6 if direction == "SELL" else 28 - max(0, score - 50) * .25 if direction == "BUY" else 33
-    if calendar in {"BLOCKED", "POST_NEWS", "UNAVAILABLE"}:
-        bullish *= .8; bearish *= .8
-    bullish = max(10, min(75, round(bullish)))
-    bearish = max(10, min(75, round(bearish)))
-    base = max(10, 100 - bullish - bearish)
-    total = bullish + bearish + base
-    bullish, bearish = round(bullish / total * 100), round(bearish / total * 100)
-    base = 100 - bullish - bearish
+    bullish, bearish, base = _scenario_split(analysis, direction, score, calendar, issues, opposing)
 
     institutional["scenario_analysis"] = {
         "label": "Scenario Weights",
