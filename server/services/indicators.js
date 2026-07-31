@@ -54,18 +54,22 @@ export function rsi(closes, period = 14) {
 // Average Daily Range over the last `lookback` complete daily bars.
 // Returns { adr, dayOpen, dayHigh, dayLow, currentRange, percentUsed,
 //           adrHigh, adrLow, nearAdrHigh, nearAdrLow }.
-export function calculateAdr(dailyBars, lookback = 20) {
+export function calculateAdr(dailyBars, lookback = 14) {
   if (!dailyBars || dailyBars.length < lookback + 1) return null;
-  const completed = dailyBars.slice(-lookback - 1, -1); // last N completed days
-  const ranges = completed.map((b) => b.high - b.low);
+  // Flat bars are holidays/feed gaps, not zero-range trading days.
+  const ranges = dailyBars
+    .slice(0, -1)
+    .map((b) => b.high - b.low)
+    .filter((r) => r > 0)
+    .slice(-lookback);
+  if (ranges.length < lookback) return null;
   const adr = ranges.reduce((a, b) => a + b, 0) / ranges.length;
   const today = dailyBars[dailyBars.length - 1];
   const currentRange = today.high - today.low;
   const percentUsed = adr > 0 ? (currentRange / adr) * 100 : 0;
-  const adrHigh = today.open + adr / 2;
-  const adrLow = today.open - adr / 2;
-  const distToHigh = Math.abs(today.close - today.high);
-  const distToLow = Math.abs(today.close - today.low);
+  // Standard ADR projection, measured from the extreme already printed.
+  const adrHigh = today.low + adr;
+  const adrLow = today.high - adr;
   const tolerance = adr * 0.15;
   return {
     adr,
@@ -76,8 +80,8 @@ export function calculateAdr(dailyBars, lookback = 20) {
     percentUsed,
     adrHigh,
     adrLow,
-    nearAdrHigh: today.close >= today.high - tolerance || today.close >= adrHigh,
-    nearAdrLow: today.close <= today.low + tolerance || today.close <= adrLow,
+    nearAdrHigh: today.close >= adrHigh - tolerance,
+    nearAdrLow: today.close <= adrLow + tolerance,
     exhausted: percentUsed >= 80,
   };
 }

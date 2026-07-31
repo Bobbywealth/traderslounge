@@ -372,12 +372,12 @@ def _daily_range(snapshot: MarketSnapshot, entry: float) -> dict:
     daily = snapshot.d1
     if len(daily) < 15:
         return {"average_range": None, "used": None, "remaining_up": None, "remaining_down": None}
-    completed = [c.high - c.low for c in daily[-15:-1]]
+    completed = [c.high - c.low for c in daily[-15:-1] if c.high > c.low]
     average = mean(completed) if completed else 0.0
     today = daily[-1]
     used = today.high - today.low
-    projected_high = today.open + average / 2
-    projected_low = today.open - average / 2
+    projected_high = today.low + average
+    projected_low = today.high - average
     return {
         "average_range": average,
         "used": used,
