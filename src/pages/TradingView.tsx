@@ -37,6 +37,7 @@ import ConfluenceXLogo from '../components/ConfluenceXLogo';
 import ChartAiAnalysisPanel from '../components/ChartAiAnalysisPanel';
 import TradeSetupPanel from '../components/TradeSetupPanel';
 import TradeExamplesPanel from '../components/TradeExamplesPanel';
+import TradeValidationPanel from '../components/TradeValidationPanel';
 import { bwtsApi, type ChartAiAnalysis, type CryptoAnalysis } from '../services/bwtsApi';
 import { useCandles } from '../features/chart/useCandles';
 import { useBinanceStream } from '../features/chart/useBinanceStream';
@@ -941,6 +942,12 @@ const TradingView: React.FC = () => {
           <span>Alignment <b className="text-slate-200">{cryptoAnalysis.market_context.alignment_score}%</b></span>
           <span className={`ml-auto rounded px-2 py-1 ${cryptoAnalysis.trade_timing?.status === 'READY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.trade_timing?.status === 'AVOID' ? 'bg-rose-400/10 text-rose-300' : 'bg-amber-400/10 text-amber-300'}`}>TIMING {cryptoAnalysis.trade_timing?.status || 'WAIT'}</span>
           {(cryptoAnalysis.trade_timing?.status === 'AVOID' ? cryptoAnalysis.trade_timing.avoid_reasons?.[0] : cryptoAnalysis.trade_timing?.wait_for?.[0]) && <span className="normal-case tracking-normal text-slate-500">{cryptoAnalysis.trade_timing.status === 'AVOID' ? 'Avoid: ' : 'Wait: '}{String(cryptoAnalysis.trade_timing.status === 'AVOID' ? cryptoAnalysis.trade_timing.avoid_reasons?.[0] : cryptoAnalysis.trade_timing.wait_for[0]).replace(/_/g, ' ')}</span>}
+        </div>
+      )}
+
+      {cryptoAnalysis && (
+        <div className="border-b border-slate-500/15 bg-[#050a0f] px-4 py-3">
+          <TradeValidationPanel analysis={cryptoAnalysis} currentPrice={currentPrice} />
         </div>
       )}
 
