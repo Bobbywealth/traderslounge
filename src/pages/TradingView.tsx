@@ -27,13 +27,18 @@ import {
   Copy,
   Magnet,
   Tag,
-  Hand
+  Hand,
+  ChevronRight,
+  ChevronLeft
 } from 'lucide-react';
 import { liveDataService, HarmonicPattern, TrendLine, FibonacciLevel } from '../services/liveDataService';
 import { tradeLockerService, TradeLockerConfig } from '../services/tradeLockerService';
 import { tradeLockerApi, LEGACY_API_BASE_URL } from '../services/apiService';
 import ConfluenceXLogo from '../components/ConfluenceXLogo';
 import ChartAiAnalysisPanel from '../components/ChartAiAnalysisPanel';
+import TradeSetupPanel from '../components/TradeSetupPanel';
+import TradeExamplesPanel from '../components/TradeExamplesPanel';
+import TradeValidationPanel from '../components/TradeValidationPanel';
 import { bwtsApi, type ChartAiAnalysis, type CryptoAnalysis } from '../services/bwtsApi';
 import { useCandles } from '../features/chart/useCandles';
 import { useBinanceStream } from '../features/chart/useBinanceStream';
@@ -214,6 +219,10 @@ const TradingView: React.FC = () => {
   const [drawingRailCollapsed, setDrawingRailCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [setupPanelExpanded, setSetupPanelExpanded] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [activeTab, setActiveTab] = useState<'setup' | 'examples'>('setup');
+  const [examplesPanelExpanded, setExamplesPanelExpanded] = useState(true);
 
   const normalizeHistoryCandle = (candle: TradeLockerHistoryCandle | (number | string)[]): CandlestickData | null => {
     const isTuple = Array.isArray(candle);
@@ -994,6 +1003,18 @@ const TradingView: React.FC = () => {
 
   return (
     <div ref={workspaceRef} className="relative h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 text-white flex flex-col">
+      {/* Sidebar Toggle */}
+      <button
+        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+        className="absolute right-0 top-32 z-35 p-2 bg-gray-800/80 hover:bg-gray-700 rounded-l transition-colors"
+        title={sidebarCollapsed ? 'Open sidebar' : 'Close sidebar'}
+      >
+        {sidebarCollapsed ? (
+          <ChevronLeft className="w-4 h-4 text-gray-400" />
+        ) : (
+          <ChevronRight className="w-4 h-4 text-gray-400" />
+        )}
+      </button>
       {/* Enhanced Top Controls */}
       <div className="relative bg-gray-800 border-b border-gray-700 px-4 py-3">
         <div className="flex items-center justify-between">
@@ -1327,6 +1348,12 @@ const TradingView: React.FC = () => {
         </div>
       )}
 
+      {cryptoAnalysis && (
+        <div className="border-b border-slate-500/15 bg-[#050a0f] px-4 py-3">
+          <TradeValidationPanel analysis={cryptoAnalysis} currentPrice={currentPrice} />
+        </div>
+      )}
+
       {cryptoAnalysis?.trade_plan && <div className="flex flex-wrap items-center gap-4 border-b border-emerald-500/15 bg-[#091611] px-4 py-2 text-[11px] text-slate-300">
         <span className="font-black tracking-wider text-emerald-300">POSSIBLE SETUP</span>
         <span className={cryptoAnalysis.trade_plan.direction === 'BUY' ? 'text-emerald-300' : cryptoAnalysis.trade_plan.direction === 'SELL' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.trade_plan.direction}</span>
@@ -1346,12 +1373,14 @@ const TradingView: React.FC = () => {
         onClose={() => { setChartAiAnalysis(null); setChartAiError(null); }}
       />
 
-      {/* Chart Area */}
-      <div className="flex-1 min-w-0 min-h-0 overflow-hidden relative bg-gray-900">
-        <div
-          ref={chartContainerRef}
-          className="w-full h-full min-w-0 min-h-0 overflow-hidden"
-        />
+      {/* Chart Area with Sidebar */}
+      <div className="flex-1 min-w-0 min-h-0 overflow-hidden relative bg-gray-900 flex">
+        {/* Main Chart */}
+        <div className="flex-1 min-w-0 min-h-0 overflow-hidden relative">
+          <div
+            ref={chartContainerRef}
+            className="w-full h-full min-w-0 min-h-0 overflow-hidden"
+          />
         {candleError && (
           <div className="absolute inset-x-0 top-0 z-40 flex items-center justify-between gap-3 border-b border-rose-500/30 bg-rose-950/90 px-4 py-2 text-xs text-rose-200">
             <span>Failed to load {selectedSymbol} {timeframe} candles: {candleError.message}</span>
@@ -1472,6 +1501,54 @@ const TradingView: React.FC = () => {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+        </div>
+
+        {/* Right Sidebar - Tabbed Panel */}
+        {!sidebarCollapsed && (
+          <div className="flex flex-col w-80 bg-[#0a0e1a] border-l border-white/[0.08] overflow-hidden">
+            {/* Tabs */}
+            <div className="flex items-center border-b border-white/[0.08] bg-gray-900">
+              <button
+                onClick={() => setActiveTab('setup')}
+                className={`flex-1 px-4 py-3 text-xs font-bold tracking-wide transition-colors ${
+                  activeTab === 'setup'
+                    ? 'text-emerald-300 border-b-2 border-emerald-500'
+                    : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                SETUP
+              </button>
+              <button
+                onClick={() => setActiveTab('examples')}
+                className={`flex-1 px-4 py-3 text-xs font-bold tracking-wide transition-colors ${
+                  activeTab === 'examples'
+                    ? 'text-cyan-300 border-b-2 border-cyan-500'
+                    : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                EXAMPLES
+              </button>
+            </div>
+
+            {/* Tab Content */}
+            {activeTab === 'setup' && (
+              <TradeSetupPanel
+                analysis={cryptoAnalysis}
+                currentPrice={currentPrice}
+                symbol={selectedSymbol}
+                timeframe={timeframe}
+                isExpanded={setupPanelExpanded}
+                onToggle={() => setSetupPanelExpanded(!setupPanelExpanded)}
+              />
+            )}
+            {activeTab === 'examples' && (
+              <TradeExamplesPanel
+                isExpanded={examplesPanelExpanded}
+                onToggle={() => setExamplesPanelExpanded(!examplesPanelExpanded)}
+              />
+            )}
           </div>
         )}
       </div>
