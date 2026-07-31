@@ -1,15 +1,12 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts';
 import {
-  Settings, 
-  Maximize2, 
-  Search, 
-  Wifi, 
-  WifiOff, 
-  Play, 
-  Pause,
+  Settings,
+  Maximize2,
+  Search,
+  Wifi,
+  WifiOff,
   BarChart3,
-  BrainCircuit,
   Activity,
   Target,
   Zap,
@@ -335,6 +332,7 @@ const TradingView: React.FC = () => {
     { value: '4h', label: '4h' },
     { value: '1d', label: '1D' },
     { value: '1w', label: '1W' },
+    { value: '1M', label: '1M' },
   ];
 
   // TradeLocker connection state
@@ -748,6 +746,7 @@ const TradingView: React.FC = () => {
       '1m': 60 * 1000, '5m': 5 * 60 * 1000, '15m': 15 * 60 * 1000,
       '30m': 30 * 60 * 1000, '1h': 60 * 60 * 1000, '4h': 4 * 60 * 60 * 1000,
       '1d': 24 * 60 * 60 * 1000, '1w': 7 * 24 * 60 * 60 * 1000,
+      '1M': 30 * 24 * 60 * 60 * 1000,
     };
     return timeframes[timeframe] || 60 * 60 * 1000;
   };
@@ -1580,27 +1579,6 @@ const TradingView: React.FC = () => {
           {/* Right Section - Controls */}
           <div className="flex items-center space-x-4">
             {/* TradeLocker Connection removed: read-only product, no broker */}
-
-            {/* Live Data Toggle */}
-            <button
-              onClick={() => setIsLive(!isLive)}
-              className={`flex items-center space-x-2 px-3 py-2 rounded transition-colors ${
-                isLive ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-600 hover:bg-gray-700'
-              }`}
-            >
-              {isLive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-              <span>{isLive ? 'LIVE' : 'PAUSED'}</span>
-            </button>
-
-            <button
-              onClick={analyzeChartWithAi}
-              disabled={chartAiLoading}
-              className="flex items-center space-x-2 rounded bg-violet-600 px-3 py-2 transition-colors hover:bg-violet-700 disabled:cursor-wait disabled:opacity-60"
-              title="Analyze the visible chart with ConfluenceX AI"
-            >
-              <BrainCircuit className={`h-4 w-4 ${chartAiLoading ? 'animate-pulse' : ''}`} />
-              <span>{chartAiLoading ? 'Reading chart…' : 'AI Analyze Chart'}</span>
-            </button>
 
             {/* Connection Status */}
             <div className="flex items-center space-x-2">
