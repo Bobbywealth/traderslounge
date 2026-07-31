@@ -108,23 +108,19 @@ export const BrokerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return true;
       }
 
-      // Simulate API call to test connection for other brokers
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Mock successful connection
-      const isConnected = Math.random() > 0.3; // 70% success rate for demo
-      
+      // Trade Locker is the only broker with a real integration. Every other
+      // type used to resolve via `Math.random() > 0.3`, reporting "connected"
+      // with an invented latency for credentials that were never checked.
+      // Report the truth instead: not implemented.
       setConnectionStatus(prev => ({
         ...prev,
         [id]: {
-          isConnected,
-          lastPing: new Date(),
-          latency: Math.floor(Math.random() * 100) + 50,
-          error: isConnected ? undefined : 'Invalid credentials or server unreachable'
+          isConnected: false,
+          error: `${cred.brokerType} is not supported yet — only Trade Locker has a live integration.`,
         }
       }));
 
-      return isConnected;
+      return false;
     } catch (error) {
       setConnectionStatus(prev => ({
         ...prev,
@@ -152,6 +148,10 @@ export const BrokerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           // Fetch real positions from Trade Locker
           const positions = await tradeLockerService.getPositions();
           
+          // NOTE: positions below are real, but these balance figures are NOT.
+          // tradeLockerService has no account-state endpoint, so balance/equity/
+          // margin are placeholders. Do not present them as the user's actual
+          // account until getAccountState() exists and populates them.
           mockAccount = {
             id: `account_${id}`,
             brokerName: cred.name,
@@ -192,44 +192,13 @@ export const BrokerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           throw error;
         }
       } else {
-        // Simulate API calls for other brokers
-        await new Promise(resolve => setTimeout(resolve, 3000));
-
-        mockAccount = {
-          id: `account_${id}`,
-          brokerName: cred.name,
-          accountNumber: cred.accountId || 'DEMO123456',
-          accountType: cred.isDemo ? 'demo' : 'live',
-          balance: 10000 + Math.random() * 50000,
-          equity: 10000 + Math.random() * 50000,
-          margin: Math.random() * 5000,
-          freeMargin: 8000 + Math.random() * 40000,
-          marginLevel: 100 + Math.random() * 200,
-          currency: 'USD',
-          leverage: 100,
-          isConnected: true,
-          lastUpdate: new Date(),
-        };
-
-        // Mock trades data
-        mockTrades = Array.from({ length: 10 }, (_, i) => ({
-          id: `trade_${id}_${i}`,
-          brokerTradeId: `${Math.floor(Math.random() * 1000000)}`,
-          symbol: ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD'][Math.floor(Math.random() * 4)],
-          type: Math.random() > 0.5 ? 'buy' : 'sell',
-          volume: parseFloat((Math.random() * 2).toFixed(2)),
-          openPrice: 1.0800 + Math.random() * 0.1,
-          closePrice: Math.random() > 0.3 ? 1.0800 + Math.random() * 0.1 : undefined,
-          stopLoss: 1.0700 + Math.random() * 0.05,
-          takeProfit: 1.0900 + Math.random() * 0.05,
-          openTime: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000),
-          closeTime: Math.random() > 0.3 ? new Date() : undefined,
-          profit: (Math.random() - 0.5) * 1000,
-          commission: -Math.random() * 10,
-          swap: (Math.random() - 0.5) * 5,
-          status: Math.random() > 0.3 ? 'closed' : 'open',
-          comment: 'Imported from broker',
-        }));
+        // Every non-Trade-Locker broker used to land here and fabricate an
+        // account (random balance/equity/margin) plus ten random trades
+        // labelled "Imported from broker" — indistinguishable from real fills.
+        // Never invent account or trade data; surface the gap instead.
+        throw new Error(
+          `${cred.brokerType} is not supported yet — only Trade Locker has a live integration.`
+        );
       }
 
       setAccounts(prev => {
@@ -245,6 +214,15 @@ export const BrokerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       updateCredentials(id, { lastSync: new Date() });
     } catch (error) {
       console.error('Failed to sync data:', error);
+      // Surface the failure — a silent catch left the UI looking synced.
+      setConnectionStatus(prev => ({
+        ...prev,
+        [id]: {
+          ...(prev[id] || {}),
+          isConnected: false,
+          error: error instanceof Error ? error.message : 'Sync failed',
+        }
+      }));
     } finally {
       setIsLoading(false);
     }

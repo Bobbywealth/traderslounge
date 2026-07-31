@@ -348,6 +348,14 @@ const AdminDashboard: React.FC = () => {
 
   const renderOverview = () => (
     <div className="space-y-6">
+      {/* No admin backend exists yet — every figure below is generated in
+          loadMockData(). Label it so these numbers are never mistaken for
+          real users, revenue or trade counts. */}
+      <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+        <strong>Sample data.</strong> This dashboard is not connected to a backend.
+        Users, revenue and trade figures shown here are placeholders, not live metrics.
+      </div>
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">

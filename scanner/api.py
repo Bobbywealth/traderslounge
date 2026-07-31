@@ -507,7 +507,10 @@ class _ApiHandler(BaseHTTPRequestHandler):
         except Exception as exc:  # pragma: no cover
             return self._json(500, {"status": "degraded", "error": str(exc)})
         calendar_health = getattr(_STATE.news_filter, "source_health", "unconfigured") if _STATE.news_filter else "unconfigured"
-        ready = _STATE.market_client is not None and calendar_health not in ("unavailable", "unconfigured")
+        # source_health is emitted uppercase ("LIVE"/"STALE"/"UNAVAILABLE") while
+        # the unconfigured sentinel is lowercase — compare case-insensitively or
+        # a dead calendar feed still reports the service as ready.
+        ready = _STATE.market_client is not None and str(calendar_health).lower() not in ("unavailable", "unconfigured")
         self._json(200, {
             "status": "ok" if ready else "degraded",
             "ready": ready,
@@ -1463,8 +1466,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 "signal": sig,
                 "analysis": analysis_by_pair[pair],
                 "market_info": self._get_market_info(pair),
-                "lifecycle_state": self._get_lifecycle_state(sig.get("id")),
-                "recent_transitions": self._get_recent_transitions(sig.get("id")),
+                "lifecycle_state": self._get_lifecycle_state(analysis_by_pair[pair]),
+                "recent_transitions": self._get_recent_transitions(analysis_by_pair[pair]),
                 "score_history": self._get_score_history(pair),
             })
 
@@ -1487,7 +1490,10 @@ class _ApiHandler(BaseHTTPRequestHandler):
         except Exception:
             n = 0
         calendar_health = getattr(_STATE.news_filter, "source_health", "unconfigured") if _STATE.news_filter else "unconfigured"
-        ready = _STATE.market_client is not None and calendar_health not in ("unavailable", "unconfigured")
+        # source_health is emitted uppercase ("LIVE"/"STALE"/"UNAVAILABLE") while
+        # the unconfigured sentinel is lowercase — compare case-insensitively or
+        # a dead calendar feed still reports the service as ready.
+        ready = _STATE.market_client is not None and str(calendar_health).lower() not in ("unavailable", "unconfigured")
         return {
             "status": "ok" if ready else "degraded",
             "ready": ready,
@@ -1613,30 +1619,45 @@ class _ApiHandler(BaseHTTPRequestHandler):
         except Exception:
             return {"status": "error"}
 
-    def _get_lifecycle_state(self, signal_id: int) -> dict:
-        if signal_id is None:
-            return {"state": "unknown"}
-        state_key = f"lifecycle:{signal_id}"
-        cached = self._cache_get(state_key)
-        if cached is not None:
-            return cached
-        return {"state": "active", "since": datetime.now(timezone.utc).isoformat()}
+    def _get_lifecycle_state(self, analysis: dict) -> dict:
+        """Report the lifecycle the engine actually computed.
 
-    def _get_recent_transitions(self, signal_id: int) -> list:
-        if signal_id is None:
-            return []
-        transitions_key = f"transitions:{signal_id}"
-        cached = self._cache_get(transitions_key)
-        if cached is not None:
-            return cached
-        return []
+        This used to return a literal {"state": "active", "since": <now>} for
+        every market — a fabricated status that refreshed its own timestamp on
+        each request. The real state is produced by stabilize_direction and
+        already lives on the analysis.
+        """
+        stability = (analysis or {}).get("direction_stability") or {}
+        lifecycle = stability.get("lifecycle") or (analysis or {}).get("lifecycle_state")
+        if not lifecycle:
+            return {"state": "unknown"}
+        return {
+            "state": str(lifecycle).lower(),
+            "confirmed_direction": stability.get("confirmed_direction"),
+            "since_bar_time": stability.get("last_change_time"),
+            "reason": stability.get("reason"),
+        }
+
+    def _get_recent_transitions(self, analysis: dict) -> list:
+        return list((analysis or {}).get("recent_transitions") or [])
 
     def _get_score_history(self, pair: str) -> dict:
-        score_key = f"score_history:{pair}"
-        cached = self._cache_get(score_key)
-        if cached is not None:
-            return cached
-        return {"scores": [], "count": 0}
+        """Real scored history for the pair, from persisted scanner signals."""
+        repo = _STATE.repository
+        if not hasattr(repo, "by_pair"):
+            return {"scores": [], "count": 0}
+        try:
+            rows = repo.by_pair(pair, limit=50)
+        except Exception:
+            logging.exception("score history lookup failed for %s", pair)
+            return {"scores": [], "count": 0}
+        scores = [
+            {"score": row.get("confidence_score"), "at": row.get("created_at"), "tier": row.get("tier")}
+            for row in rows
+            if row.get("confidence_score") is not None
+        ]
+        scores.reverse()  # oldest first, for charting
+        return {"scores": scores, "count": len(scores)}
 
     def _get_provider_health(self) -> dict:
         calendar_health = getattr(_STATE.news_filter, "source_health", "unconfigured") if _STATE.news_filter else "unconfigured"

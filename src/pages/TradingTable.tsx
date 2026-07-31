@@ -9,78 +9,26 @@ const TradingTable: React.FC = () => {
   const [sortField, setSortField] = useState('');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
-  // Mock trades for demo - in production, you'd use brokerTrades
-  const mockTrades = [
-    {
-      id: 'TR001',
-      symbol: 'EURUSD',
-      type: 'Buy',
-      size: 0.5,
-      entry: 1.0892,
-      exit: 1.0915,
-      stopLoss: 1.0850,
-      takeProfit: 1.0950,
-      pnl: 115.0,
-      status: 'Closed',
-      openTime: '2024-01-15 09:30',
-      closeTime: '2024-01-15 14:20',
-      commission: -5.50,
-      swap: -2.30,
-    },
-    {
-      id: 'TR002',
-      symbol: 'GBPJPY',
-      type: 'Sell',
-      size: 0.3,
-      entry: 185.42,
-      exit: 184.95,
-      stopLoss: 186.00,
-      takeProfit: 184.50,
-      pnl: 141.0,
-      status: 'Closed',
-      openTime: '2024-01-15 08:15',
-      closeTime: '2024-01-15 12:30',
-      commission: -3.30,
-      swap: 0.80,
-    },
-    {
-      id: 'TR003',
-      symbol: 'XAUUSD',
-      type: 'Buy',
-      size: 0.1,
-      entry: 2045.50,
-      exit: null,
-      stopLoss: 2030.00,
-      takeProfit: 2065.00,
-      pnl: -73.0,
-      status: 'Open',
-      openTime: '2024-01-15 11:45',
-      closeTime: null,
-      commission: -2.05,
-      swap: -1.20,
-    },
-  ];
-
-  // Combine mock trades with real broker trades
-  const allTrades = [
-    ...mockTrades,
-    ...brokerTrades.map(trade => ({
-      id: trade.id,
-      symbol: trade.symbol,
-      type: trade.type === 'buy' ? 'Buy' : 'Sell',
-      size: trade.volume,
-      entry: trade.openPrice,
-      exit: trade.closePrice,
-      stopLoss: trade.stopLoss,
-      takeProfit: trade.takeProfit,
-      pnl: trade.profit,
-      status: trade.status === 'open' ? 'Open' : 'Closed',
-      openTime: trade.openTime.toLocaleString(),
-      closeTime: trade.closeTime?.toLocaleString() || null,
-      commission: trade.commission,
-      swap: trade.swap,
-    }))
-  ];
+  // Real broker trades only. This list previously spliced in three invented
+  // trades (EURUSD/GBPJPY/XAUUSD with fixed 2024 timestamps) that rendered
+  // identically to genuine fills — a user reading their own trade history had
+  // no way to tell which rows were real.
+  const allTrades = brokerTrades.map(trade => ({
+    id: trade.id,
+    symbol: trade.symbol,
+    type: trade.type === 'buy' ? 'Buy' : 'Sell',
+    size: trade.volume,
+    entry: trade.openPrice,
+    exit: trade.closePrice,
+    stopLoss: trade.stopLoss,
+    takeProfit: trade.takeProfit,
+    pnl: trade.profit,
+    status: trade.status === 'open' ? 'Open' : 'Closed',
+    openTime: trade.openTime.toLocaleString(),
+    closeTime: trade.closeTime?.toLocaleString() || null,
+    commission: trade.commission,
+    swap: trade.swap,
+  }));
 
   const handleSort = (field: string) => {
     if (sortField === field) {
