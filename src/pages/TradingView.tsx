@@ -909,34 +909,6 @@ const TradingView: React.FC = () => {
   useSetupZoneOverlay(chartRef, candlestickSeriesRef, chartContainerRef, cryptoAnalysis, showSetups, chartRevision, currentPrice);
   useConditionalSetupOverlay(chartRef, candlestickSeriesRef, chartContainerRef, cryptoAnalysis, showSetups, chartRevision, currentPrice);
 
-  // Symbol search functionality
-  const updateSymbolSuggestions = useCallback((term: string) => {
-    const normalizedTerm = term.trim().toLowerCase();
-    const filtered = availableSymbols
-      .filter((symbol) =>
-        normalizedTerm.length === 0 ||
-        symbol.symbol.toLowerCase().includes(normalizedTerm) ||
-        symbol.name.toLowerCase().includes(normalizedTerm)
-      )
-      .slice(0, 20);
-
-    setSymbolSuggestions(filtered);
-    setShowSuggestions(filtered.length > 0);
-  }, [availableSymbols]);
-
-  const handleSymbolSearch = (term: string) => {
-    setSearchTerm(term);
-    updateSymbolSuggestions(term);
-  };
-
-  // The candle, analysis, ADR, and harmonic effects all key off
-  // selectedSymbol, so switching symbols is just a state change.
-  const selectSymbol = (symbol: SymbolInfo) => {
-    setSelectedSymbol(symbol.symbol);
-    setSearchTerm(symbol.symbol);
-    setShowSuggestions(false);
-  };
-
   const refreshAll = () => {
     void refreshCandles(true);
     setSymbolDataRevision((revision) => revision + 1);
