@@ -513,11 +513,18 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
     closes = [_num(c.close) for c in bars]
     price = closes[-1] if closes else None
     issues = []
+    # Structural issues mean the candles themselves are unusable. Volume being
+    # absent is reported but tracked separately: spot FX and metals feeds carry
+    # no volume at all, so it must not be treated as a defect that blocks the
+    # instrument from ever trading.
+    structural_issues = []
     if not bars:
-        issues.append("no usable OHLC candles")
+        structural_issues.append("no usable OHLC candles")
     elif len(bars) < 30:
-        issues.append("fewer than 30 primary timeframe candles")
-    if not any(_num(getattr(c, "volume", 0)) > 0 for c in bars):
+        structural_issues.append("fewer than 30 primary timeframe candles")
+    issues.extend(structural_issues)
+    volume_unavailable = not any(_num(getattr(c, "volume", 0)) > 0 for c in bars)
+    if volume_unavailable:
         issues.append("volume unavailable or zero")
 
     # Direction is determined from independent broad signals before scoring.
@@ -715,7 +722,11 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
 
     scores = {key: int(_clamp(_num(value), 0, CAPS[key])) for key, value in scores.items()}
     total = sum(scores.values())
-    quality = {"primary_timeframe": primary_name, "bars": len(bars), "closed_bar_time": getattr(bars[-1], "time", None) if bars else None, "timeframes_available": [x for x, v in frames.items() if v], "issues": issues, "status": "good" if not issues else "limited" if bars else "insufficient"}
+    quality = {"primary_timeframe": primary_name, "bars": len(bars), "closed_bar_time": getattr(bars[-1], "time", None) if bars else None, "timeframes_available": [x for x, v in frames.items() if v], "issues": issues, "status": "good" if not issues else "limited" if bars else "insufficient",
+               # True when the candles support a decision — i.e. nothing
+               # structural is wrong. Missing volume alone does not clear this.
+               "structurally_sound": not structural_issues,
+               "volume_unavailable": volume_unavailable}
 
     available_categories = []
     missing_categories = []
@@ -813,7 +824,13 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         "score_60": total >= 60, "weekly_or_monthly_alignment": macro_aligned, "selected_timeframe_confirmation": selected_aligned,
         "quality_location": bool(location_signals), "completed_candle_confirmation": bool(confirmation_signals),
         "sufficient_volume": not low_volume, "stable_volatility": not unstable_volatility,
-        "adr_available": not adr_exhausted, "not_chasing": not chasing, "data_quality": quality["status"] == "good",
+        "adr_available": not adr_exhausted, "not_chasing": not chasing,
+        # Demanding status == "good" here made every spot-FX and metals pair
+        # permanently un-enterable: those candles carry no volume, which pins
+        # status to "limited" forever, so timing could never reach READY no
+        # matter how strong the setup was. Gate on structural soundness instead
+        # — thin or missing history still blocks, absent volume no longer does.
+        "data_quality": quality["structurally_sound"],
     }
     technical_ready = all(technical_checks.values())
 
