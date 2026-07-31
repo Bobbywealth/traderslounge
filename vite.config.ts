@@ -31,7 +31,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom'],
-          charts: ['recharts', 'lightweight-charts'],
+          charts: ['lightweight-charts'],
           router: ['react-router-dom'],
           icons: ['lucide-react'],
           utils: ['date-fns']
