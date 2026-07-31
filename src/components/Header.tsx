@@ -1,16 +1,38 @@
 import React from 'react';
-import { LogOut, Moon, Sun } from 'lucide-react';
+import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import ConfluenceXLogo from './ConfluenceXLogo';
 
-const Header: React.FC = () => {
+interface HeaderProps {
+  /** When true, render the hamburger button that opens the mobile drawer. */
+  showMenuButton?: boolean;
+  /** Called when the hamburger / close button is tapped. */
+  onMenuToggle?: () => void;
+  /** Whether the mobile drawer is currently open (swaps Menu ↔ X icon). */
+  menuOpen?: boolean;
+}
+
+const Header: React.FC<HeaderProps> = ({ showMenuButton = false, onMenuToggle, menuOpen = false }) => {
   const { isDark, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
 
   return (
-    <header className="flex h-16 items-center justify-between border-b border-gray-200/50 px-6 backdrop-blur-xl glass dark:border-gray-700/50 dark:glass-dark">
+    <header className="flex h-16 items-center justify-between border-b border-gray-200/50 px-4 sm:px-6 backdrop-blur-xl glass dark:border-gray-700/50 dark:glass-dark">
       <div className="flex items-center gap-3">
+        {showMenuButton && (
+          <button
+            onClick={onMenuToggle}
+            className="rounded-xl p-2 transition-all duration-200 hover:bg-gray-100 dark:hover:bg-gray-700/80 md:hidden"
+            title={menuOpen ? 'Close navigation' : 'Open navigation'}
+            aria-label={menuOpen ? 'Close navigation' : 'Open navigation'}
+            aria-expanded={menuOpen}
+          >
+            {menuOpen
+              ? <X className="h-5 w-5 text-gray-700 dark:text-gray-200" />
+              : <Menu className="h-5 w-5 text-gray-700 dark:text-gray-200" />}
+          </button>
+        )}
         <ConfluenceXLogo compact size="sm" />
         <div>
           <h2 className="text-sm font-bold text-gray-900 dark:text-white sm:text-lg">

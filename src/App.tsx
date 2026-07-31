@@ -28,8 +28,39 @@ const AppContent: React.FC = () => {
   const { isAuthenticated, isLoading, user } = useAuth();
   const location = useLocation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(
+    typeof window !== 'undefined' ? window.matchMedia('(min-width: 768px)').matches : true,
+  );
   const isTradingWorkspace = location.pathname === '/tradingview';
   const effectiveSidebarCollapsed = isTradingWorkspace || sidebarCollapsed;
+
+  // Track viewport for responsive sidebar behavior. The desktop layout keeps
+  // the persistent sidebar; the mobile layout hides it behind a hamburger.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mql = window.matchMedia('(min-width: 768px)');
+    const handler = (event: MediaQueryListEvent) => setIsDesktop(event.matches);
+    setIsDesktop(mql.matches);
+    mql.addEventListener('change', handler);
+    return () => mql.removeEventListener('change', handler);
+  }, []);
+
+  // Close the mobile drawer whenever the route changes so navigating doesn't
+  // leave a stale overlay covering the new page.
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
+
+  // Allow Escape to dismiss the mobile drawer.
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileMenuOpen(false);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [mobileMenuOpen]);
 
   useEffect(() => {
     if (!isTradingWorkspace) return;
@@ -71,13 +102,24 @@ const AppContent: React.FC = () => {
         <Sidebar
           collapsed={effectiveSidebarCollapsed}
           onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+          mode={isDesktop ? 'desktop' : 'overlay'}
+          mobileOpen={mobileMenuOpen}
+          onMobileClose={() => setMobileMenuOpen(false)}
         />
-        
+
         <div className={`flex-1 min-w-0 h-screen overflow-hidden flex flex-col transition-all duration-300 ${
-          effectiveSidebarCollapsed ? 'ml-16' : 'ml-72'
+          isDesktop
+            ? (effectiveSidebarCollapsed ? 'ml-16' : 'ml-72')
+            : 'ml-0'
         }`}>
-          {!isTradingWorkspace && <Header />}
-          
+          {!isTradingWorkspace && (
+            <Header
+              showMenuButton={!isDesktop}
+              onMenuToggle={() => setMobileMenuOpen((open) => !open)}
+              menuOpen={mobileMenuOpen}
+            />
+          )}
+
           <main className={`flex-1 min-w-0 min-h-0 bg-gray-50 dark:bg-gray-900 ${
             isTradingWorkspace ? 'overflow-hidden' : 'overflow-auto'
           }`}>
@@ -100,7 +142,7 @@ const AppContent: React.FC = () => {
             </div>
           </main>
         </div>
-        
+
         {!isTradingWorkspace && <AIAssistant />}
       </div>
     </BrokerProvider>
