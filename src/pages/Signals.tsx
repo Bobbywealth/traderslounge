@@ -1,22 +1,85 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
-  Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, CheckCircle2,
-  Clock3, RefreshCw, ShieldCheck, Target, Zap,
+  Activity, AlertTriangle, ArrowDownRight, ArrowRight, ArrowUpRight, CheckCircle2,
+  Clock3, Hourglass, RefreshCw, ShieldCheck, Target, TrendingUp, Zap,
 } from 'lucide-react';
-import { bwtsApi, type PublishedSignal } from '../services/bwtsApi';
+import {
+  bwtsApi, planReasonText,
+  type CryptoAnalysis, type DashboardSnapshot, type PublishedSignal,
+} from '../services/bwtsApi';
+import { SESSIONS, formatHours, hoursUntil, sessionIsOpen, sessionsAt, type SessionName } from '../utils/sessions';
 
 type FeedFilter = 'ACTIVE' | 'ALL';
+type SessionFilter = 'ALL' | SessionName;
+
+const QUALIFY_SCORE = 35; // watchlist threshold — a setup at or above this can publish
+const FORMING_FLOOR = 15; // below this a market is just noise, not "forming"
+
+type FormingSetup = {
+  pair: string;
+  direction: CryptoAnalysis['direction'];
+  score: number;
+  lifecycle: string;
+  waitingFor: string;
+  scenario: string;
+};
+
+const isRenderableMarket = (market: unknown): market is DashboardSnapshot['markets'][number] => {
+  if (!market || typeof market !== 'object') return false;
+  const candidate = market as { signal?: unknown; analysis?: unknown };
+  return Boolean(
+    candidate.signal && typeof candidate.signal === 'object'
+    && typeof (candidate.signal as { pair?: unknown }).pair === 'string'
+    && candidate.analysis && typeof candidate.analysis === 'object'
+  );
+};
 
 const Signals: React.FC = () => {
   const [signals, setSignals] = useState<PublishedSignal[]>([]);
+  const [forming, setForming] = useState<FormingSetup[]>([]);
   const [filter, setFilter] = useState<FeedFilter>('ACTIVE');
+  const [sessionFilter, setSessionFilter] = useState<SessionFilter>('ALL');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+
+    // Forming setups come from the scanner snapshot — best effort, never blocks the feed.
+    bwtsApi.dashboardSnapshot()
+      .then((snapshot) => {
+        const markets = (Array.isArray(snapshot.markets) ? snapshot.markets : []).filter(isRenderableMarket);
+        const candidates: FormingSetup[] = markets
+          .map((market) => {
+            const analysis = market.analysis as CryptoAnalysis;
+            return {
+              pair: market.signal.pair,
+              direction: analysis.direction,
+              score: analysis.total_score ?? 0,
+              lifecycle: analysis.direction_stability?.lifecycle
+                || (analysis.trade_plan?.eligible ? 'READY' : 'FORMING'),
+              waitingFor: analysis.trade_plan?.reasons?.map(planReasonText).find(Boolean)
+                || analysis.trade_timing?.wait_for?.[0]
+                || 'More confluence to line up',
+              scenario: analysis.scenarios?.primary || '',
+            };
+          })
+          .filter((setup) => !['READY'].includes(setup.lifecycle))
+          .filter((setup) => setup.score >= FORMING_FLOOR)
+          .sort((a, b) => b.score - a.score);
+        setForming(candidates);
+      })
+      .catch(() => setForming([]));
+
     try {
       bwtsApi.clearCache();
       const response = await bwtsApi.publishedSignals({
@@ -38,11 +101,25 @@ const Signals: React.FC = () => {
     return () => window.clearInterval(timer);
   }, [load]);
 
+  const visibleSignals = useMemo(() => (
+    sessionFilter === 'ALL'
+      ? signals
+      : signals.filter((signal) => sessionsAt(new Date(signal.published_at)).includes(sessionFilter))
+  ), [signals, sessionFilter]);
+
   const active = useMemo(() => signals.filter((signal) => signal.status === 'ACTIVE'), [signals]);
   const strong = active.filter((signal) => signal.setup_quality === 'STRONG').length;
-  const averageScore = active.length
-    ? Math.round(active.reduce((sum, signal) => sum + signal.score, 0) / active.length)
-    : 0;
+
+  const utcHour = now.getUTCHours();
+  const openSessions = SESSIONS.filter((session) => sessionIsOpen(session, utcHour));
+  const sessionLine = openSessions.length > 1
+    ? `${openSessions.map((s) => s.name).join(' + ')} overlap — the highest-liquidity window of the day`
+    : openSessions.length === 1
+      ? `${openSessions[0].name} session live — closes in ${formatHours(hoursUntil(openSessions[0].endUtc, now))}`
+      : (() => {
+        const next = [...SESSIONS].sort((a, b) => hoursUntil(a.startUtc, now) - hoursUntil(b.startUtc, now))[0];
+        return `Between sessions — ${next.name} opens in ${formatHours(hoursUntil(next.startUtc, now))}`;
+      })();
 
   return (
     <div className="space-y-6">
@@ -51,12 +128,12 @@ const Signals: React.FC = () => {
         <div className="relative z-10 flex flex-wrap items-end justify-between gap-5">
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/[0.07] px-3 py-1 text-[10px] font-black tracking-[0.2em] text-emerald-300">
-              <ShieldCheck className="h-3 w-3" /> GUARDED V2 SIGNAL FEED
+              <ShieldCheck className="h-3 w-3" /> QUALIFIED CALLS ONLY
             </div>
             <h1 className="text-3xl font-black tracking-[-0.04em] text-white sm:text-4xl">Trade Signals</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-400">
-              Only fully qualified BUY or SELL setups appear here. Every call includes entry, invalidation,
-              targets, timeframe, risk-to-reward, and publication time.
+              A call publishes only after every entry rule passes. Below the live calls, the Forming board
+              shows what the scanner is building toward next.
             </p>
           </div>
           <button
@@ -70,24 +147,42 @@ const Signals: React.FC = () => {
         <div className="relative z-10 mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Metric label="Active calls" value={String(active.length)} />
           <Metric label="Strong setups" value={String(strong)} />
-          <Metric label="Average score" value={active.length ? `${averageScore}/100` : '—'} />
-          <Metric label="Engine" value="V2 guarded" />
+          <Metric label="Forming" value={String(forming.length)} />
+          <Metric label="Session" value={openSessions.map((s) => s.name).join(' + ') || 'Closed'} />
+        </div>
+        <div className="relative z-10 mt-3 flex items-center gap-2 text-[11px] text-slate-500">
+          <Clock3 className="h-3.5 w-3.5" /> {sessionLine}
         </div>
       </section>
 
       <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/[0.07] bg-[#090d18] p-4">
-        <div className="flex rounded-xl border border-white/[0.07] bg-black/20 p-1">
-          {(['ACTIVE', 'ALL'] as FeedFilter[]).map((value) => (
-            <button
-              key={value}
-              onClick={() => setFilter(value)}
-              className={`rounded-lg px-4 py-2 text-[10px] font-black uppercase tracking-wider transition ${
-                filter === value ? 'bg-cyan-400/15 text-cyan-200' : 'text-slate-500 hover:text-slate-300'
-              }`}
-            >
-              {value === 'ACTIVE' ? 'Active signals' : 'Signal history'}
-            </button>
-          ))}
+        <div className="flex flex-wrap gap-3">
+          <div className="flex rounded-xl border border-white/[0.07] bg-black/20 p-1">
+            {(['ACTIVE', 'ALL'] as FeedFilter[]).map((value) => (
+              <button
+                key={value}
+                onClick={() => setFilter(value)}
+                className={`rounded-lg px-4 py-2 text-[10px] font-black uppercase tracking-wider transition ${
+                  filter === value ? 'bg-cyan-400/15 text-cyan-200' : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {value === 'ACTIVE' ? 'Active signals' : 'Signal history'}
+              </button>
+            ))}
+          </div>
+          <div className="flex rounded-xl border border-white/[0.07] bg-black/20 p-1">
+            {(['ALL', 'Asia', 'London', 'New York'] as SessionFilter[]).map((value) => (
+              <button
+                key={value}
+                onClick={() => setSessionFilter(value)}
+                className={`rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-wider transition ${
+                  sessionFilter === value ? 'bg-violet-400/15 text-violet-200' : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {value === 'ALL' ? 'All sessions' : value}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-slate-500">
           <Clock3 className="h-3.5 w-3.5" />
@@ -101,20 +196,49 @@ const Signals: React.FC = () => {
         </div>
       )}
 
-      {!loading && !error && signals.length === 0 && (
-        <section className="rounded-[24px] border border-dashed border-white/10 bg-[#090d18] px-6 py-14 text-center">
-          <Activity className="mx-auto h-11 w-11 text-slate-700" />
-          <h2 className="mt-4 text-xl font-black text-white">No active signal right now</h2>
+      {!loading && !error && visibleSignals.length === 0 && (
+        <section className="rounded-[24px] border border-dashed border-white/10 bg-[#090d18] px-6 py-10 text-center">
+          <Activity className="mx-auto h-10 w-10 text-slate-700" />
+          <h2 className="mt-4 text-xl font-black text-white">
+            {sessionFilter === 'ALL' ? 'No active call right now' : `No ${sessionFilter}-session calls`}
+          </h2>
           <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">
-            The scanner is still watching every tracked market. A call will publish here only after direction,
-            timing, calendar, data quality, structure, and minimum 2R movement all pass.
+            {sessionFilter === 'ALL'
+              ? 'The scanner is watching every tracked market. The Forming board below shows what it is building toward.'
+              : 'Switch to All sessions to see every call, or check the Forming board below.'}
           </p>
         </section>
       )}
 
       <div className="grid gap-5 xl:grid-cols-2">
-        {signals.map((signal) => <SignalCall key={signal.id} signal={signal} />)}
+        {visibleSignals.map((signal) => <SignalCall key={signal.id} signal={signal} />)}
       </div>
+
+      {/* Forming — future potential trades */}
+      <section className="rounded-[24px] border border-white/[0.08] bg-[#090d18] p-5 sm:p-6">
+        <div className="mb-5 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[10px] font-black tracking-[0.2em] text-amber-300">FORMING</div>
+            <h2 className="mt-1 text-xl font-black text-white">Potential future trades</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Setups building confluence but not yet qualified. Each shows how close it is and what it still needs.
+            </p>
+          </div>
+          <Link to="/scanner" className="flex shrink-0 items-center gap-1 text-xs font-bold text-slate-400 hover:text-slate-200">
+            Full scanner <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+        {forming.length === 0 ? (
+          <div className="flex items-center gap-3 rounded-2xl border border-dashed border-white/10 px-5 py-6 text-sm text-slate-500">
+            <Hourglass className="h-5 w-5 shrink-0 text-slate-600" />
+            Nothing is close to setting up right now, or the scanner snapshot is unavailable.
+          </div>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {forming.slice(0, 9).map((setup) => <FormingCard key={setup.pair} setup={setup} />)}
+          </div>
+        )}
+      </section>
 
       <div className="rounded-2xl border border-amber-400/15 bg-amber-400/[0.05] p-4 text-xs leading-5 text-amber-100/70">
         <strong className="text-amber-200">Risk note:</strong> Signals are deterministic market intelligence, not guaranteed outcomes or personalized financial advice. Confirm price is still within the entry area and size risk from the published stop before acting.
@@ -123,9 +247,48 @@ const Signals: React.FC = () => {
   );
 };
 
+const FormingCard: React.FC<{ setup: FormingSetup }> = ({ setup }) => {
+  const progress = Math.min(100, Math.round((setup.score / QUALIFY_SCORE) * 100));
+  const leaning = setup.direction === 'BUY' ? 'Leaning buy' : setup.direction === 'SELL' ? 'Leaning sell' : 'No lean yet';
+  const lifecycleTone = setup.lifecycle === 'CONFIRMED'
+    ? 'bg-cyan-400/10 text-cyan-300'
+    : setup.lifecycle === 'WEAKENING' || setup.lifecycle === 'INVALIDATED'
+      ? 'bg-rose-400/10 text-rose-300'
+      : 'bg-amber-400/10 text-amber-300';
+  return (
+    <article className="rounded-2xl border border-white/[0.07] bg-black/20 p-4">
+      <div className="flex items-center justify-between">
+        <span className="font-black text-white">{setup.pair}</span>
+        <span className={`rounded-md px-2 py-0.5 text-[10px] font-black ${lifecycleTone}`}>{setup.lifecycle}</span>
+      </div>
+      <div className="mt-1 flex items-center gap-1.5 text-[11px] font-bold text-slate-400">
+        {setup.direction === 'BUY' ? <TrendingUp className="h-3.5 w-3.5 text-emerald-400" /> : setup.direction === 'SELL' ? <TrendingUp className="h-3.5 w-3.5 rotate-180 text-rose-400" /> : null}
+        {leaning}
+      </div>
+      <div className="mt-3">
+        <div className="flex items-center justify-between text-[10px] font-bold text-slate-500">
+          <span>Confluence {setup.score}/{QUALIFY_SCORE} to qualify</span>
+          <span>{progress}%</span>
+        </div>
+        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+          <div
+            className={`h-full rounded-full ${progress >= 80 ? 'bg-emerald-400/80' : progress >= 50 ? 'bg-cyan-400/70' : 'bg-slate-500/60'}`}
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
+      <div className="mt-3 text-[11px] leading-5 text-slate-400">
+        <span className="font-black uppercase tracking-wider text-slate-600">Waiting for: </span>
+        {setup.waitingFor}
+      </div>
+    </article>
+  );
+};
+
 const SignalCall: React.FC<{ signal: PublishedSignal }> = ({ signal }) => {
   const isBuy = signal.direction === 'BUY';
   const published = new Date(signal.published_at);
+  const publishedSessions = sessionsAt(published);
   return (
     <article className={`overflow-hidden rounded-[24px] border ${isBuy ? 'border-emerald-400/20' : 'border-rose-400/20'} bg-[#080d18] shadow-xl shadow-black/20`}>
       <div className={`flex items-center justify-between border-b px-5 py-4 ${isBuy ? 'border-emerald-400/15 bg-emerald-400/[0.06]' : 'border-rose-400/15 bg-rose-400/[0.06]'}`}>
@@ -137,12 +300,17 @@ const SignalCall: React.FC<{ signal: PublishedSignal }> = ({ signal }) => {
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-black text-white">{signal.pair}</h2>
               <span className={`rounded-md px-2 py-0.5 text-[10px] font-black ${isBuy ? 'bg-emerald-400/15 text-emerald-300' : 'bg-rose-400/15 text-rose-300'}`}>{signal.direction}</span>
+              {publishedSessions.length > 0 && (
+                <span className="rounded-md bg-violet-400/10 px-2 py-0.5 text-[10px] font-black text-violet-300">
+                  {publishedSessions.join(' + ').toUpperCase()}
+                </span>
+              )}
             </div>
             <div className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">{signal.timeframe} · Published {published.toLocaleString()}</div>
           </div>
         </div>
         <div className="text-right">
-          <div className={`text-[10px] font-black uppercase tracking-wider ${isBuy ? 'text-emerald-300' : 'text-rose-300'}`}>{signal.status.replaceAll('_', ' ')}</div>
+          <div className={`text-[10px] font-black uppercase tracking-wider ${isBuy ? 'text-emerald-300' : 'text-rose-300'}`}>{signal.status.replace(/_/g, ' ')}</div>
           <div className="mt-1 text-lg font-black text-white">{signal.score}/100</div>
         </div>
       </div>
@@ -159,7 +327,7 @@ const SignalCall: React.FC<{ signal: PublishedSignal }> = ({ signal }) => {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Fact label="Setup" value={signal.setup_quality} icon={Zap} />
           <Fact label="Net available R:R" value={signal.net_rr ? `${signal.net_rr.toFixed(2)}R` : '—'} icon={Target} />
-          <Fact label="Risk model" value={signal.risk_percent ? `${signal.risk_percent}%` : '—'} icon={ShieldCheck} />
+          <Fact label="Risk model" value={signal.risk_percent ? `${signal.risk_percent}% of account` : '—'} icon={ShieldCheck} />
           <Fact label="Calendar" value={signal.calendar_status} icon={CheckCircle2} />
         </div>
         <div>
