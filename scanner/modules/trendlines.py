@@ -31,7 +31,7 @@ _TOUCH_SEPARATION = 3
 _MIN_COVERAGE = 0.40
 # Two lines whose current values sit within this are treated as duplicates.
 _DUPLICATE_ATR = 0.35
-_MAX_LINES = 6
+_MAX_LINES = 4
 
 
 def _value_at(p1: Swing, p2: Swing, index: int) -> Optional[float]:

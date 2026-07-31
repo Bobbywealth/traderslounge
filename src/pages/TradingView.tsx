@@ -1149,29 +1149,54 @@ const TradingView: React.FC = () => {
     trendSeriesRefs.current = [];
     if (!showTrendLines) return;
 
-    trendLines.forEach((trendLine) => {
-      if (trendLine.isActive && trendLine.points.length >= 2) {
-        const trendSeries = chartRef.current!.addSeries(LineSeries, {
-          color: trendLine.type === 'support' ? '#3b82f6' : '#f59e0b',
-          lineWidth: 2,
-          lineStyle: LineStyle.Solid,
-          title: `${trendLine.type} Line`,
-        });
+    // Strongest first, and only a few. Every line adds an axis label and ink;
+    // a dozen near-parallel rays reads as noise, not structure.
+    const ranked = trendLines
+      .filter((line) => line.isActive && line.points.length >= 2)
+      .sort((a, b) => (b.strength || 0) - (a.strength || 0))
+      .slice(0, 4);
 
-        try {
-          const lineData = trendLine.points.map(point => ({
-            time: Math.floor(point.time.getTime() / 1000) as any,
-            value: point.price,
-          }));
+    const candles = candleCacheRef.current[`${selectedSymbol}:${timeframe}`] || [];
+    const lastTime = candles.length
+      ? Number(candles[candles.length - 1].time)
+      : Math.floor(Date.now() / 1000);
 
-          trendSeries.setData(lineData);
-          trendSeriesRefs.current.push(trendSeries);
-        } catch (error) {
-          console.warn('Failed to draw trendline:', error);
+    ranked.forEach((trendLine, index) => {
+      const isSupport = trendLine.type === 'support';
+      const trendSeries = chartRef.current!.addSeries(LineSeries, {
+        color: isSupport ? '#3b82f6' : '#f59e0b',
+        lineWidth: index === 0 ? 2 : 1,
+        lineStyle: LineStyle.Solid,
+        // Only the strongest line of each side earns an axis label. Previously
+        // every series defaulted to lastValueVisible:true, stacking six
+        // identical "support Line 1.33" tags down the price scale.
+        title: index === 0 ? `${trendLine.type} trend` : '',
+        priceLineVisible: false,
+        lastValueVisible: index === 0,
+      });
+
+      try {
+        const [p1, p2] = trendLine.points;
+        const t1 = Math.floor(p1.time.getTime() / 1000);
+        const t2 = Math.floor(p2.time.getTime() / 1000);
+        const data = [
+          { time: t1 as any, value: p1.price },
+          { time: t2 as any, value: p2.price },
+        ];
+        // A trendline is a ray, not a segment. Without this it stopped at the
+        // second anchor and never reached current price, which is the only
+        // place it matters.
+        if (t2 !== t1 && lastTime > t2) {
+          const slope = (p2.price - p1.price) / (t2 - t1);
+          data.push({ time: lastTime as any, value: p2.price + slope * (lastTime - t2) });
         }
+        trendSeries.setData(data);
+        trendSeriesRefs.current.push(trendSeries);
+      } catch (error) {
+        console.warn('Failed to draw trendline:', error);
       }
     });
-  }, [trendLines, showTrendLines, chartRevision]);
+  }, [trendLines, showTrendLines, chartRevision, selectedSymbol, timeframe]);
 
   // Draw V2 Fibonacci plus support/resistance from the same analysis used by the dashboard.
   // Only shows the STRONGEST zones close to current price to avoid clutter.
