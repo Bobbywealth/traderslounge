@@ -22,6 +22,11 @@ PATTERNS: Dict[str, Dict[str, tuple[float, float]]] = {
         "ab_xa": (0.38, 0.52), "bc_ab": (0.382, 0.886),
         "cd_bc": (1.618, 2.618), "ad_xa": (0.85, 0.92),
     },
+    # Alternate Bat: deeper B (0.382 XA) with an extended 1.13 XA completion.
+    "Alternate Bat": {
+        "ab_xa": (0.36, 0.40), "bc_ab": (0.382, 0.886),
+        "cd_bc": (2.0, 3.618), "ad_xa": (1.09, 1.18),
+    },
     "Butterfly": {
         "ab_xa": (0.74, 0.83), "bc_ab": (0.382, 0.886),
         "cd_bc": (1.618, 2.618), "ad_xa": (1.20, 1.65),
@@ -103,6 +108,44 @@ def _prz_zone(x: Swing, a: Swing, b: Swing, c: Swing, spec: Dict[str, tuple[floa
         "overlap": overlap,
         "ad_projection": {"lower": min(ad_values), "upper": max(ad_values)},
         "cd_projection": {"lower": min(cd_values), "upper": max(cd_values)},
+    }
+
+
+def _trade_levels(x: Swing, a: Swing, d: Swing, prz: Dict[str, Any], direction: str) -> Dict[str, Any]:
+    """Standard harmonic management levels for the completed pattern.
+
+    Entry is the PRZ, the stop sits just beyond the X pivot that invalidates
+    the geometry, and the two targets are the conventional 0.382 / 0.618
+    retracements of the AD leg. Reward:risk is quoted against target 2, which
+    is the convention the published harmonic screeners use.
+    """
+    bullish = direction == "bullish"
+    entry = (float(prz["lower"]) + float(prz["upper"])) / 2.0
+    ad_leg = abs(a.price - d.price)
+    # A breach of X invalidates the pattern; pad it so the stop is not sitting
+    # exactly on the pivot that every other participant is watching.
+    buffer = ad_leg * 0.05
+    stop = (x.price - buffer) if bullish else (x.price + buffer)
+
+    sign = 1.0 if bullish else -1.0
+    target_1 = entry + sign * ad_leg * 0.382
+    target_2 = entry + sign * ad_leg * 0.618
+
+    risk = abs(entry - stop)
+    reward = abs(target_2 - entry)
+    reward_risk = (reward / risk) if risk > 0 else None
+    return {
+        "entry": entry,
+        "entry_zone": {"lower": float(prz["lower"]), "upper": float(prz["upper"])},
+        "stop_loss": stop,
+        "target_1": target_1,
+        "target_2": target_2,
+        "risk_per_unit": risk if risk > 0 else None,
+        "reward_risk": round(reward_risk, 2) if reward_risk is not None else None,
+        "target_1_r": round(abs(target_1 - entry) / risk, 2) if risk > 0 else None,
+        "target_2_r": round(reward_risk, 2) if reward_risk is not None else None,
+        "basis": "entry=PRZ midpoint, stop=beyond X, targets=0.382/0.618 of AD",
+        "calibrated": False,
     }
 
 
@@ -203,6 +246,7 @@ def detect_from_swings(swings: List[Swing]) -> Optional[dict]:
             "alternative": _alternative(matches, name, direction),
             "alternative_interpretation": _alternative(matches, name, direction),
             "geometry_quality": _geometry_quality(window, validation),
+            "trade_levels": _trade_levels(x, a, d, _prz_zone(x, a, b, c, spec), direction),
         }
     return None
 
