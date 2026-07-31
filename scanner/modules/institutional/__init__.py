@@ -67,6 +67,7 @@ def build_institutional(
     primary_timeframe: Optional[str] = None,
     timeframes: Optional[List[str]] = None,
     market_client: Any = None,
+    github_token: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run every Phase 1 + Phase 2 module against an existing analysis dict.
 
@@ -79,6 +80,10 @@ def build_institutional(
     strength so they can fetch candle history for the benchmark asset.
     When omitted, those two sections return ``available: False`` with
     an explicit reason rather than fabricated values.
+
+    ``github_token`` (optional) is passed to fundamentals to fetch
+    developer activity metrics. GitHub API works without auth (60 req/hr)
+    but authenticated requests allow higher rate limits (5000 req/hr).
     """
     tf_list = timeframes or DEFAULT_TIMEFRAMES
     primary_tf = primary_timeframe or (
@@ -118,7 +123,7 @@ def build_institutional(
         ),
         # Phase 2 — provider-dependent modules.
         "onchain": onchain.compute(analysis, snapshot),
-        "fundamentals": fundamentals.compute(analysis, snapshot),
+        "fundamentals": fundamentals.compute(analysis, snapshot, github_token=github_token),
         "sentiment": sentiment.compute(analysis, snapshot),
         "correlation": correlation.compute(
             analysis, snapshot, market_client=market_client
@@ -166,6 +171,7 @@ def analyze_with_institutional(
     calendar_state: Optional[str] = None,
     timeframes: Optional[List[str]] = None,
     market_client: Any = None,
+    github_token: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Wrapper around :func:`scanner.crypto_analysis.analyze_crypto`.
 
@@ -192,5 +198,6 @@ def analyze_with_institutional(
         primary_timeframe=primary_timeframe,
         timeframes=timeframes,
         market_client=market_client,
+        github_token=github_token,
     )
     return analysis

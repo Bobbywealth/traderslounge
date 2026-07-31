@@ -17,7 +17,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 DEFAULT_TIMEOUT = 8.0
 DEFAULT_RETRIES = 3
@@ -34,10 +34,13 @@ class HttpError(Exception):
         super().__init__(f"HTTP {self.status} {self.url}: {self.reason}")
 
 
-def _request_once(url: str, timeout: float, user_agent: str
+def _request_once(url: str, timeout: float, user_agent: str,
+                  headers: Optional[Dict[str, str]] = None
                  ) -> Tuple[int, bytes]:
-    req = urllib.request.Request(url, headers={"User-Agent": user_agent,
-                                               "Accept": "*/*"})
+    req_headers = {"User-Agent": user_agent, "Accept": "*/*"}
+    if headers:
+        req_headers.update(headers)
+    req = urllib.request.Request(url, headers=req_headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
             return resp.status, resp.read()
@@ -58,10 +61,11 @@ def get_text(
     timeout: float = DEFAULT_TIMEOUT,
     retries: int = DEFAULT_RETRIES,
     user_agent: str = DEFAULT_USER_AGENT,
+    headers: Optional[Dict[str, str]] = None,
 ) -> str:
     """Return response body as text or raise :class:`HttpError`."""
     status, body = get_raw(url, timeout=timeout, retries=retries,
-                           user_agent=user_agent)
+                           user_agent=user_agent, headers=headers)
     if status >= 400 or status == 0:
         reason = body.decode("utf-8", errors="replace")[:200]
         raise HttpError(status, url, reason)
@@ -74,10 +78,11 @@ def get_json(
     timeout: float = DEFAULT_TIMEOUT,
     retries: int = DEFAULT_RETRIES,
     user_agent: str = DEFAULT_USER_AGENT,
+    headers: Optional[Dict[str, str]] = None,
 ) -> Any:
     """Return parsed JSON body or raise :class:`HttpError`."""
     text = get_text(url, timeout=timeout, retries=retries,
-                    user_agent=user_agent)
+                    user_agent=user_agent, headers=headers)
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
@@ -90,11 +95,12 @@ def get_raw(
     timeout: float = DEFAULT_TIMEOUT,
     retries: int = DEFAULT_RETRIES,
     user_agent: str = DEFAULT_USER_AGENT,
+    headers: Optional[Dict[str, str]] = None,
 ) -> Tuple[int, bytes]:
     """Low-level retry loop; returns (status, body_bytes)."""
     last_error: Optional[BaseException] = None
     for attempt in range(retries):
-        status, body = _request_once(url, timeout, user_agent)
+        status, body = _request_once(url, timeout, user_agent, headers=headers)
         if status and status < 400:
             return status, body
         # 4xx other than 408/429 are unlikely to recover — fail fast.

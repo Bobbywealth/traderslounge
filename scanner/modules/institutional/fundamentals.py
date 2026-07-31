@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-from scanner.data_providers import coingecko, defillama
+from scanner.data_providers import coingecko, defillama, github
 from scanner.data_providers._http import HttpError
 
 log = logging.getLogger(__name__)
@@ -40,7 +40,8 @@ def _try(fn, *args, **kwargs):
         return {"ok": False, "status": 0, "reason": str(exc)}
 
 
-def compute(analysis: Dict[str, Any], snapshot: Any = None
+def compute(analysis: Dict[str, Any], snapshot: Any = None,
+            github_token: str = ""
             ) -> Dict[str, Any]:
     pair = analysis.get("pair") or ""
 
@@ -100,6 +101,21 @@ def compute(analysis: Dict[str, Any], snapshot: Any = None
                 else proto.get("reason") or "unreachable"
             )
 
+    # 3. GitHub — developer activity and commit cadence.
+    gh = _try(github.fetch_repo, pair, github_token)
+    if gh["ok"]:
+        repo_data = gh["data"]
+        fundamentals["developer_activity"] = {
+            "repository": repo_data.get("repository", ""),
+            "url": repo_data.get("url", ""),
+            "description": repo_data.get("description", ""),
+            "popularity": repo_data.get("popularity", {}),
+            "activity": repo_data.get("activity", {}),
+            "source": "github",
+        }
+    else:
+        unavailable["developer_activity"] = gh.get("reason") or "unreachable"
+
     # Explicit gaps that need a paid provider.
     if "tvl" not in fundamentals and "defillama" not in unavailable:
         unavailable["tvl"] = "no_defillama_protocol_match"
@@ -108,9 +124,6 @@ def compute(analysis: Dict[str, Any], snapshot: Any = None
     )
     unavailable["etf_flows"] = (
         "requires_paid_provider (Coinglass Pro / Farside Investors)"
-    )
-    unavailable["developer_activity"] = (
-        "rate_limited (GitHub API); deferred"
     )
 
     available = bool(fundamentals)

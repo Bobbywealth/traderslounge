@@ -41,6 +41,25 @@ def _stub_protocol():
     }
 
 
+def _stub_github_repo():
+    return {
+        "repository": "ethereum/go-ethereum",
+        "url": "https://github.com/ethereum/go-ethereum",
+        "description": "Official Go implementation of the Ethereum protocol",
+        "popularity": {
+            "stars": 50000,
+            "forks": 20000,
+            "watchers": 1500,
+            "open_issues": 300,
+        },
+        "activity": {
+            "last_pushed": "2024-01-01T12:00:00Z",
+            "recent_commits": 100,
+        },
+        "source": "github",
+    }
+
+
 class TestFundamentals(unittest.TestCase):
     def test_eth_tvl_and_supply(self):
         with patch.object(fundamentals, "coingecko"), \
@@ -79,6 +98,34 @@ class TestFundamentals(unittest.TestCase):
         out = fundamentals.compute({"pair": "BTCUSD"})
         self.assertIn("disclaimer", out)
         self.assertIn("paid provider", out["disclaimer"].lower())
+
+    def test_github_developer_activity(self):
+        with patch.object(fundamentals, "coingecko"), \
+             patch.object(fundamentals, "defillama"), \
+             patch.object(fundamentals, "github"):
+            fundamentals.coingecko.fetch_coin.return_value = _stub_coin()
+            fundamentals.defillama.find_protocol_by_symbol.return_value = _stub_protocol()
+            fundamentals.github.fetch_repo.return_value = _stub_github_repo()
+            out = fundamentals.compute({"pair": "ETHUSD"}, github_token="test_token")
+        self.assertIn("developer_activity", out["fundamentals"])
+        dev = out["fundamentals"]["developer_activity"]
+        self.assertEqual(dev["repository"], "ethereum/go-ethereum")
+        self.assertEqual(dev["popularity"]["stars"], 50000)
+        self.assertEqual(dev["activity"]["recent_commits"], 100)
+
+    def test_github_failure_reports_unavailable(self):
+        with patch.object(fundamentals, "coingecko"), \
+             patch.object(fundamentals, "defillama"), \
+             patch.object(fundamentals, "github"):
+            fundamentals.coingecko.fetch_coin.return_value = _stub_coin()
+            fundamentals.defillama.find_protocol_by_symbol.return_value = _stub_protocol()
+            fundamentals.github.fetch_repo.side_effect = HttpError(
+                404, "https://api.github.com/repos/ethereum/go-ethereum",
+                "repository not found"
+            )
+            out = fundamentals.compute({"pair": "ETHUSD"}, github_token="test_token")
+        self.assertIn("developer_activity", out["unavailable"])
+        self.assertIn("repository not found", out["unavailable"]["developer_activity"])
 
 
 if __name__ == "__main__":

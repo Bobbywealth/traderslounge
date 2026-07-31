@@ -900,6 +900,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 calendar_state=calendar_state,
                 primary_timeframe=primary_tf,
                 market_client=_STATE.market_client,
+                github_token=_STATE.config.github_token,
             )
         except Exception as exc:  # pragma: no cover - defensive
             analysis["institutional"] = {

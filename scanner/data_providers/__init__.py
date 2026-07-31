@@ -26,6 +26,7 @@ from . import (
     coingecko,
     defillama,
     fear_greed,
+    github,
 )
 
 __all__ = [
@@ -38,4 +39,5 @@ __all__ = [
     "coingecko",
     "defillama",
     "fear_greed",
+    "github",
 ]

@@ -12,6 +12,9 @@ class Config:
     # Twelve Data free tier caps at 8 requests/minute. Override upward after
     # upgrading the plan so the client rate limiter stops throttling.
     twelve_data_rpm: int = 8
+    github_token: str = ""
+    # GitHub personal access token for higher rate limits (5000/hr vs 60/hr).
+    # Optional; unauthenticated requests still work with lower rate limits.
     pairs: List[str] = field(default_factory=lambda: [
         # Forex majors + gold (Twelve Data) — lean free-tier default.
         # Indices (NAS100, US30) and crosses (GBPJPY) are supported in
@@ -34,6 +37,7 @@ class Config:
 def load_from_env() -> Config:
     c = Config()
     c.twelve_data_api_key = os.environ.get("TWELVE_DATA_API_KEY", "")
+    c.github_token = os.environ.get("GITHUB_TOKEN", "")
     if env_pairs := os.environ.get("SCANNER_PAIRS"):
         c.pairs = [p.strip().upper() for p in env_pairs.split(",") if p.strip()]
     if v := os.environ.get("SCAN_INTERVAL_SECONDS"):
