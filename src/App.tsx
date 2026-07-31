@@ -9,7 +9,7 @@ import Dashboard from './pages/Dashboard';
 import TradingTable from './pages/TradingTable';
 import TradingView from './pages/TradingView';
 import AdminDashboard from './pages/AdminDashboard';
-import Calendar from './pages/Calendar';
+import EconomicNews from './pages/EconomicNews';
 import Signals from './pages/Signals';
 import Education from './pages/Education';
 import Community from './pages/Community';
@@ -91,7 +91,7 @@ const AppContent: React.FC = () => {
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/trades" element={<TradingTable />} />
                 <Route path="/tradingview" element={<TradingView />} />
-                <Route path="/calendar" element={<Calendar />} />
+                <Route path="/calendar" element={<EconomicNews />} />
                 <Route path="/education" element={<Education />} />
                 <Route path="/community" element={<Community />} />
               </Routes>
