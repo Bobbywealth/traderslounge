@@ -215,10 +215,6 @@ const TradingView: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-<<<<<<< HEAD
-  // Initialize chart. Declared before useCandles so the series exists by the
-  // time the candle hook's first refresh runs on mount.
-=======
   const normalizeHistoryCandle = (candle: TradeLockerHistoryCandle | (number | string)[]): CandlestickData | null => {
     const isTuple = Array.isArray(candle);
     const tuple = isTuple ? candle : null;
@@ -621,8 +617,8 @@ const TradingView: React.FC = () => {
     return timeframes[timeframe] || 60 * 60 * 1000;
   };
 
-  // Initialize chart
->>>>>>> 8d74e45 (fix: wire every page to real backends and remove fabricated data)
+  // Initialize chart. Declared before useCandles so the series exists by the
+  // time the candle hook's first refresh runs on mount.
   useEffect(() => {
     if (!chartContainerRef.current || chartInitialized.current) return;
 
