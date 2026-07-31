@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import MagicMock
 
-from scanner.news_feed import ForexFactoryClient, parse_events, refresh_filter
+from scanner.news_feed import CURRENCY_TO_PAIRS, ForexFactoryClient, parse_events, refresh_filter
 from scanner.news_filter import NewsFilter
 
 
@@ -20,11 +20,17 @@ SAMPLE_FEED = [
 ]
 
 
+# A USD-wide event fans out to every USD pair we track and an EUR event to
+# every EUR pair. Deriving this from the live mapping keeps the expectation
+# correct as the tracked pair list changes.
+EXPECTED_FANOUT = len(CURRENCY_TO_PAIRS.get("USD", ())) + len(CURRENCY_TO_PAIRS.get("EUR", ()))
+
+
 class TestParseEvents(unittest.TestCase):
     def test_keeps_only_high_impact(self):
         events = parse_events(SAMPLE_FEED)
-        # FOMC fans out to 6 USD pairs, ECB to 1 EUR pair → 7 events
-        self.assertEqual(len(events), 7)
+        # FOMC fans out across every tracked USD pair, ECB across every EUR pair.
+        self.assertEqual(len(events), EXPECTED_FANOUT)
         titles = {e.title for e in events}
         self.assertIn("FOMC Statement", titles)
         self.assertIn("ECB Press Conf", titles)
@@ -51,7 +57,7 @@ class TestClient(unittest.TestCase):
         http = MagicMock(return_value=json.dumps(SAMPLE_FEED))
         client = ForexFactoryClient(http=http)
         events = client.fetch_events()
-        self.assertEqual(len(events), 7)
+        self.assertEqual(len(events), EXPECTED_FANOUT)
         http.assert_called_once()
 
     def test_fetch_handles_invalid_json(self):
@@ -63,8 +69,8 @@ class TestClient(unittest.TestCase):
         nf.events = [MagicMock()]  # something stale
         client = ForexFactoryClient(http=lambda u, t: json.dumps(SAMPLE_FEED))
         n = refresh_filter(client, nf)
-        self.assertEqual(n, 7)
-        self.assertEqual(len(nf.events), 7)
+        self.assertEqual(n, EXPECTED_FANOUT)
+        self.assertEqual(len(nf.events), EXPECTED_FANOUT)
 
 
 if __name__ == "__main__":

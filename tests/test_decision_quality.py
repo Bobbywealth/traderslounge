@@ -42,7 +42,16 @@ class TestDecisionQuality(unittest.TestCase):
 
         self.assertEqual(enriched["direction"], "BUY")
         self.assertEqual(enriched["total_score"], 74)
-        self.assertEqual(enriched["trade_plan"], original["trade_plan"])
+        # attach_decision_quality deliberately caps account_risk_percent by the
+        # financial risk profile and records where that cap came from, so the
+        # enriched plan is not byte-identical. What must hold is that every
+        # canonical field survives untouched and the input is not mutated.
+        for field in ("eligible", "entry", "stop", "atr", "net_rr",
+                      "spread_assumption_bps", "slippage_assumption_bps"):
+            self.assertEqual(enriched["trade_plan"][field], original["trade_plan"][field], field)
+        self.assertLessEqual(enriched["trade_plan"]["account_risk_percent"],
+                             original["trade_plan"].get("account_risk_percent", float("inf")))
+        self.assertFalse(enriched["trade_plan"]["scenario_weights_used_for_sizing"])
         self.assertEqual(analysis, original)
         quality = enriched["decision_quality"]
         self.assertEqual(

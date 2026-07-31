@@ -83,7 +83,10 @@ ASSET_PARAMS = {
         'max_lot': 100.0
     },
     'metals': {
-        'point_size': 0.01,
+        # Must match PIP_SIZE['XAUUSD']. These disagreed (0.01 here vs 0.10
+        # there), so a gold stop measured 2000 points in the sizing path and
+        # 200 pips everywhere else — a 10x position-sizing error.
+        'point_size': 0.10,
         'point_value_per_lot': 10.0,
         'min_lot': 0.01,
         'max_lot': 50.0
@@ -201,7 +204,11 @@ class RiskManager:
             raw_lots = risk_amount / (sl_pips * pip_value)
             stop_distance_pips = sl_pips
 
-        lot_size = math.floor(raw_lots * 100) / 100
+        # Round before flooring. Stop distances arrive with binary-float error
+        # (a 50-pip stop computes as 50.00000000000115), which makes an exact
+        # 0.01-lot position land at 0.00999999… and floor away to zero — a
+        # valid trade rejected as unsizeable.
+        lot_size = math.floor(round(raw_lots, 8) * 100) / 100
 
         return {
             'lot_size': lot_size,
@@ -225,6 +232,15 @@ class RiskManager:
         sl_distance = abs(sig.entry - sig.stop_loss)
         if sl_distance == 0:
             return TradeRejection("Entry equals stop loss")
+
+        # An unrecognised symbol previously fell through to the forex defaults
+        # and was sized as if it were a standard 0.0001-pip, $10-per-pip pair.
+        # Refuse instead: guessing contract specs for an unknown instrument can
+        # produce a wildly wrong lot size on a real account.
+        if sig.pair not in PIP_VALUE_PER_LOT_USD and sig.pair not in PIP_SIZE:
+            return TradeRejection(
+                f"No pip value configured for {sig.pair}; refusing to size an unknown instrument"
+            )
 
         asset_class = _get_asset_class(sig.pair)
         position = self.calculate_position_size(
