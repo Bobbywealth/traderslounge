@@ -409,6 +409,35 @@ const TradingView: React.FC = () => {
       .sort((a, b) => a.time - b.time);
   }, []);
 
+  // Trendlines come from the scanner alongside harmonics. The previous source
+  // (liveDataService.detectTrendLines) was gated on VITE_FINNHUB_API_KEY and
+  // returned [] without it, measured slope in price-per-millisecond so its
+  // `Math.abs(slope) < 0.001` filter matched everything, and counted touches
+  // against a hardcoded 0.0005 tolerance that is meaningless above ~$10.
+  const fetchBwtsTrendLines = useCallback(async (symbol: string, tf: string): Promise<TrendLine[]> => {
+    const params = new URLSearchParams({ pair: symbol, timeframe: tf });
+    const API_BASE = import.meta.env.VITE_BWTS_API_URL || import.meta.env.VITE_API_URL || '';
+    const response = await fetch(`${API_BASE}/api/harmonics?${params.toString()}`);
+    if (!response.ok) throw new Error(`Failed to fetch trendlines: ${response.status}`);
+    const payload = await response.json();
+    const lines = Array.isArray(payload?.trendlines) ? payload.trendlines : [];
+    return lines.map((line: any) => ({
+      id: String(line.id),
+      symbol,
+      type: line.type === 'resistance' ? 'resistance' : 'support',
+      points: (line.points || []).map((point: any) => ({
+        price: Number(point.price),
+        time: new Date(Number(point.time) * 1000),
+      })),
+      slope: Number(line.slope_per_bar) || 0,
+      strength: Number(line.strength) || 0,
+      touches: Number(line.touches) || 0,
+      currentPrice: Number(line.current_price),
+      distance: Number(line.distance) || 0,
+      isActive: Boolean(line.is_active),
+    })) as TrendLine[];
+  }, []);
+
   const fetchBwtsHarmonics = useCallback(async (symbol: string, tf: string): Promise<HarmonicPattern[]> => {
     const params = new URLSearchParams({ pair: symbol, timeframe: tf });
     const API_BASE = import.meta.env.VITE_BWTS_API_URL || import.meta.env.VITE_API_URL || '';
@@ -621,7 +650,7 @@ const TradingView: React.FC = () => {
       // before anything appeared. They are independent — run them together,
       // and let one failing leave the other rendered.
       const trendTask = showTrendLines
-        ? liveDataService.detectTrendLines(symbol)
+        ? fetchBwtsTrendLines(symbol, timeframe)
             .then((lines) => setTrendLines(lines))
             .catch((error) => { console.warn('Trendlines unavailable:', error); setTrendLines([]); })
         : Promise.resolve();

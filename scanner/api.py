@@ -1007,8 +1007,10 @@ class _ApiHandler(BaseHTTPRequestHandler):
             candles = client.fetch_candles(pair, timeframe)
             from .modules.harmonic import detect
             from .modules.classical import detect_all as detect_classical
+            from .modules.trendlines import detect as detect_trendlines
             match = detect(candles)
             classical = detect_classical(candles)
+            trendlines = detect_trendlines(candles)
         except Exception as exc:
             stale = self._cache_get(cache_key, allow_stale=True)
             if stale is not None:
@@ -1016,8 +1018,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._error(502, f"harmonic data unavailable: {exc}")
         if match is None:
             body = {"pair": pair, "timeframe": timeframe,
-                    "status": "candidate" if classical else "none", "pattern": None,
-                    "classical": classical}
+                    "status": "candidate" if (classical or trendlines) else "none",
+                    "pattern": None, "classical": classical, "trendlines": trendlines}
         else:
             points = {
                 label: {"time": swing.time, "price": swing.price}
@@ -1046,6 +1048,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
                     "trade_levels": match.get("trade_levels"),
                 },
                 "classical": classical,
+                "trendlines": trendlines,
                 "warning": "Candidate only. Pattern geometry has not yet passed forward outcome validation.",
             }
         self._cache_set(cache_key, body, ttl=30, stale_ttl=120)
