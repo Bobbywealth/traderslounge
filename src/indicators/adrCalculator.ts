@@ -66,21 +66,32 @@ export const calculateAdr = (
     return config.includeWeekendsForCrypto ? true : !isWeekendUtc(candle.time);
   });
 
-  const lookbackCandles = filteredCandles.slice(-config.lookbackPeriod);
-  if (lookbackCandles.length === 0) {
+  if (filteredCandles.length < config.lookbackPeriod + 1) {
     return null;
   }
 
-  const ranges = lookbackCandles.map((candle, index) => {
-    const previousClose = index > 0 ? lookbackCandles[index - 1].close : null;
-    return getRange(candle, previousClose, config.rangeDefinition);
-  });
+  // The last candle is the day still forming — it sets the current range but
+  // must not be averaged into the ADR itself.
+  const today = filteredCandles[filteredCandles.length - 1];
+  const completed = filteredCandles.slice(0, -1);
+  const lookbackCandles = completed.slice(-config.lookbackPeriod);
+
+  const ranges = lookbackCandles
+    .map((candle, index) => {
+      const offset = completed.length - lookbackCandles.length + index;
+      const previousClose = offset > 0 ? completed[offset - 1].close : null;
+      return getRange(candle, previousClose, config.rangeDefinition);
+    })
+    .filter((range) => range > 0);
+
+  if (ranges.length === 0) {
+    return null;
+  }
 
   const averageDailyRange = ranges.reduce((sum, range) => sum + range, 0) / ranges.length;
-  const today = lookbackCandles[lookbackCandles.length - 1];
   const currentRange = getRange(
     today,
-    lookbackCandles.length > 1 ? lookbackCandles[lookbackCandles.length - 2].close : null,
+    completed[completed.length - 1].close,
     config.rangeDefinition
   );
 

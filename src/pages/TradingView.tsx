@@ -1043,6 +1043,7 @@ const TradingView: React.FC = () => {
     }
     adrSeriesRefs.current = [];
     if (!adrData) return;
+    const digits = getDecimalPlaces(selectedSymbol);
     const start = adrData.day_time as UTCTimestamp;
     const end = Math.max(Math.floor(Date.now() / 1000), adrData.day_time + 60) as UTCTimestamp;
     const levels = [
@@ -1055,14 +1056,14 @@ const TradingView: React.FC = () => {
         color: level.color,
         lineWidth: 2,
         lineStyle: level.style,
-        title: `${level.title} ${level.value.toFixed(2)}`,
+        title: `${level.title} ${level.value.toFixed(digits)}`,
         priceLineVisible: false,
         lastValueVisible: true,
       });
       series.setData([{ time: start, value: level.value }, { time: end, value: level.value }]);
       adrSeriesRefs.current.push(series);
     }
-  }, [adrData, chartRevision]);
+  }, [adrData, chartRevision, selectedSymbol]);
 
   // Draw trendlines on chart
   useEffect(() => {
@@ -1775,12 +1776,12 @@ const TradingView: React.FC = () => {
             ? 'bg-red-950 border-red-800 text-red-200'
             : 'bg-sky-950 border-sky-800 text-sky-200'
         }`}>
-          <span className="font-semibold">ADR(14): {adrData.adr.toFixed(2)}</span>
+          <span className="font-semibold">ADR(14): {adrData.adr.toFixed(getDecimalPlaces(selectedSymbol))}</span>
           <span>{adrData.percent_used.toFixed(0)}% used</span>
-          <span>Range: {adrData.current_range.toFixed(2)}</span>
-          <span>ADR Low: {adrData.adr_low.toFixed(2)}</span>
-          <span>Open: {adrData.day_open.toFixed(2)}</span>
-          <span>ADR High: {adrData.adr_high.toFixed(2)}</span>
+          <span>Range: {adrData.current_range.toFixed(getDecimalPlaces(selectedSymbol))}</span>
+          <span>ADR Low: {adrData.adr_low.toFixed(getDecimalPlaces(selectedSymbol))}</span>
+          <span>Open: {adrData.day_open.toFixed(getDecimalPlaces(selectedSymbol))}</span>
+          <span>ADR High: {adrData.adr_high.toFixed(getDecimalPlaces(selectedSymbol))}</span>
           {adrData.exhausted && <span className="font-bold">Range exhausted</span>}
         </div>
       )}

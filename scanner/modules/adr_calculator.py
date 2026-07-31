@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from ..data_types import Candle, Direction, ModuleResult
-from ..indicators import atr
 
 MAX_POINTS = 15
 
@@ -33,17 +32,33 @@ class AdrSnapshot:
     exhausted: bool
 
 
-def snapshot(d1: List[Candle], period: int = 14) -> Optional[AdrSnapshot]:
-    if len(d1) < period + 2:
+def average_daily_range(completed: List[Candle], period: int = 14) -> Optional[float]:
+    """Simple mean of (high - low) over the last `period` completed days.
+
+    Flat bars (high == low) come from holidays or gaps in the feed and are
+    dropped rather than averaged in as a zero-range day.
+    """
+    ranges = [c.high - c.low for c in completed if c.high > c.low]
+    ranges = ranges[-period:]
+    if len(ranges) < period:
         return None
-    a = atr(d1[:-1], period)  # ATR on completed days
+    return sum(ranges) / len(ranges)
+
+
+def snapshot(d1: List[Candle], period: int = 14) -> Optional[AdrSnapshot]:
+    if len(d1) < period + 1:
+        return None
+    # d1[-1] is the day still forming; the average uses completed days only.
+    a = average_daily_range(d1[:-1], period)
     if a is None or a <= 0:
         return None
     today = d1[-1]
     current_range = today.high - today.low
     pct = (current_range / a) * 100
-    adr_high = today.open + a / 2
-    adr_low = today.open - a / 2
+    # Standard ADR projection: how far today can still travel from the
+    # extreme already printed, not a band drawn around the open.
+    adr_high = today.low + a
+    adr_low = today.high - a
     tol = a * 0.15
     return AdrSnapshot(
         adr=a,
