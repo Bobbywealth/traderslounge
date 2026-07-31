@@ -6,6 +6,7 @@ raise — that's fine, callers fall back to SQLiteRepository.
 """
 from __future__ import annotations
 
+import logging
 import json
 from typing import List
 
@@ -195,7 +196,23 @@ class PostgresRepository:
             )
             return int(cur.fetchone()["id"])
 
+    # An entry area goes stale long before this, but a call that is never
+    # retired reads as live forever. Age ACTIVE calls out on read.
+    PUBLISHED_TTL_HOURS = 24
+
+    def _expire_stale_published(self) -> None:
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE published_signals SET status = 'EXPIRED', updated_at = NOW() "
+                    "WHERE status = 'ACTIVE' AND published_at < NOW() - make_interval(hours => %s)",
+                    (self.PUBLISHED_TTL_HOURS,),
+                )
+        except Exception:  # pragma: no cover — never block the feed on a sweep
+            logging.exception("failed to expire stale published signals")
+
     def published(self, limit: int = 50, status: str | None = None) -> List[dict]:
+        self._expire_stale_published()
         with self.conn.cursor() as cur:
             if status:
                 cur.execute(

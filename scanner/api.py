@@ -838,12 +838,18 @@ class _ApiHandler(BaseHTTPRequestHandler):
             calendar = _STATE.news_filter.evaluate(pair) if _STATE.news_filter is not None else {"status": "UNAVAILABLE"}
             analysis["economic_calendar"] = calendar
             timing = analysis.get("trade_timing") or {}
-            if calendar.get("status") in ("BLOCKED", "POST_NEWS"):
+            calendar_status = calendar.get("status", "UNAVAILABLE")
+            if calendar_status in ("BLOCKED", "POST_NEWS"):
                 timing["status"] = "AVOID"
-                timing.setdefault("wait_for", []).append(f"calendar {calendar.get('status')}")
-            elif calendar.get("status") != "CLEAR":
+                timing.setdefault("wait_for", []).append(f"calendar {calendar_status}")
+            elif calendar_status == "UNAVAILABLE":
+                # Calendar feed unreachable. Note the degradation but do not
+                # park every market in WAIT — an upstream outage would
+                # otherwise mute the whole product with no visible cause.
+                timing["calendar_degraded"] = True
+            elif calendar_status != "CLEAR":
                 timing["status"] = "WAIT"
-                timing.setdefault("wait_for", []).append(f"calendar {calendar.get('status', 'UNAVAILABLE')}")
+                timing.setdefault("wait_for", []).append(f"calendar {calendar_status}")
             analysis["trade_timing"] = timing
             if timing.get("status") == "READY" and signal_stable:
                 analysis["direction_stability"]["lifecycle"] = "READY"
@@ -1559,12 +1565,18 @@ class _ApiHandler(BaseHTTPRequestHandler):
             calendar = _STATE.news_filter.evaluate(pair) if _STATE.news_filter is not None else {"status": "UNAVAILABLE"}
             analysis["economic_calendar"] = calendar
             timing = analysis.get("trade_timing") or {}
-            if calendar.get("status") in ("BLOCKED", "POST_NEWS"):
+            calendar_status = calendar.get("status", "UNAVAILABLE")
+            if calendar_status in ("BLOCKED", "POST_NEWS"):
                 timing["status"] = "AVOID"
-                timing.setdefault("wait_for", []).append(f"calendar {calendar.get('status')}")
-            elif calendar.get("status") != "CLEAR":
+                timing.setdefault("wait_for", []).append(f"calendar {calendar_status}")
+            elif calendar_status == "UNAVAILABLE":
+                # Calendar feed unreachable. Note the degradation but do not
+                # park every market in WAIT — an upstream outage would
+                # otherwise mute the whole product with no visible cause.
+                timing["calendar_degraded"] = True
+            elif calendar_status != "CLEAR":
                 timing["status"] = "WAIT"
-                timing.setdefault("wait_for", []).append(f"calendar {calendar.get('status', 'UNAVAILABLE')}")
+                timing.setdefault("wait_for", []).append(f"calendar {calendar_status}")
             analysis["trade_timing"] = timing
             if timing.get("status") == "READY" and signal_stable:
                 analysis["direction_stability"]["lifecycle"] = "READY"

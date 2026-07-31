@@ -13,8 +13,11 @@ import { SESSIONS, formatHours, hoursUntil, sessionIsOpen, sessionsAt, type Sess
 type FeedFilter = 'ACTIVE' | 'ALL';
 type SessionFilter = 'ALL' | SessionName;
 
-const QUALIFY_SCORE = 35; // watchlist threshold — a setup at or above this can publish
-const FORMING_FLOOR = 15; // below this a market is just noise, not "forming"
+// Must mirror `minimum_score` in scanner/trade_planner.build_trade_plan — a
+// lower number here renders progress bars that read "ready" for setups the
+// backend will never publish.
+const QUALIFY_SCORE = 60;
+const FORMING_FLOOR = 25; // below this a market is just noise, not "forming"
 
 type FormingSetup = {
   pair: string;
@@ -38,6 +41,8 @@ const isRenderableMarket = (market: unknown): market is DashboardSnapshot['marke
 const Signals: React.FC = () => {
   const [signals, setSignals] = useState<PublishedSignal[]>([]);
   const [forming, setForming] = useState<FormingSetup[]>([]);
+  const [blockers, setBlockers] = useState<{ label: string; count: number }[]>([]);
+  const [scanned, setScanned] = useState(0);
   const [filter, setFilter] = useState<FeedFilter>('ACTIVE');
   const [sessionFilter, setSessionFilter] = useState<SessionFilter>('ALL');
   const [loading, setLoading] = useState(true);
@@ -57,7 +62,38 @@ const Signals: React.FC = () => {
     // Forming setups come from the scanner snapshot — best effort, never blocks the feed.
     bwtsApi.dashboardSnapshot()
       .then((snapshot) => {
-        const markets = (Array.isArray(snapshot.markets) ? snapshot.markets : []).filter(isRenderableMarket);
+        const all = (Array.isArray(snapshot.markets) ? snapshot.markets : []).filter(isRenderableMarket);
+        // The snapshot carries one entry per recent signal, so a pair can repeat.
+        // Collapse to one entry per pair — otherwise the board double-counts and
+        // React sees duplicate keys.
+        const seen = new Set<string>();
+        const markets = all.filter((market) => {
+          const pair = market.signal.pair;
+          if (seen.has(pair)) return false;
+          seen.add(pair);
+          return true;
+        });
+        setScanned(markets.length);
+
+        // Why isn't anything publishing? Tally the actual gate that each market
+        // is stuck behind so the empty state can say something useful.
+        const tally = new Map<string, number>();
+        markets.forEach((market) => {
+          const analysis = market.analysis as CryptoAnalysis;
+          if (analysis.trade_plan?.eligible) return;
+          const reasons = (analysis.trade_plan?.reasons || [])
+            .map(planReasonText)
+            .filter(Boolean);
+          const labels = reasons.length ? reasons : ['Still building confluence'];
+          labels.forEach((label) => tally.set(label, (tally.get(label) ?? 0) + 1));
+        });
+        setBlockers(
+          [...tally.entries()]
+            .map(([label, count]) => ({ label, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5)
+        );
+
         const candidates: FormingSetup[] = markets
           .map((market) => {
             const analysis = market.analysis as CryptoAnalysis;
@@ -78,7 +114,11 @@ const Signals: React.FC = () => {
           .sort((a, b) => b.score - a.score);
         setForming(candidates);
       })
-      .catch(() => setForming([]));
+      .catch(() => {
+        setForming([]);
+        setBlockers([]);
+        setScanned(0);
+      });
 
     try {
       bwtsApi.clearCache();
@@ -204,9 +244,29 @@ const Signals: React.FC = () => {
           </h2>
           <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">
             {sessionFilter === 'ALL'
-              ? 'The scanner is watching every tracked market. The Forming board below shows what it is building toward.'
+              ? `The scanner is watching ${scanned || 'every'} tracked market${scanned === 1 ? '' : 's'}. Nothing has cleared every entry rule yet.`
               : 'Switch to All sessions to see every call, or check the Forming board below.'}
           </p>
+          {sessionFilter === 'ALL' && blockers.length > 0 && (
+            <div className="mx-auto mt-6 max-w-xl text-left">
+              <div className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-600">
+                What is holding setups back
+              </div>
+              <ul className="space-y-1.5">
+                {blockers.map((blocker) => (
+                  <li
+                    key={blocker.label}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+                  >
+                    <span className="text-xs text-slate-400">{blocker.label}</span>
+                    <span className="shrink-0 rounded-md bg-white/[0.06] px-2 py-0.5 text-[10px] font-black text-slate-400">
+                      {blocker.count} {blocker.count === 1 ? 'market' : 'markets'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
       )}
 

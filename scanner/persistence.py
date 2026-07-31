@@ -7,7 +7,9 @@ will satisfy the same interface so callers don't change.
 """
 from __future__ import annotations
 
+import datetime as _dt
 import json
+import logging
 import sqlite3
 from dataclasses import asdict
 from pathlib import Path
@@ -15,6 +17,8 @@ from typing import List, Optional, Protocol
 
 from .data_types import Direction, Tier
 from .signal import Signal
+
+log = logging.getLogger(__name__)
 
 
 class SignalRepository(Protocol):
@@ -234,7 +238,25 @@ class SQLiteRepository:
         ).fetchone()
         return int(row["id"])
 
+    # An entry area goes stale long before this, but a call that is never
+    # retired reads as live forever. Age ACTIVE calls out on read.
+    PUBLISHED_TTL_HOURS = 24
+
+    def _expire_stale_published(self) -> None:
+        cutoff = (
+            _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=self.PUBLISHED_TTL_HOURS)
+        ).isoformat()
+        try:
+            self.conn.execute(
+                "UPDATE published_signals SET status = 'EXPIRED', updated_at = ? "
+                "WHERE status = 'ACTIVE' AND published_at < ?",
+                (_dt.datetime.now(_dt.timezone.utc).isoformat(), cutoff),
+            )
+        except Exception:  # pragma: no cover — never block the feed on a sweep
+            log.exception("failed to expire stale published signals")
+
     def published(self, limit: int = 50, status: str | None = None) -> List[dict]:
+        self._expire_stale_published()
         if status:
             rows = self.conn.execute(
                 "SELECT * FROM published_signals WHERE status = ? ORDER BY published_at DESC LIMIT ?",

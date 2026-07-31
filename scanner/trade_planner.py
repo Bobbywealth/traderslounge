@@ -441,7 +441,12 @@ def build_trade_plan(
             custom_message=f"Data quality is {quality}",
             data={"quality": quality}
         ))
-    if calendar_status in ("BLOCKED", "POST_NEWS", "UNAVAILABLE"):
+    # A real news window blocks the plan. A calendar we simply could not reach
+    # must not: an outage on a free upstream feed would otherwise silently
+    # suppress every signal indefinitely. Degrade instead — publish, flag it,
+    # and cap risk below.
+    calendar_degraded = calendar_status == "UNAVAILABLE"
+    if calendar_status in ("BLOCKED", "POST_NEWS"):
         reasons.append(build_blocking_reason(
             ReasonCode.CALENDAR_BLOCKED,
             custom_message=f"Economic calendar status is {calendar_status}",
@@ -534,10 +539,13 @@ def build_trade_plan(
     elif eligible:
         status = "WATCHLIST"
     else:
-        status = "BLOCKED" if calendar_status in ("BLOCKED", "POST_NEWS", "UNAVAILABLE") else "WAIT"
+        status = "BLOCKED" if calendar_status in ("BLOCKED", "POST_NEWS") else "WAIT"
 
     risk_percent = 0.0 if not eligible else 1.0 if status == "STRONG" else 0.5 if status == "VALID" else 0.25
     if (timing.get("regime") or {}).get("monthly_weekly_conflict") or not (timing.get("session") or {}).get("preferred", False):
+        risk_percent = min(risk_percent, 0.25)
+    if calendar_degraded:
+        # Trading blind to the calendar — size down rather than sit out.
         risk_percent = min(risk_percent, 0.25)
 
     triggers = _generate_plan_triggers(snapshot, analysis, entry, direction) if eligible else []
@@ -577,6 +585,7 @@ def build_trade_plan(
         "structural_targets": structural_targets[:5],
         "account_risk_percent": risk_percent,
         "calendar_status": calendar_status,
+        "calendar_degraded": calendar_degraded,
         "timing_status": timing_status,
         "timing": timing,
         "reasons": reasons,
@@ -600,7 +609,8 @@ def _empty_plan(direction, score, calendar_status, reasons):
         "slippage_assumption_bps": 5,
         "minimum_rr": 2.0, "targets": [], "daily_range": {},
         "structural_targets": [], "account_risk_percent": 0,
-        "calendar_status": calendar_status, "timing_status": "WAIT", "timing": {}, "reasons": reasons,
+        "calendar_status": calendar_status, "calendar_degraded": calendar_status == "UNAVAILABLE",
+        "timing_status": "WAIT", "timing": {}, "reasons": reasons,
         "triggers": [], "blocking_reasons": [],
         "position_size_formula": "account_equity * account_risk_percent / 100 / risk_distance",
     }
