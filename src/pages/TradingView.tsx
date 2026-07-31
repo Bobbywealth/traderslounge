@@ -183,6 +183,12 @@ const TradingView: React.FC = () => {
   const [drawingRevision, setDrawingRevision] = useState(0);
   const [drawingColor, setDrawingColor] = useState('#22d3ee');
   const [magnetDrawing, setMagnetDrawing] = useState(true);
+  // Chart lifecycle/feedback. Without these the page had no way to report a
+  // failed init (blank panel forever) or an in-flight symbol switch (frozen
+  // stale chart that reads as a hang).
+  const [chartError, setChartError] = useState<string | null>(null);
+  const [chartInitAttempt, setChartInitAttempt] = useState(0);
+  const [candlesLoading, setCandlesLoading] = useState(false);
   const drawingUndoRef = useRef<ManualDrawing[][]>([]);
   const drawingStorageKeyRef = useRef('');
 
@@ -610,31 +616,51 @@ const TradingView: React.FC = () => {
       // Harmonics are loaded independently from the BWTS Python scanner so
       // they refresh whenever the symbol or timeframe changes.
 
-      // Load trendlines
-      if (showTrendLines) {
-        const trendlines = await liveDataService.detectTrendLines(symbol);
-        setTrendLines(trendlines);
-        console.log(`📈 Loaded ${trendlines.length} trendlines`);
-      }
+      // These were awaited in sequence, so a symbol switch paid trendline
+      // latency + price-history latency + fibonacci latency back to back
+      // before anything appeared. They are independent — run them together,
+      // and let one failing leave the other rendered.
+      const trendTask = showTrendLines
+        ? liveDataService.detectTrendLines(symbol)
+            .then((lines) => setTrendLines(lines))
+            .catch((error) => { console.warn('Trendlines unavailable:', error); setTrendLines([]); })
+        : Promise.resolve();
 
-      // Load fibonacci levels
-      if (showFibonacci) {
-        const priceHistory = await liveDataService.getPriceHistory(symbol, 50);
-        if (priceHistory.length > 10) {
-          const recentHigh = Math.max(...priceHistory.slice(-20).map(p => p.high));
-          const recentLow = Math.min(...priceHistory.slice(-20).map(p => p.low));
-          const fibLevels = await liveDataService.calculateFibonacciLevels(symbol, recentHigh, recentLow);
-          setFibonacciLevels(fibLevels);
-          console.log(`🔢 Loaded ${fibLevels.length} fibonacci levels`);
-        }
-      }
+      const fibTask = showFibonacci
+        ? liveDataService.getPriceHistory(symbol, 50)
+            .then(async (priceHistory) => {
+              if (priceHistory.length <= 10) return;
+              const recentHigh = Math.max(...priceHistory.slice(-20).map((p) => p.high));
+              const recentLow = Math.min(...priceHistory.slice(-20).map((p) => p.low));
+              setFibonacciLevels(await liveDataService.calculateFibonacciLevels(symbol, recentHigh, recentLow));
+            })
+            .catch((error) => { console.warn('Fibonacci unavailable:', error); setFibonacciLevels([]); })
+        : Promise.resolve();
 
+      await Promise.all([trendTask, fibTask]);
       setIsConnected(true);
     } catch (error) {
       console.error('Failed to load symbol data:', error);
       setIsConnected(false);
     }
   };
+
+  // Overlays are derived from the previously selected market. Until the new
+  // symbol's analysis arrives they would keep drawing the old symbol's
+  // harmonics, levels and setup zones over the new candles — the levels look
+  // "wrong" because they belong to a different instrument. Clear on switch.
+  useEffect(() => {
+    setHarmonicPatterns([]);
+    setTrendLines([]);
+    setFibonacciLevels([]);
+    setCryptoAnalysis(null);
+    setAdrData(null);
+    // loadSymbolData previously ran only on mount and on an explicit symbol
+    // pick, so trendlines and fibonacci were never recomputed for a new
+    // timeframe — the chart kept 1h levels while displaying 15m candles.
+    loadSymbolData(selectedSymbol);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSymbol, timeframe]);
 
   const loadCandlesForSymbol = useCallback(async (
     symbol: string, tf: string, incremental = false
@@ -645,6 +671,9 @@ const TradingView: React.FC = () => {
     const requestId = ++candleRequestRef.current;
     try {
       const useTinyUpdate = incremental && loadedChartKeyRef.current === key;
+      // Only a full history load is worth a spinner; the 30s incremental poll
+      // must not flash one.
+      if (!useTinyUpdate) setCandlesLoading(true);
       const candles = await fetchBwtsCandles(symbol, tf, useTinyUpdate ? 2 : undefined);
       if (requestId !== candleRequestRef.current || candles.length === 0) return;
       const previous = candleCacheRef.current[key] || [];
@@ -671,6 +700,10 @@ const TradingView: React.FC = () => {
       setIsConnected(false);
       // Keep already-rendered candles visible during a transient API failure.
       if (loadedChartKeyRef.current !== key) series.setData([]);
+    } finally {
+      // Only the newest request may clear the flag, or a slow superseded
+      // request would hide the spinner for the one still running.
+      if (requestId === candleRequestRef.current) setCandlesLoading(false);
     }
   }, [fetchBwtsCandles]);
 
@@ -753,10 +786,19 @@ const TradingView: React.FC = () => {
 
   // Initialize chart
   useEffect(() => {
-    if (!chartContainerRef.current || chartInitialized.current) return;
+    if (chartInitialized.current) return;
+    // The container can be unmounted or zero-sized on the first pass (layout
+    // not settled, panel still collapsed). This effect used to have [] deps and
+    // bail permanently in that case, leaving a blank chart that never
+    // recovered — the "sometimes it doesn't open" report. Retry next frame.
+    const container = chartContainerRef.current;
+    if (!container || container.clientWidth === 0 || container.clientHeight === 0) {
+      const raf = requestAnimationFrame(() => setChartInitAttempt((n) => n + 1));
+      return () => cancelAnimationFrame(raf);
+    }
 
     try {
-      const chart = createChart(chartContainerRef.current, {
+      const chart = createChart(container, {
         layout: {
           background: { type: ColorType.Solid, color: '#070a12' },
           textColor: '#9aa7c3',
@@ -772,8 +814,8 @@ const TradingView: React.FC = () => {
         timeScale: {
           borderColor: '#273452',
         },
-        width: chartContainerRef.current.clientWidth,
-        height: chartContainerRef.current.clientHeight,
+        width: container.clientWidth,
+        height: container.clientHeight,
       });
 
       const candlestickSeries = chart.addSeries(CandlestickSeries, {
@@ -788,10 +830,10 @@ const TradingView: React.FC = () => {
       chartRef.current = chart;
       candlestickSeriesRef.current = candlestickSeries;
       chartInitialized.current = true;
+      setChartError(null);
 
-      // Load non-candle technical analysis once; the dedicated candle effect
-      // below performs the single initial market-data request.
-      loadSymbolData(selectedSymbol);
+      // Technical analysis is loaded by the symbol/timeframe effect, which also
+      // runs on mount — calling it here too issued every request twice.
 
       // Observe the actual container, not just window resize. This catches
       // sidebar collapse and async harmonic/ADR status bars without leaving
@@ -802,7 +844,7 @@ const TradingView: React.FC = () => {
         const height = Math.max(1, Math.floor(entry.contentRect.height));
         chartRef.current.applyOptions({ width, height });
       });
-      resizeObserver.observe(chartContainerRef.current);
+      resizeObserver.observe(container);
 
       return () => {
         resizeObserver.disconnect();
@@ -814,9 +856,13 @@ const TradingView: React.FC = () => {
         chartInitialized.current = false;
       };
     } catch (error) {
+      // Previously swallowed: the panel stayed blank with no message and no
+      // way to retry. Surface it and let the user re-attempt.
       console.error('Chart initialization failed:', error);
+      chartInitialized.current = false;
+      setChartError(error instanceof Error ? error.message : 'Chart failed to initialise.');
     }
-  }, []);
+  }, [chartInitAttempt]);
 
   // ADR changes slowly, so refresh once per minute rather than on every
   // candle poll.
@@ -1842,6 +1888,32 @@ const TradingView: React.FC = () => {
           ref={chartContainerRef}
           className="w-full h-full min-w-0 min-h-0 overflow-hidden"
         />
+
+        {/* Switching symbols used to freeze on the previous chart with no
+            feedback, which reads as a hang rather than a fetch. */}
+        {candlesLoading && !chartError && (
+          <div className="pointer-events-none absolute left-1/2 top-4 z-40 -translate-x-1/2 rounded-full border border-cyan-400/20 bg-[#0b1020]/95 px-4 py-1.5 text-[11px] font-bold text-cyan-200 shadow-lg backdrop-blur">
+            <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-cyan-300/30 border-t-cyan-300 align-middle" />
+            <span className="ml-2 align-middle">Loading {selectedSymbol} · {timeframe}</span>
+          </div>
+        )}
+
+        {/* A failed createChart previously left this panel permanently blank
+            with the reason only in the console. */}
+        {chartError && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#070a12]/95 p-6">
+            <div className="max-w-sm rounded-2xl border border-rose-500/25 bg-rose-500/10 p-5 text-center">
+              <h3 className="text-sm font-black text-rose-200">Chart failed to load</h3>
+              <p className="mt-2 break-words text-xs text-rose-200/70">{chartError}</p>
+              <button
+                onClick={() => { setChartError(null); setChartInitAttempt((n) => n + 1); }}
+                className="mt-4 rounded-lg border border-rose-400/30 bg-rose-400/15 px-4 py-2 text-xs font-black text-rose-100 transition hover:bg-rose-400/25"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
         {showSetupGuide && setupPlan && <div className="absolute right-4 top-4 z-30 w-[min(350px,calc(100%-2rem))] rounded-xl border border-white/10 bg-[#0b1020]/95 p-3 text-xs text-slate-300 shadow-2xl backdrop-blur">
           <div className="flex items-center justify-between gap-3">
             <span className="font-black tracking-widest text-cyan-300">SETUP GUIDE</span>
