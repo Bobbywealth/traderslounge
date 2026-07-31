@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createChart, ColorType, IChartApi, ISeriesApi, CandlestickSeries } from 'lightweight-charts';
 import {
+  BrainCircuit,
   Settings,
   Maximize2,
   Search,
@@ -9,14 +10,9 @@ import {
   BarChart3,
   Activity,
   Target,
-  Zap,
   RefreshCw,
   Pencil,
   LineChart,
-  CandlestickChart,
-  BarChart2,
-  Link,
-  Link2Off,
   MousePointer2,
   Minus,
   Square,
@@ -34,50 +30,27 @@ import {
   Hand
 } from 'lucide-react';
 import { liveDataService, HarmonicPattern, TrendLine, FibonacciLevel } from '../services/liveDataService';
-import { tradeLockerService, TradeLockerConfig } from '../services/tradeLockerService';
 import { tradeLockerApi } from '../services/apiService';
 import ConfluenceXLogo from '../components/ConfluenceXLogo';
 import ChartAiAnalysisPanel from '../components/ChartAiAnalysisPanel';
 import { bwtsApi, type ChartAiAnalysis, type CryptoAnalysis } from '../services/bwtsApi';
-
-interface CandlestickData {
-  time: UTCTimestamp;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-}
-
-interface LineDataPoint {
-  time: UTCTimestamp;
-  value: number;
-}
-
-interface VolumeData {
-  time: UTCTimestamp;
-  value: number;
-  color: string;
-}
-
-interface TradeLockerHistoryCandle {
-  t?: number | string;
-  time?: number | string;
-  timestamp?: number | string;
-  o?: number | string;
-  h?: number | string;
-  l?: number | string;
-  c?: number | string;
-  open?: number | string;
-  high?: number | string;
-  low?: number | string;
-  close?: number | string;
-  [key: string]: unknown;
-}
-
-type ChartType = 'candlestick' | 'line' | 'area';
-type DrawingTool = 'pan' | 'select' | 'trend' | 'horizontal' | 'sr' | 'rectangle' | 'fib' | 'text';
-type DrawingPoint = { time: number; price: number };
-type ManualDrawing = { id: string; type: Exclude<DrawingTool, 'select' | 'pan'>; points: DrawingPoint[]; text?: string; color?: string; locked?: boolean; lineStyle?: 'solid' | 'dashed'; showPrice?: boolean };
+import { useCandles } from '../features/chart/useCandles';
+import { useBinanceStream } from '../features/chart/useBinanceStream';
+import { useDrawings } from '../features/chart/useDrawings';
+import { authenticatedChartFetch } from '../features/chart/authenticatedFetch';
+import { CHART_COLORS, CHART_TIMEFRAMES, timeframeSeconds } from '../features/chart/constants';
+import {
+  getPlanGating,
+  useAdrLevelSeries,
+  useAnalysisLevelSeries,
+  useConditionalSetupOverlay,
+  useHarmonicPatternSeries,
+  useHarmonicSvgOverlay,
+  useSetupZoneOverlay,
+  useTrendLineSeries,
+  type ChartAdr,
+  type SetupZone,
+} from '../features/chart/overlays';
 
 interface SymbolInfo {
   symbol: string;
@@ -85,23 +58,6 @@ interface SymbolInfo {
   exchange: string;
   type: 'forex' | 'stock' | 'crypto' | 'commodity';
   price?: number;
-}
-
-interface ChartAdr {
-  pair: string;
-  period: number;
-  day_time: number;
-  adr: number;
-  day_open: number;
-  day_high: number;
-  day_low: number;
-  current_range: number;
-  percent_used: number;
-  adr_high: number;
-  adr_low: number;
-  near_adr_high: boolean;
-  near_adr_low: boolean;
-  exhausted: boolean;
 }
 
 const BWTS_SYMBOLS: SymbolInfo[] = [
@@ -120,678 +76,183 @@ const BWTS_SYMBOLS: SymbolInfo[] = [
   { symbol: 'XAUUSD', name: 'Gold / US Dollar', exchange: 'Twelve Data', type: 'commodity' },
 ];
 
+const apiBase = () => import.meta.env.VITE_BWTS_API_URL || import.meta.env.VITE_API_URL || '';
+
+async function fetchBwtsHarmonics(symbol: string, tf: string): Promise<HarmonicPattern[]> {
+  const params = new URLSearchParams({ pair: symbol, timeframe: tf });
+  const response = await authenticatedChartFetch(`${apiBase()}/api/harmonics?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch BWTS harmonics: ${response.status}`);
+  }
+  const payload = await response.json();
+  const pattern = payload?.pattern;
+  if (!pattern) return [];
+  const point = (label: 'X' | 'A' | 'B' | 'C' | 'D') => ({
+    price: Number(pattern.points[label].price),
+    time: new Date(Number(pattern.points[label].time) * 1000),
+  });
+  return [{
+    id: `${symbol}-${tf}-${pattern.name}-${pattern.points.D.time}`,
+    symbol,
+    type: pattern.name as HarmonicPattern['type'],
+    direction: pattern.direction,
+    completion: 100,
+    points: { X: point('X'), A: point('A'), B: point('B'), C: point('C'), D: point('D') },
+    ratios: {
+      AB_XA: Number(pattern.ratios.ab_xa),
+      BC_AB: Number(pattern.ratios.bc_ab),
+      CD_BC: Number(pattern.ratios.cd_bc),
+      AD_XA: Number(pattern.ratios.ad_xa),
+    },
+    prz: { min: Number(pattern.prz.low), max: Number(pattern.prz.high) },
+    confidence: 100,
+    status: 'completed',
+  }];
+}
+
+async function fetchBwtsAdr(symbol: string): Promise<ChartAdr> {
+  const params = new URLSearchParams({ pair: symbol });
+  const response = await authenticatedChartFetch(`${apiBase()}/api/adr?${params.toString()}`);
+  if (!response.ok) throw new Error(`Failed to fetch ADR: ${response.status}`);
+  return response.json();
+}
+
+type RawRecord = Record<string, unknown>;
+
+const mapTradeLockerType = (instrument: RawRecord): SymbolInfo['type'] => {
+  const rawType = String(
+    instrument.type ??
+    instrument.instrumentType ??
+    instrument.assetType ??
+    instrument.category ??
+    ''
+  ).toLowerCase();
+
+  if (rawType.includes('crypto')) return 'crypto';
+  if (rawType.includes('stock') || rawType.includes('equity')) return 'stock';
+  if (rawType.includes('commodity') || rawType.includes('metal')) return 'commodity';
+  return 'forex';
+};
+
+const parseTradeLockerInstruments = (payload: unknown): SymbolInfo[] => {
+  const record = (payload ?? {}) as RawRecord;
+  const rawItems = Array.isArray(payload)
+    ? payload
+    : (record.d || record.instruments || record.data || []);
+
+  if (!Array.isArray(rawItems)) return [];
+
+  return rawItems
+    .map((item: unknown): SymbolInfo | null => {
+      const instrument = (item ?? {}) as RawRecord;
+      const symbol = String(
+        instrument.symbol ??
+        instrument.name ??
+        instrument.code ??
+        ''
+      ).trim();
+      if (!symbol) return null;
+
+      return {
+        symbol,
+        name: String(instrument.description ?? instrument.displayName ?? symbol),
+        exchange: String(instrument.exchange ?? 'TradeLocker'),
+        type: mapTradeLockerType(instrument),
+        price: Number(instrument.lastPrice ?? instrument.price ?? 0) || undefined,
+      };
+    })
+    .filter((item): item is SymbolInfo => item !== null);
+};
+
+const getDecimalPlaces = (symbol: string): number => {
+  if (symbol.includes('JPY')) return 3;
+  if (symbol.includes('BTC') || symbol.includes('ETH')) return 2;
+  if (['AAPL', 'GOOGL', 'MSFT', 'TSLA'].includes(symbol)) return 2;
+  if (symbol.includes('XAU')) return 2;
+  return 5;
+};
+
 const TradingView: React.FC = () => {
   const workspaceRef = useRef<HTMLDivElement>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
-  const volumeContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const volumeChartRef = useRef<IChartApi | null>(null);
-  const mainSeriesRef = useRef<ISeriesApi<'Candlestick'> | ISeriesApi<'Line'> | ISeriesApi<'Area'> | null>(null);
-  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
-  const chartInitialized = useRef<boolean>(false);
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
-  const harmonicSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
-  const adrSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
-  const trendSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
-  const v2LevelSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
-  const candleCacheRef = useRef<Record<string, CandlestickData[]>>({});
-  const loadedChartKeyRef = useRef('');
-  const candleRequestRef = useRef(0);
-  const marketWsRef = useRef<WebSocket | null>(null);
+  const chartInitialized = useRef<boolean>(false);
   const lastUiPriceUpdateRef = useRef(0);
-  const [chartType, setChartType] = useState<ChartType>('candlestick');
-  const [showVolume, setShowVolume] = useState(true);
+  const revisionKeyRef = useRef('');
+
   const [chartRevision, setChartRevision] = useState(0);
-  
-  // State management
   const [selectedSymbol, setSelectedSymbol] = useState('BTCUSD');
   const [timeframe, setTimeframe] = useState('1h');
   const [currentPrice, setCurrentPrice] = useState(0);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [isLive, setIsLive] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [symbolSuggestions, setSymbolSuggestions] = useState<SymbolInfo[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [availableSymbols, setAvailableSymbols] = useState<SymbolInfo[]>(BWTS_SYMBOLS);
-  const [selectedBroker, setSelectedBroker] = useState('polygon');
-  
+
   // Technical analysis data
   const [harmonicPatterns, setHarmonicPatterns] = useState<HarmonicPattern[]>([]);
   const [adrData, setAdrData] = useState<ChartAdr | null>(null);
   const [trendLines, setTrendLines] = useState<TrendLine[]>([]);
   const [fibonacciLevels, setFibonacciLevels] = useState<FibonacciLevel[]>([]);
+  const [symbolDataRevision, setSymbolDataRevision] = useState(0);
   const [showHarmonics, setShowHarmonics] = useState(true);
   const [showTrendLines, setShowTrendLines] = useState(true);
   const [showFibonacci, setShowFibonacci] = useState(true);
   const [showSupportResistance, setShowSupportResistance] = useState(true);
   const [showSetups, setShowSetups] = useState(true);
   const [showSetupGuide, setShowSetupGuide] = useState(true);
+  const [showManualDrawings, setShowManualDrawings] = useState(true);
   const [cryptoAnalysis, setCryptoAnalysis] = useState<CryptoAnalysis | null>(null);
   const [chartAiAnalysis, setChartAiAnalysis] = useState<ChartAiAnalysis | null>(null);
   const [chartAiConfigured, setChartAiConfigured] = useState<boolean | null>(null);
   const [chartAiLoading, setChartAiLoading] = useState(false);
   const [chartAiError, setChartAiError] = useState<string | null>(null);
-  const [drawingTool, setDrawingTool] = useState<DrawingTool>('pan');
-  const [drawings, setDrawings] = useState<ManualDrawing[]>([]);
-  const [draftDrawing, setDraftDrawing] = useState<ManualDrawing | null>(null);
-  const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
-  const [showManualDrawings, setShowManualDrawings] = useState(true);
   const [showChartContext, setShowChartContext] = useState(false);
   const [showTechnicalControls, setShowTechnicalControls] = useState(false);
   const [drawingRailCollapsed, setDrawingRailCollapsed] = useState(false);
-  const [drawingRevision, setDrawingRevision] = useState(0);
-  const [drawingColor, setDrawingColor] = useState('#22d3ee');
-  const [magnetDrawing, setMagnetDrawing] = useState(true);
-  const drawingUndoRef = useRef<ManualDrawing[][]>([]);
-  const drawingStorageKeyRef = useRef('');
-
-  useEffect(() => {
-    const assetType = availableSymbols.find((symbol) => symbol.symbol === selectedSymbol)?.type;
-    // V2 analysis runs server-side for any asset class via the same
-    // /api/analysis endpoint (MultiSourceClient routes FX/gold to Twelve
-    // Data). Show it for crypto, forex and commodities — not just crypto.
-    if (!assetType || !['crypto', 'forex', 'commodity', 'stock'].includes(assetType)) {
-      setCryptoAnalysis(null);
-      return;
-    }
-    let active = true;
-    setCryptoAnalysis(null);
-    setChartAiAnalysis(null);
-    setChartAiConfigured(null);
-    setChartAiError(null);
-    bwtsApi.cryptoAnalysis(selectedSymbol, timeframe)
-      .then((analysis) => { if (active) setCryptoAnalysis(analysis); })
-      .catch(() => { if (active) setCryptoAnalysis(null); });
-    return () => { active = false; };
-  }, [selectedSymbol, timeframe, availableSymbols]);
-
-  const drawingKey = `confluencex:drawings:${selectedSymbol}:${timeframe}`;
-  useEffect(() => {
-    drawingStorageKeyRef.current = drawingKey;
-    try { setDrawings(JSON.parse(localStorage.getItem(drawingKey) || '[]')); } catch { setDrawings([]); }
-    setDraftDrawing(null); setSelectedDrawingId(null); drawingUndoRef.current = [];
-  }, [drawingKey]);
-  useEffect(() => {
-    if (drawingStorageKeyRef.current === drawingKey) localStorage.setItem(drawingKey, JSON.stringify(drawings));
-  }, [drawings, drawingKey]);
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-    const redraw = () => setDrawingRevision((value) => value + 1);
-    chart.timeScale().subscribeVisibleTimeRangeChange(redraw);
-    return () => chart.timeScale().unsubscribeVisibleTimeRangeChange(redraw);
-  }, [chartRevision]);
-
-  const saveDrawingChange = useCallback((next: ManualDrawing[]) => {
-    drawingUndoRef.current.push(drawings);
-    if (drawingUndoRef.current.length > 40) drawingUndoRef.current.shift();
-    setDrawings(next);
-  }, [drawings]);
-  const drawingPointFromClient = useCallback((clientX: number, clientY: number): DrawingPoint | null => {
-    const chart = chartRef.current; const series = candlestickSeriesRef.current || mainSeriesRef.current; const container = chartContainerRef.current;
-    if (!chart || !series || !container) return null;
-    const rect = container.getBoundingClientRect();
-    const time = chart.timeScale().coordinateToTime(clientX-rect.left);
-    const price = series.coordinateToPrice(clientY-rect.top);
-    if (time == null || price == null || typeof time !== 'number') return null;
-    let point = { time: Number(time), price: Number(price) };
-    if (magnetDrawing) {
-      const candles = candleCacheRef.current[`${selectedSymbol}:${timeframe}`] || [];
-      const candle = candles.reduce<CandlestickData | null>((nearest, item) => !nearest || Math.abs(Number(item.time)-point.time) < Math.abs(Number(nearest.time)-point.time) ? item : nearest, null);
-      if (candle) { const prices=[candle.open,candle.high,candle.low,candle.close]; point={time:Number(candle.time),price:prices.reduce((nearest,value)=>Math.abs(value-point.price)<Math.abs(nearest-point.price)?value:nearest,prices[0])}; }
-    }
-    return point;
-  }, [magnetDrawing, selectedSymbol, timeframe]);
-  const drawingPointFromEvent = useCallback((event: React.PointerEvent<SVGSVGElement>) => drawingPointFromClient(event.clientX,event.clientY), [drawingPointFromClient]);
-  const handleDrawingPointerDown = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
-    if (drawingTool === 'select' || drawingTool === 'pan') return;
-    const point = drawingPointFromEvent(event); if (!point) return;
-    if (drawingTool === 'horizontal' || drawingTool === 'sr') {
-      saveDrawingChange([...drawings, { id: crypto.randomUUID(), type: drawingTool, points: [point], color: drawingColor, lineStyle: drawingTool === 'sr' ? 'dashed' : 'solid', showPrice: true }]);
-      return;
-    }
-    if (drawingTool === 'text') {
-      const text = window.prompt('Annotation text');
-      if (text?.trim()) saveDrawingChange([...drawings, { id: crypto.randomUUID(), type: 'text', points: [point], text: text.trim(), color: drawingColor, showPrice: false }]);
-      return;
-    }
-    setDraftDrawing({ id: crypto.randomUUID(), type: drawingTool, points: [point, point], color: drawingColor, lineStyle: drawingTool === 'fib' ? 'dashed' : 'solid', showPrice: true });
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }, [drawingTool, drawingPointFromEvent, drawings, saveDrawingChange, drawingColor]);
-  const handleDrawingPointerMove = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
-    if (!draftDrawing) return; const point = drawingPointFromEvent(event); if (!point) return;
-    setDraftDrawing({ ...draftDrawing, points: [draftDrawing.points[0], point] });
-  }, [draftDrawing, drawingPointFromEvent]);
-  const handleDrawingPointerUp = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
-    if (!draftDrawing) return; const point = drawingPointFromEvent(event) || draftDrawing.points[1];
-    const next = { ...draftDrawing, points: [draftDrawing.points[0], point] };
-    if (Math.abs(next.points[0].time-next.points[1].time) > 0 || Math.abs(next.points[0].price-next.points[1].price) > 0) saveDrawingChange([...drawings, next]);
-    setDraftDrawing(null);
-  }, [draftDrawing, drawingPointFromEvent, drawings, saveDrawingChange]);
-  const undoDrawing = () => { const previous = drawingUndoRef.current.pop(); if (previous) { setDrawings(previous); setSelectedDrawingId(null); } };
-  const selectedDrawing = drawings.find((drawing) => drawing.id === selectedDrawingId) || null;
-  const updateSelectedDrawing = (changes: Partial<ManualDrawing>) => { if (!selectedDrawingId) return; saveDrawingChange(drawings.map((drawing) => drawing.id === selectedDrawingId ? { ...drawing, ...changes } : drawing)); };
-  const deleteSelectedDrawing = () => { if (selectedDrawingId && !selectedDrawing?.locked) { saveDrawingChange(drawings.filter((drawing) => drawing.id !== selectedDrawingId)); setSelectedDrawingId(null); } };
-  const duplicateSelectedDrawing = () => { if (!selectedDrawing) return; const seconds={ '1m':60,'5m':300,'15m':900,'30m':1800,'1h':3600,'4h':14400,'1d':86400,'1w':604800 }[timeframe] || 3600; const priceShift=Number(cryptoAnalysis?.indicators?.atr || currentPrice*.002); const copy={...selectedDrawing,id:crypto.randomUUID(),locked:false,points:selectedDrawing.points.map((point)=>({time:point.time+seconds*5,price:point.price+priceShift*.2}))}; saveDrawingChange([...drawings,copy]); setSelectedDrawingId(copy.id); };
-  const handleAnchorPointerDown = (event: React.PointerEvent<SVGCircleElement>, drawing: ManualDrawing) => { event.stopPropagation(); if (drawing.locked) return; drawingUndoRef.current.push(drawings); event.currentTarget.setPointerCapture(event.pointerId); };
-  const handleAnchorPointerMove = (event: React.PointerEvent<SVGCircleElement>, drawingId: string, pointIndex: number) => { if (!event.currentTarget.hasPointerCapture(event.pointerId)) return; const point=drawingPointFromClient(event.clientX,event.clientY); if (!point) return; setDrawings((current)=>current.map((drawing)=>drawing.id===drawingId?{...drawing,points:drawing.points.map((existing,index)=>index===pointIndex?point:existing)}:drawing)); };
-  const handleAnchorPointerUp = (event: React.PointerEvent<SVGCircleElement>) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); };
-  const clearDrawings = () => { if (drawings.length && window.confirm('Clear drawings for this symbol and timeframe?')) { saveDrawingChange([]); setSelectedDrawingId(null); } };
-  const drawingCoordinates = (drawing: ManualDrawing) => { const series = candlestickSeriesRef.current || mainSeriesRef.current; return drawing.points.map((point) => ({ x: chartRef.current?.timeScale().timeToCoordinate(point.time as UTCTimestamp) ?? null, y: series?.priceToCoordinate(point.price) ?? null })); };
-
-  const mapTradeLockerType = (instrument: any): SymbolInfo['type'] => {
-    const rawType = String(
-      instrument?.type ??
-      instrument?.instrumentType ??
-      instrument?.assetType ??
-      instrument?.category ??
-      ''
-    ).toLowerCase();
-
-    if (rawType.includes('crypto')) return 'crypto';
-    if (rawType.includes('stock') || rawType.includes('equity')) return 'stock';
-    if (rawType.includes('commodity') || rawType.includes('metal')) return 'commodity';
-    return 'forex';
-  };
-
-  const parseTradeLockerInstruments = (payload: any): SymbolInfo[] => {
-    const rawItems = Array.isArray(payload)
-      ? payload
-      : (payload?.d || payload?.instruments || payload?.data || []);
-
-    if (!Array.isArray(rawItems)) return [];
-
-    return rawItems
-      .map((instrument: any): SymbolInfo | null => {
-        const symbol = String(
-          instrument?.symbol ??
-          instrument?.name ??
-          instrument?.code ??
-          ''
-        ).trim();
-        if (!symbol) return null;
-
-        return {
-          symbol,
-          name: String(instrument?.description ?? instrument?.displayName ?? symbol),
-          exchange: String(instrument?.exchange ?? 'TradeLocker'),
-          type: mapTradeLockerType(instrument),
-          price: Number(instrument?.lastPrice ?? instrument?.price ?? 0) || undefined,
-        };
-      })
-      .filter((item): item is SymbolInfo => item !== null);
-  };
-
-  const timeframes = [
-    { value: '1m', label: '1m' },
-    { value: '5m', label: '5m' },
-    { value: '15m', label: '15m' },
-    { value: '30m', label: '30m' },
-    { value: '1h', label: '1h' },
-    { value: '4h', label: '4h' },
-    { value: '1d', label: '1D' },
-    { value: '1w', label: '1W' },
-    { value: '1M', label: '1M' },
-  ];
-
-  // TradeLocker connection state
-  const [tradeLockerConnected, setTradeLockerConnected] = useState(false);
-  const [tradeLockerCredentials, setTradeLockerCredentials] = useState({
-    email: '',
-    password: '',
-    server: 'demo',
-    isDemo: true
-  });
-  const [showLoginModal, setShowLoginModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
 
-  const normalizeHistoryCandle = (candle: TradeLockerHistoryCandle | (number | string)[]): CandlestickData | null => {
-    const isTuple = Array.isArray(candle);
-    const tuple = isTuple ? candle : null;
-
-    const timeRaw = tuple?.[0] ?? (candle as TradeLockerHistoryCandle).t ?? (candle as TradeLockerHistoryCandle).time ?? (candle as TradeLockerHistoryCandle).timestamp;
-    const openRaw = tuple?.[1] ?? (candle as TradeLockerHistoryCandle).o ?? (candle as TradeLockerHistoryCandle).open;
-    const highRaw = tuple?.[2] ?? (candle as TradeLockerHistoryCandle).h ?? (candle as TradeLockerHistoryCandle).high;
-    const lowRaw = tuple?.[3] ?? (candle as TradeLockerHistoryCandle).l ?? (candle as TradeLockerHistoryCandle).low;
-    const closeRaw = tuple?.[4] ?? (candle as TradeLockerHistoryCandle).c ?? (candle as TradeLockerHistoryCandle).close;
-
-    if (timeRaw == null || openRaw == null || highRaw == null || lowRaw == null || closeRaw == null) {
-      return null;
-    }
-
-    const rawTime = Number(timeRaw);
-    const normalizedTime = rawTime > 1_000_000_000_000 ? Math.floor(rawTime / 1000) : Math.floor(rawTime);
-
-    const open = Number(openRaw);
-    const high = Number(highRaw);
-    const low = Number(lowRaw);
-    const close = Number(closeRaw);
-    if (![normalizedTime, open, high, low, close].every(Number.isFinite)) {
-      return null;
-    }
-
-    return {
-      time: normalizedTime as UTCTimestamp,
-      open,
-      high,
-      low,
-      close,
-    };
-  };
-
-  const fetchBwtsCandles = useCallback(async (
-    symbol: string, tf: string, limit?: number
-  ): Promise<CandlestickData[]> => {
-    const params = new URLSearchParams({
-      pair: symbol,
-      timeframe: tf,
-      ...(limit ? { limit: String(limit) } : {}),
-    });
-    const API_BASE = import.meta.env.VITE_BWTS_API_URL || import.meta.env.VITE_API_URL || '';
-    const response = await fetch(`${API_BASE}/api/candles?${params.toString()}`);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch BWTS candles: ${response.status}`);
-    }
-    const payload = await response.json();
-    const rawCandles: Array<TradeLockerHistoryCandle | (number | string)[]> = payload?.candles || [];
-    return rawCandles
-      .map(normalizeHistoryCandle)
-      .filter((candle): candle is CandlestickData => candle !== null)
-      .sort((a, b) => a.time - b.time);
-  }, []);
-
-  const fetchBwtsHarmonics = useCallback(async (symbol: string, tf: string): Promise<HarmonicPattern[]> => {
-    const params = new URLSearchParams({ pair: symbol, timeframe: tf });
-    const API_BASE = import.meta.env.VITE_BWTS_API_URL || import.meta.env.VITE_API_URL || '';
-    const response = await fetch(`${API_BASE}/api/harmonics?${params.toString()}`);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch BWTS harmonics: ${response.status}`);
-    }
-    const payload = await response.json();
-    const pattern = payload?.pattern;
-    if (!pattern) return [];
-    const point = (label: 'X' | 'A' | 'B' | 'C' | 'D') => ({
-      price: Number(pattern.points[label].price),
-      time: new Date(Number(pattern.points[label].time) * 1000),
-    });
-    return [{
-      id: `${symbol}-${tf}-${pattern.name}-${pattern.points.D.time}`,
-      symbol,
-      type: pattern.name as HarmonicPattern['type'],
-      direction: pattern.direction,
-      completion: 100,
-      points: { X: point('X'), A: point('A'), B: point('B'), C: point('C'), D: point('D') },
-      ratios: {
-        AB_XA: Number(pattern.ratios.ab_xa),
-        BC_AB: Number(pattern.ratios.bc_ab),
-        CD_BC: Number(pattern.ratios.cd_bc),
-        AD_XA: Number(pattern.ratios.ad_xa),
-      },
-      prz: { min: Number(pattern.prz.low), max: Number(pattern.prz.high) },
-      confidence: 100,
-      status: 'completed',
-    }];
-  }, []);
-
-  const fetchBwtsAdr = useCallback(async (symbol: string): Promise<ChartAdr> => {
-    const params = new URLSearchParams({ pair: symbol });
-    const API_BASE = import.meta.env.VITE_BWTS_API_URL || import.meta.env.VITE_API_URL || '';
-    const response = await fetch(`${API_BASE}/api/adr?${params.toString()}`);
-    if (!response.ok) throw new Error(`Failed to fetch ADR: ${response.status}`);
-    return response.json();
-  }, []);
-  // TradeLocker connection function
-  const connectToTradeLocker = async () => {
-    if (!tradeLockerCredentials.email || !tradeLockerCredentials.password) {
-      alert('Please enter your TradeLocker credentials');
-      return;
-    }
-
-    try {
-      console.log('🔌 Connecting to TradeLocker...');
-      
-      // Authenticate with TradeLocker
-      const authResponse = await tradeLockerService.authenticate({
-        email: tradeLockerCredentials.email,
-        password: tradeLockerCredentials.password,
-        server: tradeLockerCredentials.server,
-        isDemo: tradeLockerCredentials.isDemo,
-      });
-
-      console.log('✅ TradeLocker authenticated:', authResponse.accessToken ? 'Token received' : 'No token');
-      setTradeLockerConnected(true);
-      setIsConnected(true);
-      setShowLoginModal(false);
-      await loadTradeLockerInstruments();
-
-      // Initialize WebSocket for real-time data
-      initializeTradeLockerWebSocket();
-      
-    } catch (error) {
-      console.error('❌ TradeLocker connection failed:', error);
-      alert('Failed to connect to TradeLocker. Please check your credentials.');
-      setTradeLockerConnected(false);
-      setIsConnected(false);
-    }
-  };
-
-  // Initialize WebSocket connection to TradeLocker
-  const initializeTradeLockerWebSocket = () => {
-    const wsUrl = tradeLockerCredentials.isDemo 
-      ? 'wss://demo.tradelocker.com/streaming-api' 
-      : 'wss://live.tradelocker.com/streaming-api';
-
-    try {
-      console.log(`🔗 Connecting to WebSocket: ${wsUrl}`);
-      
-      // Note: TradeLocker may use different WebSocket URL format
-      // This is a placeholder - you'll need to check TradeLocker's actual WebSocket API
-      const ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        console.log('✅ WebSocket connected');
-        setIsConnected(true);
-        
-        // Subscribe to symbol data
-        ws.send(JSON.stringify({
-          type: 'subscribe',
-          symbol: selectedSymbol,
-          timeframe: timeframe
-        }));
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          
-          if (data.type === 'quote' || data.type === 'candlestick') {
-            // Update chart with real data
-            const newCandle = {
-              time: Math.floor(new Date(data.timestamp).getTime() / 1000) as any,
-              open: data.open,
-              high: data.high,
-              low: data.low,
-              close: data.close,
-            };
-            
-            if (candlestickSeriesRef.current) {
-              candlestickSeriesRef.current.update(newCandle);
-            }
-            
-            setCurrentPrice(data.close);
-          }
-        } catch (error) {
-          console.warn('WebSocket data parse error:', error);
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-      };
-
-      ws.onclose = () => {
-        console.log('🔌 WebSocket disconnected');
-        setIsConnected(false);
-        // Attempt reconnection after 5 seconds
-        setTimeout(() => {
-          if (tradeLockerConnected) {
-            initializeTradeLockerWebSocket();
-          }
-        }, 5000);
-      };
-
-      wsRef.current = ws;
-    } catch (error) {
-      console.error('Failed to initialize WebSocket:', error);
-    }
-  };
-
-  // Disconnect from TradeLocker
-  const disconnectFromTradeLocker = () => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-    tradeLockerService.disconnect();
-    setTradeLockerConnected(false);
-    setIsConnected(false);
-  };
-
-  // Subscribe to symbol changes
-  useEffect(() => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'unsubscribe',
-        symbol: selectedSymbol,
-      }));
-      wsRef.current.send(JSON.stringify({
-        type: 'subscribe',
-        symbol: selectedSymbol,
-        timeframe: timeframe
-      }));
-    }
-  }, [selectedSymbol, timeframe]);
-
-  // Symbol search functionality
-  const updateSymbolSuggestions = useCallback((term: string) => {
-    const normalizedTerm = term.trim().toLowerCase();
-    const filtered = availableSymbols
-      .filter((symbol) =>
-        normalizedTerm.length === 0 ||
-        symbol.symbol.toLowerCase().includes(normalizedTerm) ||
-        symbol.name.toLowerCase().includes(normalizedTerm)
-      )
-      .slice(0, 20);
-
-    setSymbolSuggestions(filtered);
-    setShowSuggestions(filtered.length > 0);
-  }, [availableSymbols]);
-
-  const handleSymbolSearch = (term: string) => {
-    setSearchTerm(term);
-    updateSymbolSuggestions(term);
-  };
-
-  const selectSymbol = (symbol: SymbolInfo) => {
-    setSelectedSymbol(symbol.symbol);
-    setSearchTerm(symbol.symbol);
-    setShowSuggestions(false);
-    loadSymbolData(symbol.symbol);
-  };
-
-  // Load symbol data and technical analysis
-  const loadSymbolData = async (symbol: string) => {
-    try {
-      console.log(`🔄 Loading data for ${symbol}...`);
-      
-      // Harmonics are loaded independently from the BWTS Python scanner so
-      // they refresh whenever the symbol or timeframe changes.
-
-      // Load trendlines
-      if (showTrendLines) {
-        const trendlines = await liveDataService.detectTrendLines(symbol);
-        setTrendLines(trendlines);
-        console.log(`📈 Loaded ${trendlines.length} trendlines`);
-      }
-
-      // Load fibonacci levels
-      if (showFibonacci) {
-        const priceHistory = await liveDataService.getPriceHistory(symbol, 50);
-        if (priceHistory.length > 10) {
-          const recentHigh = Math.max(...priceHistory.slice(-20).map(p => p.high));
-          const recentLow = Math.min(...priceHistory.slice(-20).map(p => p.low));
-          const fibLevels = await liveDataService.calculateFibonacciLevels(symbol, recentHigh, recentLow);
-          setFibonacciLevels(fibLevels);
-          console.log(`🔢 Loaded ${fibLevels.length} fibonacci levels`);
-        }
-      }
-
-      setIsConnected(true);
-    } catch (error) {
-      console.error('Failed to load symbol data:', error);
-      setIsConnected(false);
-    }
-  };
-
-  const loadCandlesForSymbol = useCallback(async (
-    symbol: string, tf: string, incremental = false
-  ) => {
-    const series = candlestickSeriesRef.current;
-    if (!series) return;
-    const key = `${symbol}:${tf}`;
-    const requestId = ++candleRequestRef.current;
-    try {
-      const useTinyUpdate = incremental && loadedChartKeyRef.current === key;
-      const candles = await fetchBwtsCandles(symbol, tf, useTinyUpdate ? 2 : undefined);
-      if (requestId !== candleRequestRef.current || candles.length === 0) return;
-      const previous = candleCacheRef.current[key] || [];
-      const last = candles[candles.length - 1];
-      if (loadedChartKeyRef.current !== key || previous.length === 0) {
-        // Full history is loaded only for a new symbol/timeframe.
-        series.setData(candles);
-        loadedChartKeyRef.current = key;
-        setChartRevision((revision) => revision + 1);
-      } else {
-        // Polls only update the newest candle, preserving zoom and overlays.
-        const oldLast = previous[previous.length - 1];
-        if (!oldLast || oldLast.time !== last.time || oldLast.close !== last.close ||
-            oldLast.high !== last.high || oldLast.low !== last.low) {
-          series.update(last);
-        }
-      }
-      candleCacheRef.current[key] = candles;
-      setCurrentPrice(last.close);
-      setIsConnected(true);
-    } catch (error) {
-      if (requestId !== candleRequestRef.current) return;
-      console.error('Failed to load BWTS candles:', error);
-      setIsConnected(false);
-      // Keep already-rendered candles visible during a transient API failure.
-      if (loadedChartKeyRef.current !== key) series.setData([]);
-    }
-  }, [fetchBwtsCandles]);
-
-  const loadTradeLockerInstruments = useCallback(async () => {
-    try {
-      const sessionId = localStorage.getItem('tl_session_id');
-      const params = new URLSearchParams(sessionId ? { sessionId } : {});
-      const API_BASE = import.meta.env.VITE_API_URL || '';
-      const response = await fetch(`${API_BASE}/api/tradelocker/instruments?${params.toString()}`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch instruments: ${response.status}`);
-      }
-
-      const payload = await response.json();
-      const instruments = parseTradeLockerInstruments(payload);
-      setAvailableSymbols(instruments);
-
-      if (!searchTerm && selectedSymbol) {
-        setSearchTerm(selectedSymbol);
-      }
-
-      updateSymbolSuggestions(searchTerm || selectedSymbol);
-
-      const selectedExists = instruments.some((item) => item.symbol === selectedSymbol);
-      if (!selectedExists && instruments.length > 0) {
-        const defaultSymbol = instruments[0].symbol;
-        setSelectedSymbol(defaultSymbol);
-        setSearchTerm(defaultSymbol);
-        loadCandlesForSymbol(defaultSymbol, timeframe);
-        loadSymbolData(defaultSymbol);
-      }
-    } catch (error) {
-      console.error('Failed to load TradeLocker instruments:', error);
-      setAvailableSymbols([]);
-    }
-  }, [loadCandlesForSymbol, selectedSymbol, timeframe]);
-
-
-
-  const checkExistingTradeLockerConnection = useCallback(async () => {
-    try {
-      const status = await tradeLockerApi.connect();
-      if (!status.connected) {
-        setTradeLockerConnected(false);
-        return;
-      }
-
-      setTradeLockerConnected(true);
-      setIsConnected(true);
-      setSelectedBroker('tradelocker');
-      await loadTradeLockerInstruments();
-    } catch (error) {
-      console.error('Failed to restore TradeLocker session:', error);
-      setTradeLockerConnected(false);
-    }
-  }, [loadTradeLockerInstruments]);
-
-  const getSymbolVolatility = (symbol: string): number => {
-    // No mock volatility - return 0, real data should come from broker
-    return 0;
-  };
-
-  const getDecimalPlaces = (symbol: string): number => {
-    if (symbol.includes('JPY')) return 3;
-    if (symbol.includes('BTC') || symbol.includes('ETH')) return 2;
-    if (['AAPL', 'GOOGL', 'MSFT', 'TSLA'].includes(symbol)) return 2;
-    if (symbol.includes('XAU')) return 2;
-    return 5;
-  };
-
-  const getTimeframeMs = (timeframe: string): number => {
-    const timeframes: Record<string, number> = {
-      '1m': 60 * 1000, '5m': 5 * 60 * 1000, '15m': 15 * 60 * 1000,
-      '30m': 30 * 60 * 1000, '1h': 60 * 60 * 1000, '4h': 4 * 60 * 60 * 1000,
-      '1d': 24 * 60 * 60 * 1000, '1w': 7 * 24 * 60 * 60 * 1000,
-      '1M': 30 * 24 * 60 * 60 * 1000,
-    };
-    return timeframes[timeframe] || 60 * 60 * 1000;
-  };
-
-  // Initialize chart
+  // Initialize chart. Declared before useCandles so the series exists by the
+  // time the candle hook's first refresh runs on mount.
   useEffect(() => {
     if (!chartContainerRef.current || chartInitialized.current) return;
 
     try {
       const chart = createChart(chartContainerRef.current, {
         layout: {
-          background: { type: ColorType.Solid, color: '#070a12' },
-          textColor: '#9aa7c3',
+          background: { type: ColorType.Solid, color: CHART_COLORS.background },
+          textColor: CHART_COLORS.text,
         },
         grid: {
-          vertLines: { color: '#17203a' },
-          horzLines: { color: '#17203a' },
+          vertLines: { color: CHART_COLORS.grid },
+          horzLines: { color: CHART_COLORS.grid },
         },
         crosshair: { mode: 1 },
         rightPriceScale: {
-          borderColor: '#273452',
+          borderColor: CHART_COLORS.axisBorder,
         },
         timeScale: {
-          borderColor: '#273452',
+          borderColor: CHART_COLORS.axisBorder,
         },
         width: chartContainerRef.current.clientWidth,
         height: chartContainerRef.current.clientHeight,
       });
 
       const candlestickSeries = chart.addSeries(CandlestickSeries, {
-        upColor: '#10b981',
-        downColor: '#ef4444',
-        borderDownColor: '#ef4444',
-        borderUpColor: '#10b981',
-        wickDownColor: '#ef4444',
-        wickUpColor: '#10b981',
+        upColor: CHART_COLORS.candleUp,
+        downColor: CHART_COLORS.candleDown,
+        borderDownColor: CHART_COLORS.candleDown,
+        borderUpColor: CHART_COLORS.candleUp,
+        wickDownColor: CHART_COLORS.candleDown,
+        wickUpColor: CHART_COLORS.candleUp,
       });
 
       chartRef.current = chart;
       candlestickSeriesRef.current = candlestickSeries;
       chartInitialized.current = true;
-
-      // Load non-candle technical analysis once; the dedicated candle effect
-      // below performs the single initial market-data request.
-      loadSymbolData(selectedSymbol);
+      setChartRevision((revision) => revision + 1);
 
       // Observe the actual container, not just window resize. This catches
       // sidebar collapse and async harmonic/ADR status bars without leaving
@@ -818,6 +279,81 @@ const TradingView: React.FC = () => {
     }
   }, []);
 
+  const handleCandlesLoaded = useCallback(() => {
+    // Bump the overlay revision only when a new symbol/timeframe finishes its
+    // full history load, so overlays re-anchor without thrashing on polls.
+    const key = `${selectedSymbol}:${timeframe}`;
+    if (revisionKeyRef.current !== key) {
+      revisionKeyRef.current = key;
+      setChartRevision((revision) => revision + 1);
+    }
+  }, [selectedSymbol, timeframe]);
+
+  const handlePrice = useCallback((price: number) => {
+    const now = performance.now();
+    if (now - lastUiPriceUpdateRef.current >= 100) {
+      lastUiPriceUpdateRef.current = now;
+      setCurrentPrice(price);
+    }
+  }, []);
+
+  const {
+    loading: candlesLoading,
+    connected: candlesConnected,
+    error: candleError,
+    refresh: refreshCandles,
+    mergeLive,
+    getCachedCandles,
+  } = useCandles({
+    symbol: selectedSymbol,
+    timeframe,
+    seriesRef: candlestickSeriesRef,
+    onLoaded: handleCandlesLoaded,
+    onPrice: handlePrice,
+  });
+
+  // Native-feeling live candles: REST loads history once, then the global
+  // public Binance market-data stream updates the active candle trade-by-trade.
+  const { streaming } = useBinanceStream({
+    symbol: selectedSymbol,
+    timeframe,
+    getLastCandle: () => {
+      const cached = getCachedCandles();
+      return cached[cached.length - 1];
+    },
+    onCandle: mergeLive,
+  });
+
+  const isConnected = candlesConnected || streaming;
+
+  // Slow REST reconciliation is only a fallback for missed WebSocket events.
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (!document.hidden) void refreshCandles(true);
+    }, 30000);
+    return () => window.clearInterval(interval);
+  }, [refreshCandles]);
+
+  // V2 analysis runs server-side for any asset class via the same
+  // /api/analysis endpoint (MultiSourceClient routes FX/gold to Twelve
+  // Data). Show it for crypto, forex and commodities — not just crypto.
+  useEffect(() => {
+    const assetType = availableSymbols.find((symbol) => symbol.symbol === selectedSymbol)?.type;
+    if (!assetType || !['crypto', 'forex', 'commodity', 'stock'].includes(assetType)) {
+      setCryptoAnalysis(null);
+      return;
+    }
+    let active = true;
+    setCryptoAnalysis(null);
+    setChartAiAnalysis(null);
+    setChartAiConfigured(null);
+    setChartAiError(null);
+    bwtsApi.cryptoAnalysis(selectedSymbol, timeframe)
+      .then((analysis) => { if (active) setCryptoAnalysis(analysis); })
+      .catch(() => { if (active) setCryptoAnalysis(null); });
+    return () => { active = false; };
+  }, [selectedSymbol, timeframe, availableSymbols]);
+
   // ADR changes slowly, so refresh once per minute rather than on every
   // candle poll.
   useEffect(() => {
@@ -831,7 +367,7 @@ const TradingView: React.FC = () => {
     refreshAdr();
     const interval = window.setInterval(refreshAdr, 60000);
     return () => { active = false; window.clearInterval(interval); };
-  }, [fetchBwtsAdr, selectedSymbol]);
+  }, [selectedSymbol]);
 
   // Refresh harmonics from the same live candles displayed on the chart.
   useEffect(() => {
@@ -847,590 +383,156 @@ const TradingView: React.FC = () => {
         if (active) setHarmonicPatterns([]);
       });
     return () => { active = false; };
-  }, [fetchBwtsHarmonics, selectedSymbol, timeframe, showHarmonics]);
+  }, [selectedSymbol, timeframe, showHarmonics]);
 
-  // Draw X-A-B-C-D, point labels, and both edges of the PRZ.
+  // Trendlines and fibonacci levels from the live-data service.
   useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-    for (const series of harmonicSeriesRefs.current) {
-      try { chart.removeSeries(series); } catch { /* already removed */ }
-    }
-    harmonicSeriesRefs.current = [];
-    if (!showHarmonics) return;
-    // The PRZ overlay dims and adds a "REFERENCE" tag whenever the deterministic
-    // setup is not actionable, so the chart does not look like a trade signal.
-    const v2Score = Number(cryptoAnalysis?.total_score || 0);
-    const planDirection = String(cryptoAnalysis?.trade_plan?.direction || 'NEUTRAL').toUpperCase();
-    const timingStatus = String(cryptoAnalysis?.trade_plan?.timing_status || cryptoAnalysis?.trade_timing?.status || 'WAIT').toUpperCase();
-    const calendarStatus = String(cryptoAnalysis?.trade_plan?.calendar_status || cryptoAnalysis?.economic_calendar?.status || '').toUpperCase();
-    const planEligible = Boolean(cryptoAnalysis?.trade_plan?.eligible);
-    const harmonicActionable = planEligible && timingStatus === 'READY' && !['BLOCKED', 'POST_NEWS', 'UNAVAILABLE'].includes(calendarStatus) && v2Score >= 60;
-
-    for (const pattern of harmonicPatterns) {
-      if (pattern.status !== 'completed') continue;
-      const color = pattern.direction === 'bullish' ? '#10b981' : '#ef4444';
-      const patternSeries = chart.addSeries(LineSeries, {
-        color,
-        lineWidth: 3,
-        lineStyle: LineStyle.Dashed,
-        title: `${pattern.direction.toUpperCase()} ${pattern.type}`,
-      });
-      harmonicSeriesRefs.current.push(patternSeries);
-      const labels = ['X', 'A', 'B', 'C', 'D'] as const;
-      const lineData = labels.map((label) => ({
-        time: Math.floor(pattern.points[label].time.getTime() / 1000) as UTCTimestamp,
-        value: pattern.points[label].price,
-      }));
-      patternSeries.setData(lineData);
-
-      // Keep the user's current zoom and pan. Pattern overlays must never
-      // force the visible range when scans refresh.
-    }
-  }, [harmonicPatterns, showHarmonics]);
-
-  // Prominent filled XABCD geometry, rendered above the chart canvases.
-  useEffect(() => {
-    const chart = chartRef.current;
-    const priceSeries = candlestickSeriesRef.current;
-    const container = chartContainerRef.current;
-    if (!chart || !priceSeries || !container) return;
-    const SVG_NS = 'http://www.w3.org/2000/svg';
-    const removeOverlay = () => container.querySelector('[data-harmonic-overlay]')?.remove();
-
-    const renderOverlay = () => {
-      removeOverlay();
-      if (!showHarmonics || harmonicPatterns.length === 0) return;
-      // Dim the harmonic PRZ to "REFERENCE" when the deterministic setup is
-      // not actionable, so the chart does not look like an active trade.
-      const v2Score = Number(cryptoAnalysis?.total_score || 0);
-      const timingStatus = String(cryptoAnalysis?.trade_plan?.timing_status || cryptoAnalysis?.trade_timing?.status || 'WAIT').toUpperCase();
-      const calendarStatus = String(cryptoAnalysis?.trade_plan?.calendar_status || cryptoAnalysis?.economic_calendar?.status || '').toUpperCase();
-      const planEligible = Boolean(cryptoAnalysis?.trade_plan?.eligible);
-      const harmonicActionable = planEligible && timingStatus === 'READY' && !['BLOCKED', 'POST_NEWS', 'UNAVAILABLE'].includes(calendarStatus) && v2Score >= 60;
-      const overlayOpacity = harmonicActionable ? 1 : 0.45;
-      const fillOpacity = harmonicActionable ? 0.22 : 0.08;
-      const przFillOpacity = harmonicActionable ? 0.18 : 0.06;
-      const przStrokeOpacity = harmonicActionable ? 1 : 0.5;
-      const referenceTag = harmonicActionable ? '' : ' (REFERENCE)';
-      const svg = document.createElementNS(SVG_NS, 'svg');
-      svg.setAttribute('data-harmonic-overlay', 'true');
-      svg.setAttribute('width', String(container.clientWidth));
-      svg.setAttribute('height', String(container.clientHeight));
-      svg.style.position = 'absolute';
-      svg.style.inset = '0';
-      svg.style.zIndex = '10';
-      svg.style.pointerEvents = 'none';
-      svg.style.overflow = 'visible';
-      svg.style.opacity = String(overlayOpacity);
-
-      for (const pattern of harmonicPatterns) {
-        const labels = ['X', 'A', 'B', 'C', 'D'] as const;
-        const coords = labels.map((label) => {
-          const point = pattern.points[label];
-          return {
-            label,
-            price: point.price,
-            x: chart.timeScale().timeToCoordinate(
-              Math.floor(point.time.getTime() / 1000) as UTCTimestamp
-            ),
-            y: priceSeries.priceToCoordinate(point.price),
-          };
-        });
-        if (coords.some((point) => point.x == null || point.y == null)) continue;
-        const color = pattern.direction === 'bullish' ? '#22c55e' : '#ef4444';
-        const fill = pattern.direction === 'bullish' ? '#22c55e' : '#ef4444';
-        const xy = (indexes: number[]) => indexes
-          .map((index) => `${coords[index].x},${coords[index].y}`)
-          .join(' ');
-
-        // Two shaded triangles make the harmonic structure impossible to miss.
-        for (const indexes of [[0, 1, 2], [2, 3, 4]]) {
-          const polygon = document.createElementNS(SVG_NS, 'polygon');
-          polygon.setAttribute('points', xy(indexes));
-          polygon.setAttribute('fill', fill);
-          polygon.setAttribute('fill-opacity', String(fillOpacity));
-          polygon.setAttribute('stroke', color);
-          polygon.setAttribute('stroke-opacity', '0.55');
-          polygon.setAttribute('stroke-width', '1.5');
-          svg.appendChild(polygon);
+    let active = true;
+    (async () => {
+      try {
+        if (showTrendLines) {
+          const trendlines = await liveDataService.detectTrendLines(selectedSymbol);
+          if (active) setTrendLines(trendlines);
         }
-
-        const zigzag = document.createElementNS(SVG_NS, 'polyline');
-        zigzag.setAttribute('points', xy([0, 1, 2, 3, 4]));
-        zigzag.setAttribute('fill', 'none');
-        zigzag.setAttribute('stroke', color);
-        zigzag.setAttribute('stroke-width', '4');
-        zigzag.setAttribute('stroke-linecap', 'round');
-        zigzag.setAttribute('stroke-linejoin', 'round');
-        svg.appendChild(zigzag);
-
-        for (const point of coords) {
-          const circle = document.createElementNS(SVG_NS, 'circle');
-          circle.setAttribute('cx', String(point.x));
-          circle.setAttribute('cy', String(point.y));
-          circle.setAttribute('r', '6');
-          circle.setAttribute('fill', color);
-          circle.setAttribute('stroke', '#ffffff');
-          circle.setAttribute('stroke-width', '2');
-          svg.appendChild(circle);
-
-          const text = document.createElementNS(SVG_NS, 'text');
-          text.setAttribute('x', String(Number(point.x) + 9));
-          text.setAttribute('y', String(Number(point.y) - 9));
-          text.setAttribute('fill', '#ffffff');
-          text.setAttribute('font-size', '13');
-          text.setAttribute('font-weight', '700');
-          text.setAttribute('paint-order', 'stroke');
-          text.setAttribute('stroke', '#111827');
-          text.setAttribute('stroke-width', '4');
-          text.setAttribute('stroke-linejoin', 'round');
-          text.textContent = `${point.label} (${point.price.toFixed(2)})`;
-          svg.appendChild(text);
-        }
-
-        const d = coords[4];
-        const yLow = priceSeries.priceToCoordinate(pattern.prz.min);
-        const yHigh = priceSeries.priceToCoordinate(pattern.prz.max);
-        if (yLow != null && yHigh != null && d.x != null) {
-          const top = Math.min(yLow, yHigh);
-          const height = Math.max(8, Math.abs(yLow - yHigh));
-          const boxX = Math.max(0, Number(d.x) - 8);
-          const boxWidth = Math.max(60, Math.min(140, container.clientWidth - boxX));
-          const prz = document.createElementNS(SVG_NS, 'rect');
-          prz.setAttribute('x', String(boxX));
-          prz.setAttribute('y', String(top));
-          prz.setAttribute('width', String(boxWidth));
-          prz.setAttribute('height', String(height));
-          prz.setAttribute('fill', color);
-          prz.setAttribute('fill-opacity', String(przFillOpacity));
-          prz.setAttribute('stroke', color);
-          prz.setAttribute('stroke-opacity', String(przStrokeOpacity));
-          prz.setAttribute('stroke-width', '2');
-          prz.setAttribute('stroke-dasharray', '7 5');
-          svg.appendChild(prz);
-
-          const przLabel = document.createElementNS(SVG_NS, 'text');
-          przLabel.setAttribute('x', String(boxX + 8));
-          przLabel.setAttribute('y', String(top - 7));
-          przLabel.setAttribute('fill', color);
-          przLabel.setAttribute('font-size', '13');
-          przLabel.setAttribute('font-weight', '800');
-          przLabel.textContent = `${pattern.type} PRZ ${pattern.prz.min.toFixed(2)}–${pattern.prz.max.toFixed(2)}${referenceTag}`;
-          svg.appendChild(przLabel);
-        }
-      }
-      container.appendChild(svg);
-    };
-
-    const deferredRender = () => requestAnimationFrame(renderOverlay);
-    deferredRender();
-    chart.timeScale().subscribeVisibleTimeRangeChange(deferredRender);
-    window.addEventListener('resize', deferredRender);
-    return () => {
-      chart.timeScale().unsubscribeVisibleTimeRangeChange(deferredRender);
-      window.removeEventListener('resize', deferredRender);
-      removeOverlay();
-    };
-  }, [chartRevision, harmonicPatterns, showHarmonics, cryptoAnalysis]);
-
-  // ADR(14) high, low, and day-open reference lines.
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-    for (const series of adrSeriesRefs.current) {
-      try { chart.removeSeries(series); } catch { /* already removed */ }
-    }
-    adrSeriesRefs.current = [];
-    if (!adrData) return;
-    const digits = getDecimalPlaces(selectedSymbol);
-    const start = adrData.day_time as UTCTimestamp;
-    const end = Math.max(Math.floor(Date.now() / 1000), adrData.day_time + 60) as UTCTimestamp;
-    const levels = [
-      { title: 'ADR High', value: adrData.adr_high, color: '#f97316', style: LineStyle.Dashed },
-      { title: 'Day Open', value: adrData.day_open, color: '#94a3b8', style: LineStyle.Dotted },
-      { title: 'ADR Low', value: adrData.adr_low, color: '#06b6d4', style: LineStyle.Dashed },
-    ] as const;
-    for (const level of levels) {
-      const series = chart.addSeries(LineSeries, {
-        color: level.color,
-        lineWidth: 2,
-        lineStyle: level.style,
-        title: `${level.title} ${level.value.toFixed(digits)}`,
-        priceLineVisible: false,
-        lastValueVisible: true,
-      });
-      series.setData([{ time: start, value: level.value }, { time: end, value: level.value }]);
-      adrSeriesRefs.current.push(series);
-    }
-  }, [adrData, chartRevision, selectedSymbol]);
-
-  // Draw trendlines on chart
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-    for (const series of trendSeriesRefs.current) {
-      try { chart.removeSeries(series); } catch { /* chart was rebuilt */ }
-    }
-    trendSeriesRefs.current = [];
-    if (!showTrendLines) return;
-
-    trendLines.forEach((trendLine) => {
-      if (trendLine.isActive && trendLine.points.length >= 2) {
-        const trendSeries = chartRef.current!.addSeries(LineSeries, {
-          color: trendLine.type === 'support' ? '#3b82f6' : '#f59e0b',
-          lineWidth: 2,
-          lineStyle: LineStyle.Solid,
-          title: `${trendLine.type} Line`,
-        });
-
-        try {
-          const lineData = trendLine.points.map(point => ({
-            time: Math.floor(point.time.getTime() / 1000) as any,
-            value: point.price,
-          }));
-
-          trendSeries.setData(lineData);
-          trendSeriesRefs.current.push(trendSeries);
-        } catch (error) {
-          console.warn('Failed to draw trendline:', error);
-        }
-      }
-    });
-  }, [trendLines, showTrendLines, chartRevision]);
-
-  // Draw V2 Fibonacci plus support/resistance from the same analysis used by the dashboard.
-  // Only shows the STRONGEST zones close to current price to avoid clutter.
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-    for (const series of v2LevelSeriesRefs.current) {
-      try { chart.removeSeries(series); } catch { /* chart was rebuilt */ }
-    }
-    v2LevelSeriesRefs.current = [];
-    if (!cryptoAnalysis) return;
-
-    const visible = chart.timeScale().getVisibleRange();
-    const now = Math.floor(Date.now() / 1000);
-    const start = (typeof visible?.from === 'number' ? visible.from : now - 7 * 86400) as any;
-    const end = (typeof visible?.to === 'number' ? visible.to : now + 86400) as any;
-    const levels: { title: string; value: number; color: string; style: LineStyle }[] = [];
-
-    if (showSupportResistance) {
-      const detailed = cryptoAnalysis.zones.support_resistance || [];
-      if (detailed.length) {
-        // Sort by strength first (strong first), then by distance (closest first)
-        // Show only top 2 of each type that are within 5*ATR of current price
-        const atrForFilter = Number(cryptoAnalysis.indicators.atr || 0) * 5;
-        ['support', 'resistance'].forEach((type) => {
-          const zonesOfType = detailed
-            .filter((zone: any) => zone.type === type)
-            .filter((zone: any) => !atrForFilter || Math.abs(Number(zone.level) - currentPrice) <= atrForFilter)
-            .sort((a: any, b: any) => {
-              const strengthOrder = { strong: 0, moderate: 1, weak: 2 };
-              const aStr = strengthOrder[a.strength as keyof typeof strengthOrder] ?? 2;
-              const bStr = strengthOrder[b.strength as keyof typeof strengthOrder] ?? 2;
-              if (aStr !== bStr) return aStr - bStr;
-              return (a.distance_atr || 99) - (b.distance_atr || 99);
-            })
-            .slice(0, 2);
-          zonesOfType.forEach((zone: any, index: number) => {
-            const emoji = zone.strength === 'strong' ? '◆' : '◇';
-            levels.push({
-              title: `${type === 'support' ? 'S' : 'R'}${index + 1} ${emoji} ${zone.touches}×`,
-              value: Number(zone.level),
-              color: type === 'support' ? '#22c55e' : '#f43f5e',
-              style: zone.strength === 'strong' ? LineStyle.Solid : LineStyle.Dashed
-            });
-          });
-        });
-      } else {
-        // Fallback: only show zones within 3*ATR of current price
-        const atrForFilter = Number(cryptoAnalysis.indicators.atr || 0) * 3;
-        (cryptoAnalysis.zones.support || [])
-          .filter((value: number) => !atrForFilter || Math.abs(value - currentPrice) <= atrForFilter)
-          .slice(0, 2)
-          .forEach((value: number, index: number) => levels.push({ title: `S${index + 1}`, value, color: '#22c55e', style: LineStyle.Dashed }));
-        (cryptoAnalysis.zones.resistance || [])
-          .filter((value: number) => !atrForFilter || Math.abs(value - currentPrice) <= atrForFilter)
-          .slice(0, 2)
-          .forEach((value: number, index: number) => levels.push({ title: `R${index + 1}`, value, color: '#f43f5e', style: LineStyle.Dashed }));
-      }
-    }
-    if (showFibonacci) {
-      const fibData = cryptoAnalysis.zones.fibonacci || {};
-      const confluenceRatios = new Set((fibData.sr_confluence || []).map((item: any) => String(item.ratio)));
-      const atrDistance = Number(cryptoAnalysis.indicators.atr || 0) * 4; // Tighter filter than before
-
-      // Only show KEY fibonacci levels: standard 0.382, 0.5, 0.618, 0.786.
-      // 0.65 was a non-standard pseudo-golden level that conflicted with the
-      // canonical 0.618 and was removed.
-      const keyRatios = ['0.382', '0.5', '0.618', '0.786'];
-      Object.entries(fibData.levels || {})
-        .filter(([ratio]) => keyRatios.includes(String(ratio)))
-        .filter(([, value]) => !atrDistance || Math.abs(Number(value) - currentPrice) <= atrDistance)
-        .forEach(([ratio, value]) => {
-          levels.push({
-            title: `Fib ${ratio}${confluenceRatios.has(ratio) ? ' ★' : ''}`,
-            value: Number(value),
-            color: ratio === '0.618' ? '#c084fc' : confluenceRatios.has(ratio) ? '#22d3ee' : '#6366f1',
-            style: LineStyle.Dotted
-          });
-        });
-    }
-
-    levels.filter((level) => Number.isFinite(level.value)).forEach((level) => {
-      const showAxisLabel = /^[SR]\d/.test(level.title) || level.title.startsWith('Fib 0.618');
-      const series = chart.addSeries(LineSeries, { color: level.color, lineWidth: 1, lineStyle: level.style, title: level.title, lastValueVisible: showAxisLabel, priceLineVisible: false });
-      series.setData([{ time: start, value: level.value }, { time: end, value: level.value }]);
-      v2LevelSeriesRefs.current.push(series);
-    });
-  }, [cryptoAnalysis, showFibonacci, showSupportResistance, chartRevision, currentPrice]);
-
-  // Deterministic possible-setup overlay. It visualizes the BWTS trade plan,
-  // but never turns a blocked or WAIT plan into an actionable signal.
-  useEffect(() => {
-    const chart = chartRef.current;
-    const priceSeries = candlestickSeriesRef.current;
-    const container = chartContainerRef.current;
-    if (!chart || !priceSeries || !container) return;
-    const SVG_NS = 'http://www.w3.org/2000/svg';
-    const removeOverlay = () => container.querySelector('[data-setup-overlay]')?.remove();
-
-    const renderOverlay = () => {
-      removeOverlay();
-      const plan = cryptoAnalysis?.trade_plan;
-      if (!showSetups || !cryptoAnalysis || !plan || plan.direction === 'NEUTRAL' || plan.entry == null) return;
-      const entry = Number(plan.entry);
-      if (!Number.isFinite(entry)) return;
-      const atr = Number(plan.atr || cryptoAnalysis.indicators?.atr || 0);
-      const halfBand = Math.max(atr > 0 ? atr * 0.2 : 0, Math.abs(entry) * 0.0005);
-      const yEntryLow = priceSeries.priceToCoordinate(entry - halfBand);
-      const yEntryHigh = priceSeries.priceToCoordinate(entry + halfBand);
-      if (yEntryLow == null || yEntryHigh == null) return;
-
-      const calendarStatus = String(plan.calendar_status || cryptoAnalysis.economic_calendar?.status || '').toUpperCase();
-      const timingStatus = String(plan.timing_status || cryptoAnalysis.trade_timing?.status || 'WAIT').toUpperCase();
-      const hardBlocked = ['BLOCKED', 'POST_NEWS', 'UNAVAILABLE'].includes(calendarStatus);
-      const actionable = Boolean(plan.eligible) && timingStatus === 'READY' && !hardBlocked;
-      const directionColor = plan.direction === 'BUY' ? '#22c55e' : '#ef4444';
-      const statusColor = actionable ? directionColor : '#f59e0b';
-      const status = actionable ? 'READY' : hardBlocked ? 'BLOCKED' : timingStatus;
-      const svg = document.createElementNS(SVG_NS, 'svg');
-      svg.setAttribute('data-setup-overlay', 'true');
-      svg.setAttribute('width', String(container.clientWidth));
-      svg.setAttribute('height', String(container.clientHeight));
-      svg.style.position = 'absolute'; svg.style.inset = '0'; svg.style.zIndex = '11';
-      svg.style.pointerEvents = 'none'; svg.style.overflow = 'visible';
-
-      const rect = document.createElementNS(SVG_NS, 'rect');
-      rect.setAttribute('x', '0'); rect.setAttribute('y', String(Math.min(yEntryLow, yEntryHigh)));
-      rect.setAttribute('width', String(container.clientWidth));
-      rect.setAttribute('height', String(Math.max(8, Math.abs(yEntryLow - yEntryHigh))));
-      rect.setAttribute('fill', directionColor); rect.setAttribute('fill-opacity', actionable ? '0.16' : '0.07');
-      rect.setAttribute('stroke', statusColor); rect.setAttribute('stroke-width', '2');
-      rect.setAttribute('stroke-dasharray', actionable ? 'none' : '7 5');
-      svg.appendChild(rect);
-
-      const addLine = (price: number | null | undefined, color: string, label: string, dash = '7 5') => {
-        if (price == null || !Number.isFinite(Number(price))) return;
-        const y = priceSeries.priceToCoordinate(Number(price));
-        if (y == null) return;
-        const line = document.createElementNS(SVG_NS, 'line');
-        line.setAttribute('x1', '0'); line.setAttribute('x2', String(container.clientWidth));
-        line.setAttribute('y1', String(y)); line.setAttribute('y2', String(y));
-        line.setAttribute('stroke', color); line.setAttribute('stroke-width', '2'); line.setAttribute('stroke-dasharray', dash);
-        line.setAttribute('stroke-opacity', actionable ? '0.9' : '0.55'); svg.appendChild(line);
-        const text = document.createElementNS(SVG_NS, 'text');
-        text.setAttribute('x', '10'); text.setAttribute('y', String(Math.max(14, Number(y) - 5)));
-        text.setAttribute('fill', color); text.setAttribute('font-size', '11'); text.setAttribute('font-weight', '800');
-        text.setAttribute('paint-order', 'stroke'); text.setAttribute('stroke', '#080d18'); text.setAttribute('stroke-width', '4');
-        text.textContent = `${label} ${Number(price).toFixed(2)}`; svg.appendChild(text);
-      };
-      addLine(entry, statusColor, `${plan.direction} ENTRY`, 'none');
-      addLine(plan.stop ?? plan.invalidation, '#fb7185', 'INVALIDATION');
-      plan.targets?.slice(0, 3).forEach((target, index) => addLine(target.price, '#67e8f9', target.label || `TP${index + 1}`));
-
-      const zoneLabel = document.createElementNS(SVG_NS, 'text');
-      zoneLabel.setAttribute('x', '10'); zoneLabel.setAttribute('y', String(Math.max(16, Math.min(yEntryLow, yEntryHigh) - 8)));
-      zoneLabel.setAttribute('fill', statusColor); zoneLabel.setAttribute('font-size', '12'); zoneLabel.setAttribute('font-weight', '900');
-      zoneLabel.setAttribute('paint-order', 'stroke'); zoneLabel.setAttribute('stroke', '#080d18'); zoneLabel.setAttribute('stroke-width', '4');
-      zoneLabel.textContent = `${plan.direction} SETUP ZONE · ${status}`; svg.appendChild(zoneLabel);
-      container.appendChild(svg);
-    };
-    const deferredRender = () => requestAnimationFrame(renderOverlay);
-    deferredRender(); chart.timeScale().subscribeVisibleTimeRangeChange(deferredRender); window.addEventListener('resize', deferredRender);
-    return () => { chart.timeScale().unsubscribeVisibleTimeRangeChange(deferredRender); window.removeEventListener('resize', deferredRender); removeOverlay(); };
-  }, [cryptoAnalysis, showSetups, chartRevision, currentPrice]);
-
-  // When no directional trade plan is eligible, show conditional areas from
-  // deterministic support/resistance so the chart still explains where a
-  // future buy or sell setup could form.
-  useEffect(() => {
-    const chart = chartRef.current;
-    const priceSeries = candlestickSeriesRef.current;
-    const container = chartContainerRef.current;
-    if (!chart || !priceSeries || !container) return;
-    const SVG_NS = 'http://www.w3.org/2000/svg';
-    const removeOverlay = () => container.querySelector('[data-conditional-setup-overlay]')?.remove();
-    const renderOverlay = () => {
-      removeOverlay();
-      const plan = cryptoAnalysis?.trade_plan;
-      // Do not paint historical-looking zones while the final gated plan is neutral.
-      if (!showSetups || !cryptoAnalysis || !plan || plan.direction === 'NEUTRAL' || plan.entry == null) return;
-      const detailed = Array.isArray(cryptoAnalysis.zones?.setup_zones) ? cryptoAnalysis.zones.setup_zones : [];
-      const zones = ['BUY', 'SELL'].flatMap((direction) => detailed.filter((zone: any) => zone.direction === direction).slice(0, 1));
-      if (!zones.length) return;
-      const svg = document.createElementNS(SVG_NS, 'svg');
-      svg.setAttribute('data-conditional-setup-overlay', 'true');
-      svg.setAttribute('width', String(container.clientWidth)); svg.setAttribute('height', String(container.clientHeight));
-      svg.style.position = 'absolute'; svg.style.inset = '0'; svg.style.zIndex = '11'; svg.style.pointerEvents = 'none'; svg.style.overflow = 'visible';
-      zones.forEach((zone: any) => {
-        const bullish = zone.direction === 'BUY';
-        const color = bullish ? '#22c55e' : '#ef4444';
-        const low = priceSeries.priceToCoordinate(Number(zone.low));
-        const high = priceSeries.priceToCoordinate(Number(zone.high));
-        if (low == null || high == null) return;
-        const rect = document.createElementNS(SVG_NS, 'rect');
-        rect.setAttribute('x', '0'); rect.setAttribute('y', String(Math.min(low, high))); rect.setAttribute('width', String(container.clientWidth));
-        rect.setAttribute('height', String(Math.max(10, Math.abs(low - high)))); rect.setAttribute('fill', color); rect.setAttribute('fill-opacity', '0.08');
-        rect.setAttribute('stroke', color); rect.setAttribute('stroke-opacity', '0.7'); rect.setAttribute('stroke-width', '2'); rect.setAttribute('stroke-dasharray', '7 5'); svg.appendChild(rect);
-        const label = document.createElementNS(SVG_NS, 'text');
-        label.setAttribute('x', '10'); label.setAttribute('y', String(Math.max(16, Math.min(low, high) - 7))); label.setAttribute('fill', color); label.setAttribute('font-size', '12'); label.setAttribute('font-weight', '900');
-        label.setAttribute('paint-order', 'stroke'); label.setAttribute('stroke', '#080d18'); label.setAttribute('stroke-width', '4');
-        label.textContent = `${bullish ? 'BUY' : 'SELL'} AREA ${zone.score}/100`; svg.appendChild(label);
-      });
-      container.appendChild(svg);
-    };
-    const deferredRender = () => requestAnimationFrame(renderOverlay);
-    deferredRender(); chart.timeScale().subscribeVisibleTimeRangeChange(deferredRender); window.addEventListener('resize', deferredRender);
-    return () => { chart.timeScale().unsubscribeVisibleTimeRangeChange(deferredRender); window.removeEventListener('resize', deferredRender); removeOverlay(); };
-  }, [cryptoAnalysis, showSetups, chartRevision, currentPrice]);
-
-  // Native-feeling live candles: REST loads history once, then the global
-  // public Binance market-data stream updates the active candle trade-by-trade.
-  useEffect(() => {
-    const symbolMap: Record<string, string> = {
-      BTCUSD: 'btcusdt', ETHUSD: 'ethusdt',
-    };
-    const timeframeSeconds: Record<string, number> = {
-      '1m': 60, '5m': 300, '15m': 900, '30m': 1800,
-      '1h': 3600, '4h': 14400, '1d': 86400, '1w': 604800,
-    };
-    const streamSymbol = symbolMap[selectedSymbol];
-    const bucketSeconds = timeframeSeconds[timeframe];
-    if (!isLive || !streamSymbol || !bucketSeconds) {
-      setIsStreaming(false);
-      return;
-    }
-
-    let disposed = false;
-    let reconnectTimer: number | undefined;
-    const key = `${selectedSymbol}:${timeframe}`;
-    const connect = () => {
-      if (disposed) return;
-      const ws = new WebSocket(
-        `wss://data-stream.binance.vision/ws/${streamSymbol}@trade`
-      );
-      marketWsRef.current = ws;
-      ws.onopen = () => {
-        if (!disposed) { setIsStreaming(true); setIsConnected(true); }
-      };
-      ws.onmessage = (event) => {
-        if (disposed || loadedChartKeyRef.current !== key) return;
-        try {
-          const message = JSON.parse(event.data);
-          const price = Number(message?.p);
-          const tradeTime = Math.floor(Number(message?.T) / 1000);
-          if (!Number.isFinite(price) || !Number.isFinite(tradeTime) ||
-              !candlestickSeriesRef.current) return;
-          const bucketTime = Math.floor(tradeTime / bucketSeconds) * bucketSeconds;
-          const cached = candleCacheRef.current[key] || [];
-          const previous = cached[cached.length - 1];
-          const candle: CandlestickData = previous && Number(previous.time) === bucketTime
-            ? {
-                ...previous,
-                high: Math.max(previous.high, price),
-                low: Math.min(previous.low, price),
-                close: price,
-              }
-            : {
-                time: bucketTime as UTCTimestamp,
-                open: price, high: price, low: price, close: price,
-              };
-          candlestickSeriesRef.current.update(candle);
-          if (previous && Number(previous.time) === bucketTime) {
-            cached[cached.length - 1] = candle;
-          } else {
-            cached.push(candle);
-            if (cached.length > 250) cached.shift();
+        if (showFibonacci) {
+          const priceHistory = await liveDataService.getPriceHistory(selectedSymbol, 50);
+          if (priceHistory.length > 10) {
+            const recentHigh = Math.max(...priceHistory.slice(-20).map((p) => p.high));
+            const recentLow = Math.min(...priceHistory.slice(-20).map((p) => p.low));
+            const fibLevels = await liveDataService.calculateFibonacciLevels(selectedSymbol, recentHigh, recentLow);
+            if (active) setFibonacciLevels(fibLevels);
           }
-          candleCacheRef.current[key] = cached;
-          const now = performance.now();
-          if (now - lastUiPriceUpdateRef.current >= 100) {
-            lastUiPriceUpdateRef.current = now;
-            setCurrentPrice(price);
-          }
-        } catch (error) {
-          console.warn('Invalid Binance market-data event:', error);
         }
-      };
-      ws.onerror = () => ws.close();
-      ws.onclose = () => {
-        if (marketWsRef.current === ws) marketWsRef.current = null;
-        if (!disposed) {
-          setIsStreaming(false);
-          reconnectTimer = window.setTimeout(connect, 2000);
-        }
-      };
-    };
-    connect();
-    return () => {
-      disposed = true;
-      if (reconnectTimer) window.clearTimeout(reconnectTimer);
-      if (marketWsRef.current) {
-        marketWsRef.current.onclose = null;
-        marketWsRef.current.close();
-        marketWsRef.current = null;
+      } catch (error) {
+        console.error('Failed to load symbol analysis:', error);
       }
-      setIsStreaming(false);
-    };
-  }, [isLive, selectedSymbol, timeframe]);
+    })();
+    return () => { active = false; };
+  }, [selectedSymbol, showTrendLines, showFibonacci, symbolDataRevision]);
 
-  // Slow REST reconciliation is only a fallback for missed WebSocket events.
+  // Restore a previously-connected TradeLocker session and its instrument
+  // list once on mount.
   useEffect(() => {
-    if (!isLive) return;
-    const interval = window.setInterval(() => {
-      if (!document.hidden) loadCandlesForSymbol(selectedSymbol, timeframe, true);
-    }, 30000);
-    return () => window.clearInterval(interval);
-  }, [isLive, loadCandlesForSymbol, selectedSymbol, timeframe]);
+    let active = true;
+    (async () => {
+      try {
+        const status = await tradeLockerApi.connect();
+        if (!status.connected || !active) return;
+        const sessionId = localStorage.getItem('tl_session_id');
+        const params = new URLSearchParams(sessionId ? { sessionId } : {});
+        const API_BASE = import.meta.env.VITE_API_URL || '';
+        const response = await fetch(`${API_BASE}/api/tradelocker/instruments?${params.toString()}`);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch instruments: ${response.status}`);
+        }
+        const instruments = parseTradeLockerInstruments(await response.json());
+        if (!active || instruments.length === 0) return;
+        setAvailableSymbols(instruments);
+        if (!instruments.some((item) => item.symbol === selectedSymbol)) {
+          setSelectedSymbol(instruments[0].symbol);
+          setSearchTerm(instruments[0].symbol);
+        } else if (!searchTerm) {
+          setSearchTerm(selectedSymbol);
+        }
+      } catch (error) {
+        console.error('Failed to restore TradeLocker session:', error);
+      }
+    })();
+    return () => { active = false; };
+    // Mount-only: subsequent symbol changes must not re-fetch instruments.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  useEffect(() => {
-    checkExistingTradeLockerConnection();
-  }, [checkExistingTradeLockerConnection]);
+  const getCandlesForDrawing = useCallback(() => getCachedCandles(), [getCachedCandles]);
+  const getDuplicateShift = useCallback(() => ({
+    time: timeframeSeconds(timeframe) * 5,
+    price: Number(cryptoAnalysis?.indicators?.atr || currentPrice * 0.002) * 0.2,
+  }), [timeframe, cryptoAnalysis, currentPrice]);
 
-  // Handle symbol change
-  const handleSymbolChange = (newSymbol: string) => {
-    setSelectedSymbol(newSymbol);
-    setSearchTerm(newSymbol);
-    loadCandlesForSymbol(newSymbol, timeframe);
-    
-    // Load new technical analysis
-    loadSymbolData(newSymbol);
+  const {
+    drawings,
+    draftDrawing,
+    selectedDrawing,
+    selectedDrawingId,
+    setSelectedDrawingId,
+    drawingTool,
+    setDrawingTool,
+    drawingColor,
+    setDrawingColor,
+    magnetDrawing,
+    setMagnetDrawing,
+    drawingRevision,
+    canUndo,
+    saveDrawingChange,
+    handleDrawingPointerDown,
+    handleDrawingPointerMove,
+    handleDrawingPointerUp,
+    handleAnchorPointerDown,
+    handleAnchorPointerMove,
+    handleAnchorPointerUp,
+    undoDrawing,
+    updateSelectedDrawing,
+    deleteSelectedDrawing,
+    duplicateSelectedDrawing,
+    clearDrawings,
+    drawingCoordinates,
+  } = useDrawings({
+    symbol: selectedSymbol,
+    timeframe,
+    chartRef,
+    seriesRef: candlestickSeriesRef,
+    containerRef: chartContainerRef,
+    getCandles: getCandlesForDrawing,
+    getDuplicateShift,
+    chartRevision,
+  });
+
+  // Chart overlays: harmonic geometry, ADR levels, trendlines, V2 levels,
+  // and the deterministic setup zones.
+  useHarmonicPatternSeries(chartRef, harmonicPatterns, showHarmonics, chartRevision);
+  useHarmonicSvgOverlay(chartRef, candlestickSeriesRef, chartContainerRef, harmonicPatterns, showHarmonics, cryptoAnalysis, chartRevision);
+  useAdrLevelSeries(chartRef, adrData, chartRevision);
+  useTrendLineSeries(chartRef, trendLines, showTrendLines, chartRevision);
+  useAnalysisLevelSeries(chartRef, cryptoAnalysis, showSupportResistance, showFibonacci, currentPrice, chartRevision);
+  useSetupZoneOverlay(chartRef, candlestickSeriesRef, chartContainerRef, cryptoAnalysis, showSetups, chartRevision, currentPrice);
+  useConditionalSetupOverlay(chartRef, candlestickSeriesRef, chartContainerRef, cryptoAnalysis, showSetups, chartRevision, currentPrice);
+
+  // Symbol search functionality
+  const updateSymbolSuggestions = useCallback((term: string) => {
+    const normalizedTerm = term.trim().toLowerCase();
+    const filtered = availableSymbols
+      .filter((symbol) =>
+        normalizedTerm.length === 0 ||
+        symbol.symbol.toLowerCase().includes(normalizedTerm) ||
+        symbol.name.toLowerCase().includes(normalizedTerm)
+      )
+      .slice(0, 20);
+
+    setSymbolSuggestions(filtered);
+    setShowSuggestions(filtered.length > 0);
+  }, [availableSymbols]);
+
+  const handleSymbolSearch = (term: string) => {
+    setSearchTerm(term);
+    updateSymbolSuggestions(term);
   };
 
-  useEffect(() => {
-    loadCandlesForSymbol(selectedSymbol, timeframe);
-  }, [loadCandlesForSymbol, selectedSymbol, timeframe]);
+  // The candle, analysis, ADR, and harmonic effects all key off
+  // selectedSymbol, so switching symbols is just a state change.
+  const selectSymbol = (symbol: SymbolInfo) => {
+    setSelectedSymbol(symbol.symbol);
+    setSearchTerm(symbol.symbol);
+    setShowSuggestions(false);
+  };
 
-  const getSymbolInfo = (symbol: string): SymbolInfo | undefined => {
-    return symbolDatabase.find(s => s.symbol === symbol);
+  const refreshAll = () => {
+    void refreshCandles(true);
+    setSymbolDataRevision((revision) => revision + 1);
   };
 
   const symbolDatabase = availableSymbols.length > 0 ? availableSymbols : BWTS_SYMBOLS;
+  const currentSymbolInfo = symbolDatabase.find((s) => s.symbol === selectedSymbol);
 
-  const currentSymbolInfo = getSymbolInfo(selectedSymbol);
   const toggleFullscreen = async () => {
     if (!document.fullscreenElement) await workspaceRef.current?.requestFullscreen();
     else await document.exitFullscreen();
@@ -1439,7 +541,7 @@ const TradingView: React.FC = () => {
 
   const analyzeChartWithAi = useCallback(async () => {
     const screenshot = chartRef.current?.takeScreenshot();
-    const candles = (candleCacheRef.current[`${selectedSymbol}:${timeframe}`] || []).slice(-120).map((candle) => ({
+    const candles = getCachedCandles().slice(-120).map((candle) => ({
       time: Number(candle.time), open: candle.open, high: candle.high, low: candle.low, close: candle.close,
     }));
     if (!screenshot || candles.length === 0) {
@@ -1475,18 +577,17 @@ const TradingView: React.FC = () => {
     } finally {
       setChartAiLoading(false);
     }
-  }, [selectedSymbol, timeframe, currentPrice, harmonicPatterns, adrData, trendLines, fibonacciLevels, drawings, cryptoAnalysis]);
+  }, [getCachedCandles, selectedSymbol, timeframe, currentPrice, harmonicPatterns, adrData, trendLines, fibonacciLevels, drawings, cryptoAnalysis]);
 
   const setupPlan = cryptoAnalysis?.trade_plan;
-  const setupCalendarStatus = String(setupPlan?.calendar_status || cryptoAnalysis?.economic_calendar?.status || '').toUpperCase();
-  const setupTimingStatus = String(setupPlan?.timing_status || cryptoAnalysis?.trade_timing?.status || 'WAIT').toUpperCase();
-  const setupHardBlocked = ['BLOCKED', 'POST_NEWS', 'UNAVAILABLE'].includes(setupCalendarStatus);
-  const setupReady = Boolean(setupPlan?.eligible) && setupTimingStatus === 'READY' && !setupHardBlocked;
-  const setupZones = (Array.isArray(cryptoAnalysis?.zones?.setup_zones) ? cryptoAnalysis.zones.setup_zones : [])
-    .filter((zone: any) => ['BUY', 'SELL'].includes(zone.direction) && Number.isFinite(Number(zone.low)) && Number.isFinite(Number(zone.high)))
-    .filter((zone: any, index: number, zones: any[]) => zones.findIndex((item) => item.direction === zone.direction) === index)
+  const planGating = getPlanGating(cryptoAnalysis);
+  const setupReady = planGating.ready;
+  const setupHardBlocked = planGating.hardBlocked;
+  const setupZones = ((Array.isArray(cryptoAnalysis?.zones?.setup_zones) ? cryptoAnalysis.zones.setup_zones : []) as SetupZone[])
+    .filter((zone) => ['BUY', 'SELL'].includes(String(zone.direction)) && Number.isFinite(Number(zone.low)) && Number.isFinite(Number(zone.high)))
+    .filter((zone, index, zones) => zones.findIndex((item) => item.direction === zone.direction) === index)
     .slice(0, 2);
-  const setupPrice = (value: number | null | undefined) => value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const setupPrice = (value: number | string | null | undefined) => value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
   return (
     <div ref={workspaceRef} className="relative h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 text-white flex flex-col">
@@ -1496,7 +597,7 @@ const TradingView: React.FC = () => {
           {/* Left Section - Logo & Symbol Search */}
           <div className="flex items-center space-x-4">
             <ConfluenceXLogo size="sm" />
-            
+
             {/* Symbol Search */}
             <div className="relative">
               <div className="flex items-center space-x-2 bg-gray-700 rounded-lg px-3 py-2">
@@ -1510,7 +611,7 @@ const TradingView: React.FC = () => {
                   className="bg-transparent text-white placeholder-gray-400 outline-none w-48"
                 />
               </div>
-              
+
               {/* Symbol Suggestions Dropdown */}
               {showSuggestions && symbolSuggestions.length > 0 && (
                 <div className="absolute top-full left-0 mt-1 w-80 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 max-h-64 overflow-y-auto">
@@ -1562,13 +663,13 @@ const TradingView: React.FC = () => {
 
           {/* Center Section - Timeframes */}
           <div className="flex items-center space-x-1">
-            {timeframes.map(tf => (
+            {CHART_TIMEFRAMES.map(tf => (
               <button
                 key={tf.value}
                 onClick={() => setTimeframe(tf.value)}
                 className={`px-3 py-1 text-sm rounded transition-colors ${
-                  timeframe === tf.value 
-                    ? 'bg-emerald-500 text-white' 
+                  timeframe === tf.value
+                    ? 'bg-emerald-500 text-white'
                     : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                 }`}
               >
@@ -1579,8 +680,6 @@ const TradingView: React.FC = () => {
 
           {/* Right Section - Controls */}
           <div className="flex items-center space-x-4">
-            {/* TradeLocker Connection removed: read-only product, no broker */}
-
             {/* Connection Status */}
             <div className="flex items-center space-x-2">
               {isConnected ? (
@@ -1588,32 +687,39 @@ const TradingView: React.FC = () => {
               ) : (
                 <WifiOff className="w-5 h-5 text-red-500" />
               )}
-              <div className={`w-3 h-3 rounded-full ${isStreaming && isLive ? 'bg-emerald-500 animate-pulse' : isConnected ? 'bg-sky-500' : 'bg-gray-400'}`}></div>
+              <div className={`w-3 h-3 rounded-full ${streaming ? 'bg-emerald-500 animate-pulse' : isConnected ? 'bg-sky-500' : 'bg-gray-400'}`}></div>
               <span className="text-sm text-gray-400">
-                {isStreaming ? 'Streaming' : isConnected ? 'Connected' : 'Connecting...'}
+                {streaming ? 'Streaming' : candlesLoading ? 'Loading...' : isConnected ? 'Connected' : 'Connecting...'}
               </span>
             </div>
 
-            <button 
-              onClick={() => {
-                loadCandlesForSymbol(selectedSymbol, timeframe, true);
-                loadSymbolData(selectedSymbol);
-              }}
+            <button
+              onClick={() => void analyzeChartWithAi()}
+              disabled={chartAiLoading}
+              className="flex items-center gap-1.5 rounded bg-violet-500/15 px-2.5 py-2 text-xs font-bold text-violet-300 transition-colors hover:bg-violet-500/25 disabled:opacity-50"
+              title="Analyze the visible chart with AI"
+            >
+              <BrainCircuit className={`w-4 h-4 ${chartAiLoading ? 'animate-pulse' : ''}`} />
+              {chartAiLoading ? 'Analyzing...' : 'AI Analysis'}
+            </button>
+
+            <button
+              onClick={refreshAll}
               className="p-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
               title="Refresh candles and analysis data"
             >
               <RefreshCw className="w-4 h-4" />
             </button>
 
-            <button 
+            <button
               onClick={() => setShowSettings(!showSettings)}
               className="p-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
               title="Settings"
             >
               <Settings className="w-4 h-4" />
             </button>
-            
-            <button 
+
+            <button
               onClick={toggleFullscreen}
               className="p-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
               title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
@@ -1650,7 +756,7 @@ const TradingView: React.FC = () => {
         <button onClick={() => selectedDrawing && updateSelectedDrawing({showPrice:!selectedDrawing.showPrice})} disabled={!selectedDrawing || selectedDrawing.type === 'text'} title="Toggle price labels" className={`rounded-md p-2 disabled:opacity-25 ${selectedDrawing?.showPrice ? 'text-cyan-300' : 'text-slate-500'}`}><Tag className="h-4 w-4"/></button>
         <button onClick={() => setMagnetDrawing((value)=>!value)} title="Magnet to candle OHLC" className={`rounded-md p-2 ${magnetDrawing ? 'bg-cyan-400/10 text-cyan-300' : 'text-slate-500'}`}><Magnet className="h-4 w-4"/></button>
         <button onClick={deleteSelectedDrawing} disabled={!selectedDrawingId || selectedDrawing?.locked} title="Delete selected" className="rounded-md p-2 text-slate-500 hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25"><Trash2 className="h-4 w-4"/></button>
-        <button onClick={undoDrawing} disabled={!drawingUndoRef.current.length} title="Undo" className="rounded-md p-2 text-slate-500 hover:bg-white/[0.06] hover:text-slate-200 disabled:opacity-25"><Undo2 className="h-4 w-4"/></button>
+        <button onClick={undoDrawing} disabled={!canUndo} title="Undo" className="rounded-md p-2 text-slate-500 hover:bg-white/[0.06] hover:text-slate-200 disabled:opacity-25"><Undo2 className="h-4 w-4"/></button>
         <button onClick={clearDrawings} disabled={!drawings.length} title="Clear drawings" className="rounded-md px-2 py-1.5 text-[10px] font-black text-slate-500 hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25">CLEAR</button>
         <button onClick={() => setShowManualDrawings((visible) => !visible)} title="Show / hide drawings" className="ml-auto rounded-md p-2 text-slate-500 hover:bg-white/[0.06] hover:text-slate-200">{showManualDrawings ? <Eye className="h-4 w-4"/> : <EyeOff className="h-4 w-4"/>}</button>
         <span className="text-[9px] font-bold text-slate-600">{drawings.length} · {selectedSymbol} {timeframe}</span>
@@ -1672,7 +778,7 @@ const TradingView: React.FC = () => {
         <div className="flex min-w-max items-center justify-between gap-6">
           <div className="flex items-center space-x-4">
             <span className="text-sm text-gray-400">Technical Analysis:</span>
-            
+
             <label className="flex items-center space-x-2">
               <input
                 type="checkbox"
@@ -1776,12 +882,12 @@ const TradingView: React.FC = () => {
             ? 'bg-red-950 border-red-800 text-red-200'
             : 'bg-sky-950 border-sky-800 text-sky-200'
         }`}>
-          <span className="font-semibold">ADR(14): {adrData.adr.toFixed(getDecimalPlaces(selectedSymbol))}</span>
+          <span className="font-semibold">ADR(14): {adrData.adr.toFixed(2)}</span>
           <span>{adrData.percent_used.toFixed(0)}% used</span>
-          <span>Range: {adrData.current_range.toFixed(getDecimalPlaces(selectedSymbol))}</span>
-          <span>ADR Low: {adrData.adr_low.toFixed(getDecimalPlaces(selectedSymbol))}</span>
-          <span>Open: {adrData.day_open.toFixed(getDecimalPlaces(selectedSymbol))}</span>
-          <span>ADR High: {adrData.adr_high.toFixed(getDecimalPlaces(selectedSymbol))}</span>
+          <span>Range: {adrData.current_range.toFixed(2)}</span>
+          <span>ADR Low: {adrData.adr_low.toFixed(2)}</span>
+          <span>Open: {adrData.day_open.toFixed(2)}</span>
+          <span>ADR High: {adrData.adr_high.toFixed(2)}</span>
           {adrData.exhausted && <span className="font-bold">Range exhausted</span>}
         </div>
       )}
@@ -1843,6 +949,17 @@ const TradingView: React.FC = () => {
           ref={chartContainerRef}
           className="w-full h-full min-w-0 min-h-0 overflow-hidden"
         />
+        {candleError && (
+          <div className="absolute inset-x-0 top-0 z-40 flex items-center justify-between gap-3 border-b border-rose-500/30 bg-rose-950/90 px-4 py-2 text-xs text-rose-200">
+            <span>Failed to load {selectedSymbol} {timeframe} candles: {candleError.message}</span>
+            <button
+              onClick={() => void refreshCandles(false)}
+              className="shrink-0 rounded bg-rose-500/20 px-2.5 py-1 font-bold hover:bg-rose-500/30"
+            >
+              Retry
+            </button>
+          </div>
+        )}
         {showSetupGuide && setupPlan && <div className="absolute right-4 top-4 z-30 w-[min(350px,calc(100%-2rem))] rounded-xl border border-white/10 bg-[#0b1020]/95 p-3 text-xs text-slate-300 shadow-2xl backdrop-blur">
           <div className="flex items-center justify-between gap-3">
             <span className="font-black tracking-widest text-cyan-300">SETUP GUIDE</span>
@@ -1856,24 +973,23 @@ const TradingView: React.FC = () => {
             <div className="flex justify-between gap-3"><span className="text-slate-500">Invalid if price reaches</span><b className="text-rose-300">{setupPrice(setupPlan.stop ?? setupPlan.invalidation)}</b></div>
             <div className="flex justify-between gap-3"><span className="text-slate-500">Targets</span><b className="text-cyan-300">{setupPlan.targets?.slice(0, 3).map((target) => setupPrice(target.price)).join(' · ') || 'Waiting'}</b></div>
           </div> : (() => {
-            const v2Score = Number(cryptoAnalysis?.total_score || 0);
-            const belowThreshold = v2Score < 60;
+            const belowThreshold = planGating.v2Score < 60;
             const calendarBlocked = setupHardBlocked;
-            const timingWait = setupTimingStatus !== 'READY';
+            const timingWait = planGating.timingStatus !== 'READY';
             // Only show zones that the backend marked as actionable. When none
             // qualify, the panel truthfully shows "no reference areas".
             const displayZones = setupReady
-              ? setupZones.filter((z: any) => z.actionable !== false)
+              ? setupZones.filter((zone) => zone.actionable !== false)
               : [];
             const isReferenceMode = displayZones.length > 0 && !setupReady;
             return (
               <div className="mt-3 space-y-2">
                 <p className="font-semibold text-slate-200">NO ACTIVE SETUP</p>
-                {belowThreshold && <p className="text-[10px] leading-relaxed text-rose-300">V2 score is {v2Score}/100 — below the 60 threshold. Zones are not actionable until score clears.</p>}
+                {belowThreshold && <p className="text-[10px] leading-relaxed text-rose-300">V2 score is {planGating.v2Score}/100 — below the 60 threshold. Zones are not actionable until score clears.</p>}
                 {calendarBlocked && <p className="text-[10px] leading-relaxed text-rose-300">Economic calendar gate is BLOCKED. No new entries until the gate clears.</p>}
                 {timingWait && !belowThreshold && !calendarBlocked && <p className="text-[10px] leading-relaxed text-amber-300">Timing is WAIT — waiting on a confirming candle, volume, ADR, and V2 direction.</p>}
                 {displayZones.length === 0 && !belowThreshold && !calendarBlocked && !timingWait && <p className="text-[10px] leading-relaxed text-slate-500">No qualifying zones on this timeframe yet.</p>}
-                {displayZones.map((zone: any) => {
+                {displayZones.map((zone) => {
                   const actionable = zone.actionable !== false;
                   const conflicting = zone.conflicting_with_harmonic === true;
                   const scoreLabel = actionable && zone.score != null ? <small className="text-slate-500"> {zone.score}/100</small> : null;
@@ -1890,7 +1006,7 @@ const TradingView: React.FC = () => {
                     </div>
                   );
                 })}
-                {displayZones[0]?.reasons?.length > 0 && <p className="text-[10px] leading-relaxed text-slate-500">Why: {displayZones[0].reasons.slice(0, 3).join(' · ')}</p>}
+                {(displayZones[0]?.reasons?.length ?? 0) > 0 && <p className="text-[10px] leading-relaxed text-slate-500">Why: {displayZones[0].reasons!.slice(0, 3).join(' · ')}</p>}
                 {!isReferenceMode && (belowThreshold || calendarBlocked || timingWait) && <p className="text-[10px] leading-relaxed text-slate-500">Then wait for a confirming candle, volume, ADR, and V2 direction.</p>}
               </div>
             );
@@ -1901,19 +1017,19 @@ const TradingView: React.FC = () => {
         {showManualDrawings && <svg data-revision={drawingRevision} className="absolute inset-0 z-20 h-full w-full" style={{ pointerEvents: drawingTool === 'pan' ? 'none' : 'auto', cursor: drawingTool === 'select' ? 'default' : drawingTool === 'pan' ? 'grab' : 'crosshair' }} onPointerDown={handleDrawingPointerDown} onPointerMove={handleDrawingPointerMove} onPointerUp={handleDrawingPointerUp}>
           {[...drawings, ...(draftDrawing ? [draftDrawing] : [])].map((drawing) => {
             const points = drawingCoordinates(drawing); if (!points.length || points.some((point) => point.x == null || point.y == null)) return null;
-            const selected = drawing.id === selectedDrawingId; const stroke = selected ? '#facc15' : drawing.color || '#e2e8f0'; const dash = drawing.lineStyle === 'dashed' ? '7 4' : undefined;
+            const selected = drawing.id === selectedDrawingId; const stroke = selected ? CHART_COLORS.drawingSelected : drawing.color || '#e2e8f0'; const dash = drawing.lineStyle === 'dashed' ? '7 4' : undefined;
             const select = (event: React.PointerEvent<SVGElement>) => { event.stopPropagation(); if (drawingTool === 'select') setSelectedDrawingId(drawing.id); };
-            const anchors = selected && !drawing.locked ? points.map((point,index)=><circle key={`anchor-${index}`} cx={point.x!} cy={point.y!} r="5" fill="#0b1020" stroke="#facc15" strokeWidth="2" style={{pointerEvents:'all',cursor:'move'}} onPointerDown={(event)=>handleAnchorPointerDown(event,drawing)} onPointerMove={(event)=>handleAnchorPointerMove(event,drawing.id,index)} onPointerUp={handleAnchorPointerUp}/>) : null;
+            const anchors = selected && !drawing.locked ? points.map((point,index)=><circle key={`anchor-${index}`} cx={point.x!} cy={point.y!} r="5" fill="#0b1020" stroke={CHART_COLORS.drawingSelected} strokeWidth="2" style={{pointerEvents:'all',cursor:'move'}} onPointerDown={(event)=>handleAnchorPointerDown(event,drawing)} onPointerMove={(event)=>handleAnchorPointerMove(event,drawing.id,index)} onPointerUp={handleAnchorPointerUp}/>) : null;
             if (drawing.type === 'horizontal' || drawing.type === 'sr') return <g key={drawing.id}><line x1="0" x2="100%" y1={points[0].y!} y2={points[0].y!} stroke="transparent" strokeWidth="14" onPointerDown={select} style={{pointerEvents:'stroke'}}/><line x1="0" x2="100%" y1={points[0].y!} y2={points[0].y!} stroke={stroke} strokeWidth={selected ? 2 : 1.5} strokeDasharray={dash}/>{drawing.showPrice !== false && <text x="8" y={points[0].y!-5} fill={stroke} fontSize="10">{drawing.locked ? 'LOCK ' : ''}{drawing.type === 'sr' ? 'S/R' : 'H'} {drawing.points[0].price.toFixed(2)}</text>}{anchors}</g>;
             if (drawing.type === 'text') return <g key={drawing.id}>{<text x={points[0].x!} y={points[0].y!} fill={stroke} fontSize="12" fontWeight="700" onPointerDown={select} onDoubleClick={() => { if (!drawing.locked) { const text=window.prompt('Edit annotation',drawing.text || ''); if (text?.trim()) saveDrawingChange(drawings.map((item)=>item.id===drawing.id?{...item,text:text.trim()}:item)); } }} style={{ pointerEvents: 'all' }}>{drawing.text}</text>}{anchors}</g>;
             if (points.length < 2) return null;
             if (drawing.type === 'trend') return <g key={drawing.id}><line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke="transparent" strokeWidth="14" onPointerDown={select} style={{pointerEvents:'stroke'}}/><line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke={stroke} strokeWidth={selected ? 2.5 : 1.7} strokeDasharray={dash} onPointerDown={select} style={{ pointerEvents: 'stroke' }}/>{drawing.showPrice && <text x={points[1].x!+5} y={points[1].y!-5} fill={stroke} fontSize="9">{drawing.points[1].price.toFixed(2)}</text>}{anchors}</g>;
             if (drawing.type === 'rectangle') { const x=Math.min(points[0].x!,points[1].x!), y=Math.min(points[0].y!,points[1].y!), width=Math.abs(points[1].x!-points[0].x!), height=Math.abs(points[1].y!-points[0].y!); return <g key={drawing.id}><rect x={x} y={y} width={width} height={height} fill={`${stroke}18`} stroke={stroke} strokeDasharray={dash} strokeWidth={selected ? 2 : 1.5} onPointerDown={select} style={{ pointerEvents: 'all' }}/>{drawing.showPrice && <text x={x+4} y={y+12} fill={stroke} fontSize="9">{Math.min(...drawing.points.map((point)=>point.price)).toFixed(2)}–{Math.max(...drawing.points.map((point)=>point.price)).toFixed(2)}</text>}{anchors}</g>; }
-            if (drawing.type === 'fib') { const ratios=[0,.236,.382,.5,.618,.786,1,1.272,1.618]; const ax=Math.min(points[0].x!,points[1].x!), bx=Math.max(points[0].x!,points[1].x!); return <g key={drawing.id} onPointerDown={select} style={{ pointerEvents: 'stroke' }}><rect x={ax} y={Math.min(points[0].y!,points[1].y!)} width={Math.max(0,bx-ax)} height={Math.max(0,Math.abs(points[1].y!-points[0].y!))} fill={`${stroke}0f`} stroke="none" style={{ pointerEvents: 'none' }}/>{ratios.map((ratio) => { const y=points[0].y!+(points[1].y!-points[0].y!)*ratio; const price=drawing.points[0].price+(drawing.points[1].price-drawing.points[0].price)*ratio; const golden=String(ratio)==='0.618'; const color=golden?'#c084fc':stroke; return <g key={ratio}><line x1="0" x2="100%" y1={y} y2={y} stroke="transparent" strokeWidth="14" style={{ pointerEvents: 'stroke' }}/><line x1="0" x2="100%" y1={y} y2={y} stroke={color} strokeWidth={selected ? 2 : 1} strokeDasharray={dash || '4 3'} style={{ pointerEvents: 'none' }}/>{drawing.showPrice !== false && <text x="100%" dx={-6} y={y+3} textAnchor="end" fill={color} fontSize="9" style={{ pointerEvents: 'none' }}>{ratio} · {price.toFixed(2)}</text>}</g>; })}<line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke={stroke} strokeWidth={selected ? 2 : 1.4} strokeDasharray="2 3" style={{ pointerEvents: 'none' }}/>{anchors}</g>; }
+            if (drawing.type === 'fib') { const ratios=[0,.236,.382,.5,.618,.786,1,1.272,1.618]; const ax=Math.min(points[0].x!,points[1].x!), bx=Math.max(points[0].x!,points[1].x!); return <g key={drawing.id} onPointerDown={select} style={{ pointerEvents: 'stroke' }}><rect x={ax} y={Math.min(points[0].y!,points[1].y!)} width={Math.max(0,bx-ax)} height={Math.max(0,Math.abs(points[1].y!-points[0].y!))} fill={`${stroke}0f`} stroke="none" style={{ pointerEvents: 'none' }}/>{ratios.map((ratio) => { const y=points[0].y!+(points[1].y!-points[0].y!)*ratio; const price=drawing.points[0].price+(drawing.points[1].price-drawing.points[0].price)*ratio; const golden=String(ratio)==='0.618'; const color=golden?CHART_COLORS.fibGolden:stroke; return <g key={ratio}><line x1="0" x2="100%" y1={y} y2={y} stroke="transparent" strokeWidth="14" style={{ pointerEvents: 'stroke' }}/><line x1="0" x2="100%" y1={y} y2={y} stroke={color} strokeWidth={selected ? 2 : 1} strokeDasharray={dash || '4 3'} style={{ pointerEvents: 'none' }}/>{drawing.showPrice !== false && <text x="100%" dx={-6} y={y+3} textAnchor="end" fill={color} fontSize="9" style={{ pointerEvents: 'none' }}>{ratio} · {price.toFixed(2)}</text>}</g>; })}<line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke={stroke} strokeWidth={selected ? 2 : 1.4} strokeDasharray="2 3" style={{ pointerEvents: 'none' }}/>{anchors}</g>; }
             return null;
           })}
         </svg>}
-        
+
         {/* Pattern Info Overlay */}
         {(harmonicPatterns.length > 0 || trendLines.length > 0) && (
           <div className="absolute top-4 left-4 bg-gray-800 bg-opacity-90 rounded-lg p-4 max-w-sm">
@@ -1921,8 +1037,8 @@ const TradingView: React.FC = () => {
               <BarChart3 className="w-4 h-4 mr-2" />
               Technical Analysis
             </h4>
-            
-            {harmonicPatterns.map((pattern, index) => (
+
+            {harmonicPatterns.map((pattern) => (
               <div key={pattern.id} className="mb-2 text-sm">
                 <div className="flex items-center justify-between">
                   <span className={`font-medium ${
@@ -1938,7 +1054,7 @@ const TradingView: React.FC = () => {
               </div>
             ))}
 
-            {trendLines.map((line, index) => (
+            {trendLines.map((line) => (
               <div key={line.id} className="mb-2 text-sm">
                 <div className="flex items-center justify-between">
                   <span className={`font-medium ${
@@ -1956,85 +1072,6 @@ const TradingView: React.FC = () => {
           </div>
         )}
       </div>
-
-      {/* TradeLocker Login Modal */}
-      {showLoginModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md">
-            <h2 className="text-2xl font-bold text-white mb-4 flex items-center">
-              <Link className="w-6 h-6 mr-2 text-emerald-500" />
-              Connect to TradeLocker
-            </h2>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Email</label>
-                <input
-                  type="email"
-                  value={tradeLockerCredentials.email}
-                  onChange={(e) => setTradeLockerCredentials({ ...tradeLockerCredentials, email: e.target.value })}
-                  className="w-full bg-gray-700 text-white rounded px-3 py-2 border border-gray-600 focus:border-emerald-500 focus:outline-none"
-                  placeholder="your@email.com"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Password</label>
-                <input
-                  type="password"
-                  value={tradeLockerCredentials.password}
-                  onChange={(e) => setTradeLockerCredentials({ ...tradeLockerCredentials, password: e.target.value })}
-                  className="w-full bg-gray-700 text-white rounded px-3 py-2 border border-gray-600 focus:border-emerald-500 focus:outline-none"
-                  placeholder="Your password"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Server</label>
-                <select
-                  value={tradeLockerCredentials.server}
-                  onChange={(e) => setTradeLockerCredentials({ ...tradeLockerCredentials, server: e.target.value })}
-                  className="w-full bg-gray-700 text-white rounded px-3 py-2 border border-gray-600 focus:border-emerald-500 focus:outline-none"
-                >
-                  <option value="demo">Demo Server</option>
-                  <option value="HEROFX">HEROFX Server</option>
-                  <option value="live">Live Server</option>
-                </select>
-              </div>
-              
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="isDemo"
-                  checked={tradeLockerCredentials.isDemo}
-                  onChange={(e) => setTradeLockerCredentials({ ...tradeLockerCredentials, isDemo: e.target.checked })}
-                  className="rounded border-gray-600 text-emerald-500 focus:ring-emerald-500"
-                />
-                <label htmlFor="isDemo" className="text-sm text-gray-400">Use Demo Account</label>
-              </div>
-            </div>
-            
-            <div className="flex space-x-3 mt-6">
-              <button
-                onClick={connectToTradeLocker}
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2 px-4 rounded transition-colors"
-              >
-                Connect
-              </button>
-              <button
-                onClick={() => setShowLoginModal(false)}
-                className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-            
-            <p className="text-xs text-gray-500 mt-4 text-center">
-              Your credentials are only used to authenticate with TradeLocker and are never stored on our servers.
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
