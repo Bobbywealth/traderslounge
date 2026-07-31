@@ -27,12 +27,15 @@ import {
   Copy,
   Magnet,
   Tag,
-  Hand
+  Hand,
+  ChevronRight,
+  ChevronLeft
 } from 'lucide-react';
 import { liveDataService, HarmonicPattern, TrendLine, FibonacciLevel } from '../services/liveDataService';
 import { tradeLockerApi } from '../services/apiService';
 import ConfluenceXLogo from '../components/ConfluenceXLogo';
 import ChartAiAnalysisPanel from '../components/ChartAiAnalysisPanel';
+import TradeSetupPanel from '../components/TradeSetupPanel';
 import { bwtsApi, type ChartAiAnalysis, type CryptoAnalysis } from '../services/bwtsApi';
 import { useCandles } from '../features/chart/useCandles';
 import { useBinanceStream } from '../features/chart/useBinanceStream';
@@ -213,6 +216,8 @@ const TradingView: React.FC = () => {
   const [drawingRailCollapsed, setDrawingRailCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [setupPanelExpanded, setSetupPanelExpanded] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Initialize chart. Declared before useCandles so the series exists by the
   // time the candle hook's first refresh runs on mount.
@@ -591,6 +596,18 @@ const TradingView: React.FC = () => {
 
   return (
     <div ref={workspaceRef} className="relative h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 text-white flex flex-col">
+      {/* Sidebar Toggle */}
+      <button
+        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+        className="absolute right-0 top-32 z-35 p-2 bg-gray-800/80 hover:bg-gray-700 rounded-l transition-colors"
+        title={sidebarCollapsed ? 'Open sidebar' : 'Close sidebar'}
+      >
+        {sidebarCollapsed ? (
+          <ChevronLeft className="w-4 h-4 text-gray-400" />
+        ) : (
+          <ChevronRight className="w-4 h-4 text-gray-400" />
+        )}
+      </button>
       {/* Enhanced Top Controls */}
       <div className="relative bg-gray-800 border-b border-gray-700 px-4 py-3">
         <div className="flex items-center justify-between">
@@ -943,12 +960,14 @@ const TradingView: React.FC = () => {
         onClose={() => { setChartAiAnalysis(null); setChartAiError(null); }}
       />
 
-      {/* Chart Area */}
-      <div className="flex-1 min-w-0 min-h-0 overflow-hidden relative bg-gray-900">
-        <div
-          ref={chartContainerRef}
-          className="w-full h-full min-w-0 min-h-0 overflow-hidden"
-        />
+      {/* Chart Area with Sidebar */}
+      <div className="flex-1 min-w-0 min-h-0 overflow-hidden relative bg-gray-900 flex">
+        {/* Main Chart */}
+        <div className="flex-1 min-w-0 min-h-0 overflow-hidden relative">
+          <div
+            ref={chartContainerRef}
+            className="w-full h-full min-w-0 min-h-0 overflow-hidden"
+          />
         {candleError && (
           <div className="absolute inset-x-0 top-0 z-40 flex items-center justify-between gap-3 border-b border-rose-500/30 bg-rose-950/90 px-4 py-2 text-xs text-rose-200">
             <span>Failed to load {selectedSymbol} {timeframe} candles: {candleError.message}</span>
@@ -1070,6 +1089,19 @@ const TradingView: React.FC = () => {
               </div>
             ))}
           </div>
+        )}
+        </div>
+
+        {/* Right Sidebar - Trade Setup */}
+        {!sidebarCollapsed && (
+          <TradeSetupPanel
+            analysis={cryptoAnalysis}
+            currentPrice={currentPrice}
+            symbol={selectedSymbol}
+            timeframe={timeframe}
+            isExpanded={setupPanelExpanded}
+            onToggle={() => setSetupPanelExpanded(!setupPanelExpanded)}
+          />
         )}
       </div>
     </div>
