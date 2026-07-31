@@ -45,7 +45,7 @@ export default function TradeSetupPanel({
   const entryPercent = plan.entry ? ((distanceToEntry / plan.entry) * 100).toFixed(2) : '0';
 
   return (
-    <div className="flex flex-col border-l border-white/[0.08] bg-[#0a0e1a] text-white overflow-hidden">
+    <div className="flex flex-col flex-1 bg-[#0a0e1a] text-white overflow-hidden">
       {/* Header */}
       <div
         onClick={onToggle}

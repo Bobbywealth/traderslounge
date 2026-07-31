@@ -36,6 +36,7 @@ import { tradeLockerApi } from '../services/apiService';
 import ConfluenceXLogo from '../components/ConfluenceXLogo';
 import ChartAiAnalysisPanel from '../components/ChartAiAnalysisPanel';
 import TradeSetupPanel from '../components/TradeSetupPanel';
+import TradeExamplesPanel from '../components/TradeExamplesPanel';
 import { bwtsApi, type ChartAiAnalysis, type CryptoAnalysis } from '../services/bwtsApi';
 import { useCandles } from '../features/chart/useCandles';
 import { useBinanceStream } from '../features/chart/useBinanceStream';
@@ -218,6 +219,8 @@ const TradingView: React.FC = () => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [setupPanelExpanded, setSetupPanelExpanded] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [activeTab, setActiveTab] = useState<'setup' | 'examples'>('setup');
+  const [examplesPanelExpanded, setExamplesPanelExpanded] = useState(true);
 
   // Initialize chart. Declared before useCandles so the series exists by the
   // time the candle hook's first refresh runs on mount.
@@ -1092,16 +1095,51 @@ const TradingView: React.FC = () => {
         )}
         </div>
 
-        {/* Right Sidebar - Trade Setup */}
+        {/* Right Sidebar - Tabbed Panel */}
         {!sidebarCollapsed && (
-          <TradeSetupPanel
-            analysis={cryptoAnalysis}
-            currentPrice={currentPrice}
-            symbol={selectedSymbol}
-            timeframe={timeframe}
-            isExpanded={setupPanelExpanded}
-            onToggle={() => setSetupPanelExpanded(!setupPanelExpanded)}
-          />
+          <div className="flex flex-col w-80 bg-[#0a0e1a] border-l border-white/[0.08] overflow-hidden">
+            {/* Tabs */}
+            <div className="flex items-center border-b border-white/[0.08] bg-gray-900">
+              <button
+                onClick={() => setActiveTab('setup')}
+                className={`flex-1 px-4 py-3 text-xs font-bold tracking-wide transition-colors ${
+                  activeTab === 'setup'
+                    ? 'text-emerald-300 border-b-2 border-emerald-500'
+                    : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                SETUP
+              </button>
+              <button
+                onClick={() => setActiveTab('examples')}
+                className={`flex-1 px-4 py-3 text-xs font-bold tracking-wide transition-colors ${
+                  activeTab === 'examples'
+                    ? 'text-cyan-300 border-b-2 border-cyan-500'
+                    : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                EXAMPLES
+              </button>
+            </div>
+
+            {/* Tab Content */}
+            {activeTab === 'setup' && (
+              <TradeSetupPanel
+                analysis={cryptoAnalysis}
+                currentPrice={currentPrice}
+                symbol={selectedSymbol}
+                timeframe={timeframe}
+                isExpanded={setupPanelExpanded}
+                onToggle={() => setSetupPanelExpanded(!setupPanelExpanded)}
+              />
+            )}
+            {activeTab === 'examples' && (
+              <TradeExamplesPanel
+                isExpanded={examplesPanelExpanded}
+                onToggle={() => setExamplesPanelExpanded(!examplesPanelExpanded)}
+              />
+            )}
+          </div>
         )}
       </div>
     </div>
