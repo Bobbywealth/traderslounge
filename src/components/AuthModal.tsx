@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Mail, Lock, User, Eye, EyeOff, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import ConfluenceXLogo from './ConfluenceXLogo';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -99,8 +100,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         </button>
 
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-emerald-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <User className="w-8 h-8 text-white" />
+          <div className="flex justify-center mb-4">
+            <ConfluenceXLogo size="lg" showTagline />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
             {mode === 'login' ? 'Welcome Back' : 'Join ConfluenceX'}
