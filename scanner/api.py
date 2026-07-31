@@ -67,7 +67,7 @@ log = logging.getLogger(__name__)
 
 # Default to the production frontend origin. Override in the deploy env
 # with a comma-separated list. We never reflect an arbitrary Origin.
-_DEFAULT_ALLOWED_ORIGINS = "https://traderslounge.onrender.com"
+_DEFAULT_ALLOWED_ORIGINS = "https://traderslounge.onrender.com,http://localhost:5173,http://localhost:4173,http://127.0.0.1:5173"
 MAX_BODY_BYTES_DEFAULT = 256 * 1024
 MAX_BODY_BYTES_CHART_AI = 10 * 1024 * 1024
 
