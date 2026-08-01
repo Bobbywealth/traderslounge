@@ -111,8 +111,16 @@ class BinanceClient:
     http: HttpFn = _default_http
 
     def fetch_candles(
-        self, pair: str, timeframe: str, limit: Optional[int] = None
+        self, pair: str, timeframe: str, limit: Optional[int] = None,
+        end_time_ms: Optional[int] = None,
     ) -> List[Candle]:
+        """Fetch up to ``limit`` candles, optionally ending before
+        ``end_time_ms`` (Binance kline openTime, milliseconds since epoch).
+
+        ``end_time_ms`` lets a caller page further back in history (e.g. a
+        chart "load more" on scroll-back) reusing the same backward
+        pagination loop already used to satisfy large ``limit`` values.
+        """
         sym = BINANCE_SYMBOL_MAP.get(pair)
         if sym is None:
             raise DataProviderError(f"Unknown crypto pair: {pair}")
@@ -121,7 +129,7 @@ class BinanceClient:
             raise DataProviderError(f"Unknown timeframe: {timeframe}")
         interval, default_limit = tf
         requested = max(1, min(int(limit or default_limit), 20000))
-        remaining, end_time, collected = requested, None, []
+        remaining, end_time, collected = requested, end_time_ms, []
         while remaining > 0:
             request_limit = min(remaining, 1000)
             values = {"symbol": sym, "interval": interval, "limit": str(request_limit)}
