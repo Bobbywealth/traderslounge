@@ -12,6 +12,11 @@ class Config:
     # Twelve Data free tier caps at 8 requests/minute. Override upward after
     # upgrading the plan so the client rate limiter stops throttling.
     twelve_data_rpm: int = 8
+    # Financial Modeling Prep (equities, ETFs, FX, crypto, commodities).
+    # Free tier is ~250 calls/day and excludes intraday bars (daily EOD,
+    # quotes, and fundamentals only). Equities route here on demand.
+    fmp_api_key: str = ""
+    fmp_rpm: int = 5  # conservative free-tier default; raise after upgrade
     pairs: List[str] = field(default_factory=lambda: [
         # Forex majors + gold (Twelve Data) — lean free-tier default.
         # Indices (NAS100, US30) and crosses (GBPJPY) are supported in
@@ -46,6 +51,9 @@ def load_from_env() -> Config:
         c.watchlist_threshold = int(v)
     if v := os.environ.get("TWELVE_DATA_RPM"):
         c.twelve_data_rpm = int(v)
+    c.fmp_api_key = os.environ.get("FMP_API_KEY", "")
+    if v := os.environ.get("FMP_RPM"):
+        c.fmp_rpm = int(v)
     if v := os.environ.get("NEWS_BLACKOUT_MINUTES"):
         c.news_blackout_minutes = int(v)
     if v := os.environ.get("LOG_LEVEL"):

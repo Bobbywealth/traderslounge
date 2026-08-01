@@ -18,6 +18,7 @@ from .api import ApiState, make_server
 from .binance_client import BinanceClient
 from .config import load_from_env
 from .data_provider import TwelveDataClient
+from .fmp_client import FMPClient
 from .kill_switch import KillSwitch
 from .multi_source import MultiSourceClient
 from .news_feed import ForexFactoryClient, refresh_filter
@@ -56,7 +57,13 @@ def main() -> int:
         api_key=cfg.twelve_data_api_key,
         requests_per_minute=cfg.twelve_data_rpm,
     )
-    market_client = MultiSourceClient(fx=fx, crypto=BinanceClient())
+    # Equities/ETFs route to FMP (needs FMP_API_KEY). Without it, equity
+    # requests degrade to empty per request; crypto/FX keep working.
+    fmp = (
+        FMPClient(api_key=cfg.fmp_api_key, requests_per_minute=cfg.fmp_rpm)
+        if cfg.fmp_api_key else None
+    )
+    market_client = MultiSourceClient(fx=fx, crypto=BinanceClient(), fmp=fmp)
 
     host = os.environ.get("API_HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))

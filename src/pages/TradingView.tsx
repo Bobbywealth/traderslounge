@@ -118,6 +118,17 @@ const BWTS_SYMBOLS: SymbolInfo[] = [
   { symbol: 'NZDUSD', name: 'New Zealand Dollar / US Dollar', exchange: 'Twelve Data', type: 'forex' },
   // Metals (Twelve Data feed)
   { symbol: 'XAUUSD', name: 'Gold / US Dollar', exchange: 'Twelve Data', type: 'commodity' },
+  // Stocks & ETFs (Financial Modeling Prep feed) — daily OHLCV on the free
+  // plan; intraday timeframes unlock with a paid FMP subscription.
+  { symbol: 'AAPL', name: 'Apple Inc.', exchange: 'Financial Modeling Prep', type: 'stock' },
+  { symbol: 'MSFT', name: 'Microsoft Corp.', exchange: 'Financial Modeling Prep', type: 'stock' },
+  { symbol: 'NVDA', name: 'NVIDIA Corp.', exchange: 'Financial Modeling Prep', type: 'stock' },
+  { symbol: 'GOOGL', name: 'Alphabet Inc.', exchange: 'Financial Modeling Prep', type: 'stock' },
+  { symbol: 'AMZN', name: 'Amazon.com Inc.', exchange: 'Financial Modeling Prep', type: 'stock' },
+  { symbol: 'META', name: 'Meta Platforms Inc.', exchange: 'Financial Modeling Prep', type: 'stock' },
+  { symbol: 'TSLA', name: 'Tesla Inc.', exchange: 'Financial Modeling Prep', type: 'stock' },
+  { symbol: 'SPY', name: 'SPDR S&P 500 ETF', exchange: 'Financial Modeling Prep', type: 'stock' },
+  { symbol: 'QQQ', name: 'Invesco QQQ Trust (Nasdaq 100)', exchange: 'Financial Modeling Prep', type: 'stock' },
 ];
 
 const TradingView: React.FC = () => {

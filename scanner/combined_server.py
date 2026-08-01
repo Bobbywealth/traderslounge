@@ -22,6 +22,7 @@ from .api import ApiState, make_server
 from .binance_client import BinanceClient
 from .config import load_from_env
 from .data_provider import TwelveDataClient
+from .fmp_client import FMPClient
 from .kill_switch import KillSwitch
 from .multi_source import MultiSourceClient
 from .news_feed import ForexFactoryClient
@@ -44,7 +45,11 @@ def main() -> int:
     # --- scanner (background thread) -------------------------------------
     fx = TwelveDataClient(api_key=cfg.twelve_data_api_key)
     crypto = BinanceClient()  # default base = api.binance.us (US-legal)
-    client = MultiSourceClient(fx=fx, crypto=crypto)
+    fmp = (
+        FMPClient(api_key=cfg.fmp_api_key, requests_per_minute=cfg.fmp_rpm)
+        if cfg.fmp_api_key else None
+    )
+    client = MultiSourceClient(fx=fx, crypto=crypto, fmp=fmp)
     news = NewsFilter(blackout_minutes=cfg.news_blackout_minutes)
     news_client = ForexFactoryClient()
     scan_request_path = os.environ.get("SCAN_REQUEST_PATH", "/tmp/bwts.scan_request")
