@@ -1,5 +1,5 @@
+import { authenticatedApiFetch } from '../../services/authenticatedApiClient';
 import { normalizeCandleSeries, type CandlestickData, type HistoryCandle } from './chartData';
-import { authenticatedChartFetch } from './authenticatedFetch';
 
 export interface FetchCandlesOptions {
   limit?: number;
@@ -26,7 +26,7 @@ export class ChartApiError extends Error {
 }
 
 export function createChartApiClient(options: ChartApiClientOptions = {}) {
-  const fetchImpl = options.fetchImpl ?? authenticatedChartFetch;
+  const fetchImpl = options.fetchImpl ?? authenticatedApiFetch;
   const apiBase = options.apiBase ?? (
     import.meta.env.VITE_BWTS_API_URL || import.meta.env.VITE_API_URL || ''
   );
