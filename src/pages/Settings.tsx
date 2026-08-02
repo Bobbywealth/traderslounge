@@ -1,5 +1,4 @@
-// Settings — read-only config view + operational controls
-// (kill switch, manual scan refresh) + Billing section.
+// Settings — user preferences, broker configuration, and account management.
 
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, CreditCard, ExternalLink, RefreshCw, Settings as SettingsIcon, ShieldOff, ShieldCheck, Wallet } from 'lucide-react';
@@ -8,11 +7,13 @@ import { billingApi, type BillingMe } from '../services/billingApi';
 import { useAuth } from '../contexts/AuthContext';
 
 const Settings: React.FC = () => {
+  const { user } = useAuth();
   const [config, setConfig] = useState<BwtsConfig | null>(null);
   const [kill, setKill] = useState<BwtsKillStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const isAdmin = user?.role === 'admin';
 
   const load = async () => {
     try {
@@ -87,8 +88,9 @@ const Settings: React.FC = () => {
         <BillingCard />
       </div>
 
-      {/* Operational controls */}
-      <div className="grid gap-4 md:grid-cols-2">
+      {/* Admin operational controls — only visible to administrators */}
+      {isAdmin && (
+        <div className="grid gap-4 md:grid-cols-2">
         <div className={`rounded-xl p-5 border ${
           kill?.engaged
             ? 'bg-red-500/10 border-red-500/40'
@@ -151,15 +153,16 @@ const Settings: React.FC = () => {
             Trigger Scan Now
           </button>
         </div>
-      </div>
+        </div>
+      )}
 
       {/* Read-only config */}
       {config && (
         <div className="grid gap-4 md:grid-cols-2">
           <Card title="Score Thresholds">
-            <Row label="Strong tier"    value={`≥ ${config.thresholds.strong}/80`} />
-            <Row label="Good tier"      value={`≥ ${config.thresholds.good}/80`} />
-            <Row label="Watchlist tier" value={`≥ ${config.thresholds.watchlist}/80`} />
+            <Row label="Strong tier"    value={`≥ ${config.thresholds.strong}/100`} />
+            <Row label="Good tier"      value={`≥ ${config.thresholds.good}/100`} />
+            <Row label="Watchlist tier" value={`≥ ${config.thresholds.watchlist}/100`} />
           </Card>
           <Card title="Scan Cadence">
             <Row label="Scan interval"   value={`${config.scan_interval_seconds}s`} />

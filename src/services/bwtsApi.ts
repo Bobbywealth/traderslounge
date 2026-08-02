@@ -629,6 +629,17 @@ export interface MarketSnapshot {
   score_history: ScoreHistory;
 }
 
+export interface UserAlert {
+  id: string;
+  symbol: string;
+  condition: string;
+  threshold?: number;
+  message: string;
+  status: 'active' | 'triggered' | 'dismissed';
+  created_at: string;
+  triggered_at?: string;
+}
+
 export interface DashboardSnapshot {
   snapshot_id: string;
   generated_at: string;
@@ -706,6 +717,9 @@ export const bwtsApi = {
 
   getPerformanceStats: (filters?: { assetClass?: string; symbol?: string; direction?: string; scoreBand?: string; confidenceTier?: string; dateFrom?: string; dateTo?: string }) =>
     get<PerformanceStats>('/api/performance/stats', filters as Record<string, string>),
+
+  createAlert: (alert: { symbol: string; condition: string; threshold?: number; message: string }) =>
+    post<UserAlert>('/api/alerts', alert),
 
   baseUrl: () => BASE,
 };

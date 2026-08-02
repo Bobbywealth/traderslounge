@@ -1,4 +1,4 @@
-// Positions — currently open trades from the execution worker.
+// Positions — open trades synced from your connected broker.
 
 import React, { useEffect, useState } from 'react';
 import { Briefcase, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react';
@@ -36,7 +36,7 @@ const Positions: React.FC = () => {
             <Briefcase className="w-8 h-8 text-emerald-400" />
             Positions
           </h1>
-          <p className="text-gray-400 mt-1">Currently open trades from the execution worker.</p>
+          <p className="text-gray-400 mt-1">Currently open trades synced from your connected broker.</p>
         </div>
         <button
           onClick={refresh}
@@ -59,7 +59,7 @@ const Positions: React.FC = () => {
           <Briefcase className="w-12 h-12 text-gray-600 mx-auto mb-3" />
           <p className="text-gray-400">No open positions.</p>
           <p className="text-gray-500 text-sm mt-1">
-            The execution worker opens trades on STRONG signals (paper or live mode).
+            Positions will appear here when trades are open at your connected broker.
           </p>
         </div>
       )}
