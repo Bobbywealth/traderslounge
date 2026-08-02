@@ -14,6 +14,7 @@ import Signals from './pages/Signals';
 import Education from './pages/Education';
 import Community from './pages/Community';
 import LiveScanner from './pages/LiveScanner';
+import MarketAnalysis from './pages/MarketAnalysis';
 import Positions from './pages/Positions';
 import Journal from './pages/Journal';
 import Backtester from './pages/Backtester';
@@ -127,6 +128,7 @@ const AppContent: React.FC = () => {
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/scanner" element={<LiveScanner />} />
+                <Route path="/analysis/:pair" element={<MarketAnalysis />} />
                 <Route path="/signals" element={<Signals />} />
                 <Route path="/positions" element={<Positions />} />
                 <Route path="/journal" element={<Journal />} />

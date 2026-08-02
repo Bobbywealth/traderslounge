@@ -346,7 +346,7 @@ const LiveScanner: React.FC = () => {
               analysis={row.analysis}
               calendar={row.calendar}
               variant="full"
-              to="/tradingview"
+              to={`/analysis/${row.pair}`}
               timestamp={lastUpdate?.toISOString()}
               showSparkline={false}
             />
