@@ -103,6 +103,12 @@ PROTECTED_ROUTES: frozenset[str] = frozenset({
     "/api/alerts/feed",
 })
 
+# Operational endpoints that require admin role
+ADMIN_ROUTES: frozenset[str] = frozenset({
+    "/api/kill-switch",
+    "/api/scans/refresh",
+})
+
 
 def _allowed_origins() -> set[str]:
     raw = os.environ.get("ALLOWED_ORIGINS", _DEFAULT_ALLOWED_ORIGINS)
@@ -341,7 +347,11 @@ class _ApiHandler(BaseHTTPRequestHandler):
             result = self._require_auth(self.headers)
             if isinstance(result, tuple):
                 return result[1], result[2]
-            if method == "POST" and result.role == "demo" and path in {"/api/kill-switch", "/api/scans/refresh"}:
+            # Admin role required for operational endpoints
+            if method in ("POST", "PUT", "DELETE") and path in ADMIN_ROUTES:
+                if result.role != "admin":
+                    return 403, "Admin role required for this operation"
+            if method == "POST" and result.role == "demo" and path in ADMIN_ROUTES:
                 return 403, "Demo sessions are read-only for operational controls"
         if path in RATE_LIMITS:
             user = get_current_user(self.headers.get("Authorization", ""))

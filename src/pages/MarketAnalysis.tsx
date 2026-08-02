@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
   AlertTriangle,
@@ -85,7 +85,7 @@ const detectMarketState = (analysis?: CryptoAnalysis | null): MarketStateInfo =>
     return { state: 'ranging', label: 'Compressed', description: 'Low volatility - expansion likely soon' };
   }
 
-  return { state: 'trending', label: 'Trending', description: 'Directional bias established' };
+  return { state: 'unknown', label: 'Unknown', description: 'Insufficient data to determine market state' };
 };
 
 const timeframeLabels: Record<string, string> = {
@@ -542,7 +542,7 @@ const PrimarySetup: React.FC<{ analysis?: CryptoAnalysis | null }> = ({ analysis
           <div>
             <div className="text-[9px] text-slate-600 uppercase tracking-wider">Risk:Reward</div>
             <div className={`font-black ${rr >= 2 ? 'text-emerald-300' : rr >= 1 ? 'text-amber-300' : 'text-rose-300'}`}>
-              {rr.toFixed(2)}R
+              {rr > 0 ? `${rr.toFixed(2)}R` : '—'}
             </div>
           </div>
           <div>
@@ -568,6 +568,7 @@ const ReadinessChecklist: React.FC<{
   const timing = analysis?.trade_timing;
   const plan = analysis?.trade_plan;
   const calendar = analysis?.economic_calendar;
+  const readiness = analysis?.decision_quality?.execution_readiness;
 
   const checks: ReadinessCheck[] = [];
 
@@ -588,7 +589,7 @@ const ReadinessChecklist: React.FC<{
   checks.push({
     id: 'calendar',
     label: 'Calendar clear',
-    passed: calendar?.status === 'CLEAR' || calendar?.status === 'POST_NEWS',
+    passed: calendar?.status === 'CLEAR',
     detail: calendar?.next_event?.title || `Status: ${calendar?.status || 'unavailable'}`,
   });
 
@@ -602,7 +603,7 @@ const ReadinessChecklist: React.FC<{
   checks.push({
     id: 'score',
     label: 'Confluence sufficient',
-    passed: (analysis?.total_score || 0) >= 50,
+    passed: (analysis?.total_score || 0) >= 60,
     detail: `Score: ${analysis?.total_score || 0}/100`,
   });
 
@@ -615,19 +616,18 @@ const ReadinessChecklist: React.FC<{
 
   const passedCount = checks.filter((c) => c.passed).length;
   const totalCount = checks.length;
-  const readinessPct = Math.round((passedCount / totalCount) * 100);
 
   return (
     <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3">
       <div className="mb-3 flex items-center justify-between">
         <div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Readiness Checklist</div>
-        <div className="text-xs font-black text-cyan-300">{passedCount}/{totalCount} passed</div>
+        <div className="text-xs font-black text-cyan-300">{readiness ?? 0}% ready</div>
       </div>
 
       <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
         <div
           className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-emerald-400"
-          style={{ width: `${readinessPct}%` }}
+          style={{ width: `${readiness ?? 0}%` }}
         />
       </div>
 
@@ -791,58 +791,39 @@ const AlertButton: React.FC<{
   analysis?: CryptoAnalysis | null;
   symbol: string;
 }> = ({ analysis, symbol }) => {
-  const [alertSet, setAlertSet] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  const handleSetAlert = async () => {
-    setLoading(true);
-    try {
-      await bwtsApi.createAlert({
-        symbol,
-        condition: 'readiness_above',
-        threshold: 70,
-        message: `${symbol} setup readiness above 70%`,
-      });
-      setAlertSet(true);
-    } catch (e) {
-      console.error('Failed to set alert:', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (alertSet) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl bg-cyan-400/10 px-4 py-3 text-xs font-bold text-cyan-300">
-        <Bell className="h-4 w-4" />
-        Alert set for {symbol}
-      </div>
-    );
-  }
-
   return (
-    <button
-      onClick={handleSetAlert}
-      disabled={loading}
-      className="flex items-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-4 py-3 text-xs font-bold text-cyan-300 transition hover:bg-cyan-400/20 disabled:opacity-50"
-    >
-      {loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
-      Set alert for {symbol}
-    </button>
+    <div className="flex items-center gap-2 rounded-xl border border-cyan-400/20 bg-cyan-400/5 px-4 py-3 text-xs font-bold text-slate-400">
+      <Bell className="h-4 w-4" />
+      Alert for {symbol} — coming soon
+    </div>
   );
 };
 
 const MarketAnalysis: React.FC = () => {
-  const [searchParams] = useSearchParams();
-  const symbol = searchParams.get('symbol') || 'BTCUSD';
+  const { pair: routePair } = useParams<{ pair: string }>();
+  const navigate = useNavigate();
+  const symbol = routePair?.toUpperCase() || 'BTCUSD';
 
   const [analysis, setAnalysis] = useState<CryptoAnalysis | null>(null);
   const [calendar, setCalendar] = useState<CalendarGateStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [candleTime, setCandleTime] = useState<Date | null>(null);
+  const [pairs, setPairs] = useState<string[]>([]);
+  const loadIdRef = useRef(0);
+
+  useEffect(() => {
+    bwtsApi.pairs().then(({ pairs: p }) => setPairs(p)).catch(() => setPairs([]));
+  }, []);
+
+  const handleSymbolChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    navigate(`/analysis/${e.target.value}`);
+  };
 
   const load = useCallback(async () => {
+    const currentLoadId = ++loadIdRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -850,11 +831,19 @@ const MarketAnalysis: React.FC = () => {
         bwtsApi.cryptoAnalysis(symbol),
         bwtsApi.calendarStatus(symbol).catch(() => null),
       ]);
+      if (currentLoadId !== loadIdRef.current) return;
       setAnalysis(analysisData);
       setCalendar(calendarData);
       setLastUpdated(new Date());
+      setRefreshFailed(false);
+      if (analysisData.data_quality?.closed_bar_time) {
+        setCandleTime(new Date(analysisData.data_quality.closed_bar_time * 1000));
+      }
     } catch (e: any) {
-      setError(e?.message || 'Failed to load analysis');
+      if (currentLoadId === loadIdRef.current) {
+        setError(e?.message || 'Failed to load analysis');
+        setRefreshFailed(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -886,7 +875,7 @@ const MarketAnalysis: React.FC = () => {
     {
       id: 'calendar',
       label: 'Calendar clear',
-      passed: calendar?.status === 'CLEAR' || calendar?.status === 'POST_NEWS',
+      passed: calendar?.status === 'CLEAR',
       detail: calendar?.next_event?.title || `Status: ${calendar?.status || 'unavailable'}`,
     },
     {
@@ -898,7 +887,7 @@ const MarketAnalysis: React.FC = () => {
     {
       id: 'score',
       label: 'Confluence sufficient',
-      passed: (analysis?.total_score || 0) >= 50,
+      passed: (analysis?.total_score || 0) >= 60,
       detail: `Score: ${analysis?.total_score || 0}/100`,
     },
     {
@@ -910,7 +899,7 @@ const MarketAnalysis: React.FC = () => {
   ];
 
   const passedCount = readinessChecks.filter((c) => c.passed).length;
-  const readinessPct = Math.round((passedCount / readinessChecks.length) * 100);
+  const readinessPct = analysis?.decision_quality?.execution_readiness ?? Math.round((passedCount / readinessChecks.length) * 100);
 
   const bullishConditions = analysis?.scenarios?.primary
     ? [`Price confirms ${analysis.scenarios.primary}`, '1H candle closes in direction', 'Entry zone reaches price']
@@ -950,12 +939,20 @@ const MarketAnalysis: React.FC = () => {
       <section className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-black tracking-tight sm:text-3xl">{symbol}</h1>
+            <select
+              value={symbol}
+              onChange={handleSymbolChange}
+              className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xl font-black text-white hover:bg-white/10"
+            >
+              {pairs.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
             <DirectionBadge direction={direction} />
             <StatusBadge status={analysis?.trade_plan?.status || analysis?.trade_timing?.status || 'WAIT'} />
           </div>
           <p className="mt-1 text-sm text-slate-500">
-            Market analysis · {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : 'Loading...'}
+            Market analysis{refreshFailed ? ' · Refresh failed' : candleTime ? ` · Data from ${candleTime.toLocaleTimeString()}` : lastUpdated ? ` · Updated ${lastUpdated.toLocaleTimeString()}` : ''}
           </p>
         </div>
         <div className="flex items-center gap-2">
