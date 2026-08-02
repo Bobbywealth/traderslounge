@@ -17,13 +17,18 @@ import urllib.request
 from pathlib import Path
 from urllib.error import HTTPError
 
-from scanner.api import ApiState, make_server
-from scanner.broker import Position
-from scanner.config import Config
-from scanner.data_types import Direction
-from scanner.kill_switch import KillSwitch
-from scanner.persistence import SQLiteRepository
-from scanner.trade_repo import (
+# Set a deterministic JWT secret BEFORE importing scanner.auth so the
+# server uses the same secret as the test token we mint below.
+os.environ.setdefault("JWT_SECRET", "test-secret-do-not-use-in-prod")
+
+from scanner.api import ApiState, make_server  # noqa: E402
+from scanner.auth import User, create_access_token  # noqa: E402
+from scanner.broker import Position  # noqa: E402
+from scanner.config import Config  # noqa: E402
+from scanner.data_types import Direction  # noqa: E402
+from scanner.kill_switch import KillSwitch  # noqa: E402
+from scanner.persistence import SQLiteRepository  # noqa: E402
+from scanner.trade_repo import (  # noqa: E402
     SQLiteClosedTradeRepository,
     SQLitePositionRepository,
 )
@@ -79,6 +84,16 @@ class TestNewEndpoints(unittest.TestCase):
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
 
+        # Build a JWT for a demo user so the protected endpoints
+        # (/api/positions, /api/journal, /api/kill-switch, /api/scans/refresh)
+        # accept our requests. Auth was added in scanner/api.py after these
+        # tests were written; the tests pre-date the protection.
+        cls.user = User(
+            id=1, email="demo@trader.com", name="Demo",
+            role="user", plan="pro", created_at="",
+        )
+        cls.auth_header = {"Authorization": f"Bearer {create_access_token(cls.user)}"}
+
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
@@ -95,17 +110,19 @@ class TestNewEndpoints(unittest.TestCase):
 
     def _get(self, path: str) -> tuple[int, dict]:
         url = f"http://127.0.0.1:{self.port}{path}"
+        req = urllib.request.Request(url, headers=self.auth_header)
         try:
-            with urllib.request.urlopen(url, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=5) as resp:
                 return resp.status, json.loads(resp.read())
         except HTTPError as e:
             return e.code, json.loads(e.read())
 
     def _post(self, path: str, body: dict | None = None) -> tuple[int, dict]:
         data = json.dumps(body or {}).encode()
+        headers = {"Content-Type": "application/json", **self.auth_header}
         req = urllib.request.Request(
             f"http://127.0.0.1:{self.port}{path}", data=data, method="POST",
-            headers={"Content-Type": "application/json"},
+            headers=headers,
         )
         try:
             with urllib.request.urlopen(req, timeout=5) as resp:
