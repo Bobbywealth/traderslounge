@@ -37,6 +37,7 @@ import { liveDataService, HarmonicPattern, TrendLine, FibonacciLevel } from '../
 import { tradeLockerService, TradeLockerConfig } from '../services/tradeLockerService';
 import { tradeLockerApi } from '../services/apiService';
 import ConfluenceXLogo from '../components/ConfluenceXLogo';
+import DataAttribution from '../components/DataAttribution';
 import ChartAiAnalysisPanel from '../components/ChartAiAnalysisPanel';
 import { bwtsApi, type ChartAiAnalysis, type CryptoAnalysis } from '../services/bwtsApi';
 
@@ -153,6 +154,7 @@ const TradingView: React.FC = () => {
   const [chartType, setChartType] = useState<ChartType>('candlestick');
   const [showVolume, setShowVolume] = useState(true);
   const [chartRevision, setChartRevision] = useState(0);
+  const [chartUpdatedAt, setChartUpdatedAt] = useState<Date | null>(null);
   
   // State management
   const [selectedSymbol, setSelectedSymbol] = useState('BTCUSD');
@@ -734,6 +736,7 @@ const TradingView: React.FC = () => {
       candleCacheRef.current[key] = candles;
       setCurrentPrice(last.close);
       setIsConnected(true);
+      setChartUpdatedAt(new Date());
     } catch (error) {
       if (requestId !== candleRequestRef.current) return;
       console.error('Failed to load BWTS candles:', error);
@@ -1770,6 +1773,13 @@ const TradingView: React.FC = () => {
 
       <div className="flex shrink-0 items-center gap-3 overflow-x-auto border-b border-white/[0.08] bg-[#080d18] px-4 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-500">
         <span className="text-cyan-300">MARKET CONTEXT</span>
+        <DataAttribution
+          provider="Multi-source"
+          timestamp={chartUpdatedAt}
+          live={isConnected && !candlesLoading}
+          variant="inline"
+          detail={`${selectedSymbol} ${timeframe}`}
+        />
         {harmonicPatterns.length > 0 && <span className="rounded bg-emerald-400/10 px-2 py-1 text-emerald-300">{harmonicPatterns.length} harmonic</span>}
         {adrData && <span className={`rounded px-2 py-1 ${adrData.exhausted ? 'bg-rose-400/10 text-rose-300' : 'bg-sky-400/10 text-sky-300'}`}>ADR {adrData.percent_used.toFixed(0)}%</span>}
         {cryptoAnalysis && <><span className="rounded bg-violet-400/10 px-2 py-1 text-violet-300">V2 {cryptoAnalysis.total_score}/100</span><span className={cryptoAnalysis.direction === 'BUY' ? 'text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.direction}</span><span>{timeframe}</span><span className="text-slate-400">{cryptoAnalysis.trade_timing?.status || 'WAIT'}</span>{cryptoAnalysis.trade_plan && <span className={`rounded px-2 py-1 ${cryptoAnalysis.trade_plan.direction === 'BUY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.trade_plan.direction === 'SELL' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 text-slate-400'}`}>{cryptoAnalysis.trade_plan.direction === 'NEUTRAL' ? 'NO ACTIVE SETUP' : `${cryptoAnalysis.trade_plan.direction} SETUP ${cryptoAnalysis.trade_plan.eligible ? 'ELIGIBLE' : 'WAIT'}`}</span>}</>}

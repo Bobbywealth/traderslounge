@@ -17,6 +17,7 @@ import {
   type DashboardSnapshot,
 } from '../services/bwtsApi';
 import { SetupCard } from '../components/SetupCard';
+import DataAttribution from '../components/DataAttribution';
 import InstitutionalIntelligencePanel, {
   type InstitutionalIntelligenceV2,
 } from '../components/InstitutionalIntelligencePanel';
@@ -450,6 +451,12 @@ const Dashboard: React.FC = () => {
       </section>
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-1 text-[11px] text-slate-600">
+        <DataAttribution
+          provider="Scanner"
+          timestamp={updatedAt}
+          live={feedState === 'LIVE'}
+          variant="inline"
+        />
         <span className="flex items-center gap-2"><Clock3 className="h-3.5 w-3.5" />Refreshed {updatedAt ? updatedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'never'}</span>
         <span>Data as of {formatDateTime(marketTimestamp)}</span>
         <span>{config ? `Scans every ${Math.round(config.scan_interval_seconds / 60)} min` : ''}</span>
