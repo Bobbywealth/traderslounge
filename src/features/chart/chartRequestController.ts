@@ -23,7 +23,8 @@ export class ChartRequestController {
   }
 
   isCurrent(token: Pick<ChartRequestToken, 'id'>): boolean {
-    return token.id === this.requestId && !this.controller?.signal.aborted;
+    if (this.controller === null) return false;
+    return token.id === this.requestId && !this.controller.signal.aborted;
   }
 
   cancel(): void {

@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import ConfluenceXLogo from './ConfluenceXLogo';
 import {
   Activity, BarChart3, BookOpen, Briefcase, ChevronLeft, ChevronRight, X,
-  FlaskConical, History, LayoutDashboard, LineChart, Newspaper, Settings as SettingsIcon, Zap,
+  FlaskConical, History, LayoutDashboard, LineChart, Newspaper, Settings as SettingsIcon, Zap, Search,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -37,6 +37,7 @@ const groups: NavGroup[] = [
   {
     label: 'Analyze',
     items: [
+      { name: 'Market Analysis', href: '/analysis', icon: Search },
       { name: 'Live Scanner', href: '/scanner', icon: Activity },
       { name: 'Chart', href: '/tradingview', icon: BarChart3 },
       { name: 'Economic News', href: '/calendar', icon: Newspaper },
