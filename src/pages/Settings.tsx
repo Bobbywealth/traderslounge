@@ -1,9 +1,11 @@
 // Settings — read-only config view + operational controls
-// (kill switch, manual scan refresh).
+// (kill switch, manual scan refresh) + Billing section.
 
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, RefreshCw, Settings as SettingsIcon, ShieldOff, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CreditCard, ExternalLink, RefreshCw, Settings as SettingsIcon, ShieldOff, ShieldCheck, Wallet } from 'lucide-react';
 import { bwtsApi, type BwtsConfig, type BwtsKillStatus } from '../services/bwtsApi';
+import { billingApi, type BillingMe } from '../services/billingApi';
+import { useAuth } from '../contexts/AuthContext';
 
 const Settings: React.FC = () => {
   const [config, setConfig] = useState<BwtsConfig | null>(null);
@@ -79,6 +81,11 @@ const Settings: React.FC = () => {
           {toast}
         </div>
       )}
+
+      {/* Billing */}
+      <div className="grid gap-4 md:grid-cols-1">
+        <BillingCard />
+      </div>
 
       {/* Operational controls */}
       <div className="grid gap-4 md:grid-cols-2">
@@ -203,5 +210,130 @@ const Row: React.FC<{ label: string; value: string }> = ({ label, value }) => (
     <span className="text-sm text-white font-mono">{value}</span>
   </div>
 );
+
+const BillingCard: React.FC = () => {
+  const { user } = useAuth();
+  const [billing, setBilling] = useState<BillingMe | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await billingApi.me();
+      setBilling(data);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load billing');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const openPortal = async () => {
+    setBusy(true);
+    try {
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const portal = await billingApi.createPortal(`${origin}/settings`);
+      window.open(portal.url, '_blank', 'noopener');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to open billing portal');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const isDemo = user?.role === 'demo' || user?.email === 'demo@trader.com';
+
+  const planLabel = (() => {
+    if (!billing?.subscription) return 'No active plan';
+    switch (billing.subscription.plan) {
+      case 'pro_monthly': return 'Pro Monthly';
+      case 'pro_annual': return 'Pro Annual';
+      case 'founding_monthly': return 'Founding Member';
+      default: return billing.subscription.plan;
+    }
+  })();
+
+  const statusLabel = (() => {
+    if (!billing?.subscription) return '—';
+    const s = billing.subscription.status;
+    if (s === 'past_due') return 'Past due — payment failed';
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  })();
+
+  const formatDate = (iso: string | null) => {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+
+  return (
+    <div className="rounded-xl p-5 border bg-gray-900/60 border-gray-700/50">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-2">
+          <CreditCard className="w-4 h-4 text-emerald-400" /> Billing
+        </h3>
+        <button onClick={load} className="text-xs text-gray-400 hover:text-white inline-flex items-center gap-1" disabled={loading}>
+          <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} /> Refresh
+        </button>
+      </div>
+
+      {isDemo && (
+        <p className="text-sm text-gray-400 mb-4">
+          Demo accounts do not have a billing relationship. Subscribe from a real account to manage Pro.
+        </p>
+      )}
+
+      {error && (
+        <p className="text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 mb-4">
+          {error}
+        </p>
+      )}
+
+      <div className="space-y-2 text-sm">
+        <Row label="Current plan" value={planLabel} />
+        <Row label="Subscription status" value={statusLabel} />
+        {billing?.subscription?.current_period_end && (
+          <Row label="Next renewal" value={formatDate(billing.subscription.current_period_end)} />
+        )}
+        {billing?.subscription?.cancel_at_period_end && (
+          <Row
+            label="Cancellation"
+            value={`Cancels on ${formatDate(billing.subscription.current_period_end)}`}
+          />
+        )}
+      </div>
+
+      {!isDemo && (
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <button
+            onClick={openPortal}
+            disabled={busy || !billing?.subscription}
+            className="w-full px-4 py-2 rounded-lg font-medium text-sm transition-colors bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white inline-flex items-center justify-center gap-2"
+          >
+            <Wallet className="w-4 h-4" /> Manage billing
+          </button>
+          {!billing?.subscription && (
+            <a
+              href="/#pricing"
+              className="w-full px-4 py-2 rounded-lg font-medium text-sm transition-colors bg-gray-800 hover:bg-gray-700 text-white inline-flex items-center justify-center gap-2"
+            >
+              <ExternalLink className="w-4 h-4" /> View plans
+            </a>
+          )}
+        </div>
+      )}
+
+      {billing?.subscription?.cancel_at_period_end && (
+        <p className="mt-3 text-xs text-amber-300/80">
+          You can reactivate from the billing portal — your access continues until the period end.
+        </p>
+      )}
+    </div>
+  );
+};
 
 export default Settings;

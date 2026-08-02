@@ -19,10 +19,27 @@ import Journal from './pages/Journal';
 import Backtester from './pages/Backtester';
 import Performance from './pages/Performance';
 import Settings from './pages/Settings';
+import BillingSuccess from './pages/BillingSuccess';
+import BillingCancel from './pages/BillingCancel';
+import BillingPaymentFailed from './pages/BillingPaymentFailed';
+import BillingManage from './pages/BillingManage';
 import AIAssistant from './components/AIAssistant';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { BrokerProvider } from './contexts/BrokerContext';
 import ErrorBoundary from './components/ErrorBoundary';
+import { BillingBootSync } from './components/BillingBootSync';
+import { setBillingAccessToken } from './services/billingApi';
+
+const PUBLIC_BILLING_ROUTES = new Set([
+  '/billing/success',
+  '/billing/cancel',
+  '/billing/payment-failed',
+  '/billing/manage',
+]);
+
+function isPublicBillingRoute(pathname: string) {
+  return PUBLIC_BILLING_ROUTES.has(pathname) || pathname.startsWith('/billing/');
+}
 
 const AppContent: React.FC = () => {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -85,12 +102,26 @@ const AppContent: React.FC = () => {
     );
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated && !isPublicBillingRoute(location.pathname)) {
     return <LandingPage />;
   }
 
+  // Public billing routes render the standalone page (no app shell) when
+  // the user is not authenticated. Once authenticated they get the full
+  // app chrome through the routes below.
+  if (isPublicBillingRoute(location.pathname) && !isAuthenticated) {
+    return (
+      <Routes>
+        <Route path="/billing/success" element={<BillingSuccess />} />
+        <Route path="/billing/cancel" element={<BillingCancel />} />
+        <Route path="/billing/payment-failed" element={<BillingPaymentFailed />} />
+        <Route path="/billing/manage" element={<BillingManage />} />
+      </Routes>
+    );
+  }
+
   // Admin users get redirected to admin dashboard
-  if (user?.role === 'admin') {
+  if (user?.role === 'admin' && !isPublicBillingRoute(location.pathname)) {
     return (
       <AdminDashboard />
     );
@@ -138,6 +169,10 @@ const AppContent: React.FC = () => {
                 <Route path="/calendar" element={<EconomicNews />} />
                 <Route path="/education" element={<Education />} />
                 <Route path="/community" element={<Community />} />
+                <Route path="/billing/success" element={<BillingSuccess />} />
+                <Route path="/billing/cancel" element={<BillingCancel />} />
+                <Route path="/billing/payment-failed" element={<BillingPaymentFailed />} />
+                <Route path="/billing/manage" element={<BillingManage />} />
               </Routes>
             </div>
           </main>
@@ -155,6 +190,7 @@ function App() {
       <AuthProvider>
         <ErrorBoundary>
           <Router>
+            <BillingBootSync />
             <AppContent />
           </Router>
         </ErrorBoundary>
