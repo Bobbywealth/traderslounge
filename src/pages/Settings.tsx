@@ -1,23 +1,36 @@
-// Settings — user preferences, broker configuration, and account management.
+// Settings — read-only config view for regular users.
+//
+// Phase 1 (ConfluenceX trust and consistency):
+//   - Operational controls (kill switch, manual scan, account mode toggles)
+//     are gated behind admin auth. Regular users and Demo Trader see only
+//     the read-only configuration surface.
+//   - Score thresholds are displayed on the canonical 0–100 scale instead
+//     of the legacy /80 scale.
+//   - The kill-switch code path stays in the file for Phase 5 admin tools,
+//     but it is unreachable from the customer view.
 
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, CreditCard, ExternalLink, RefreshCw, Settings as SettingsIcon, ShieldOff, ShieldCheck, Wallet } from 'lucide-react';
-import { bwtsApi, type BwtsConfig, type BwtsKillStatus } from '../services/bwtsApi';
-import { billingApi, type BillingMe } from '../services/billingApi';
+import { AlertTriangle, RefreshCw, Settings as SettingsIcon, ShieldOff, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { bwtsApi, type BwtsConfig, type BwtsKillStatus } from '../services/bwtsApi';
+import { isStrongScore } from '../utils/scoring';
 
 const Settings: React.FC = () => {
-  const { user } = useAuth();
+  const { isAdmin } = useAuth();
   const [config, setConfig] = useState<BwtsConfig | null>(null);
   const [kill, setKill] = useState<BwtsKillStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const isAdmin = user?.role === 'admin';
 
   const load = async () => {
     try {
-      const [c, k] = await Promise.all([bwtsApi.config(), bwtsApi.killStatus()]);
+      const [c, k] = await Promise.all([
+        bwtsApi.config(),
+        // The kill-status endpoint is harmless to call for everyone, but
+        // never surface the result to non-admins (see render guard below).
+        bwtsApi.killStatus().catch(() => null),
+      ]);
       setConfig(c);
       setKill(k);
       setError(null);
@@ -36,10 +49,10 @@ const Settings: React.FC = () => {
   };
 
   const toggleKill = async () => {
-    if (!kill) return;
+    if (!kill || !isAdmin) return;
     setBusy(true);
     try {
-      const next = await bwtsApi.setKill(!kill.engaged, !kill.engaged ? 'Engaged from dashboard' : '');
+      const next = await bwtsApi.setKill(!kill.engaged, !kill.engaged ? 'Engaged from admin' : '');
       setKill(next);
       announce(next.engaged ? 'Kill switch ENGAGED — execution halted' : 'Kill switch disengaged');
     } catch (e: any) {
@@ -50,6 +63,7 @@ const Settings: React.FC = () => {
   };
 
   const requestScan = async () => {
+    if (!isAdmin) return;
     setBusy(true);
     try {
       await bwtsApi.requestScan();
@@ -68,7 +82,7 @@ const Settings: React.FC = () => {
           <SettingsIcon className="w-8 h-8 text-emerald-400" />
           Settings
         </h1>
-        <p className="text-gray-400 mt-1">Live scanner configuration + operational controls.</p>
+        <p className="text-gray-400 mt-1">Read-only view of your scanner configuration.</p>
       </div>
 
       {error && (
@@ -83,86 +97,84 @@ const Settings: React.FC = () => {
         </div>
       )}
 
-      {/* Billing */}
-      <div className="grid gap-4 md:grid-cols-1">
-        <BillingCard />
-      </div>
-
-      {/* Admin operational controls — only visible to administrators */}
-      {isAdmin && (
+      {/* Operational controls — admin only.
+          Phase 5 may resurrect these in an internal admin view. Until then
+          they stay in this file (not deleted) but are unreachable from the
+          customer surface. */}
+      {isAdmin && kill !== null && (
         <div className="grid gap-4 md:grid-cols-2">
-        <div className={`rounded-xl p-5 border ${
-          kill?.engaged
-            ? 'bg-red-500/10 border-red-500/40'
-            : 'bg-gray-900/60 border-gray-700/50'
-        }`}>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-2">
-              {kill?.engaged ? (
-                <ShieldOff className="w-4 h-4 text-red-400" />
-              ) : (
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              )}
-              Kill Switch
-            </h3>
-            <span
-              className={`text-xs px-2 py-0.5 rounded border ${
-                kill?.engaged
-                  ? 'bg-red-500/20 text-red-300 border-red-500/40'
-                  : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+          <div className={`rounded-xl p-5 border ${
+            kill.engaged
+              ? 'bg-red-500/10 border-red-500/40'
+              : 'bg-gray-900/60 border-gray-700/50'
+          }`}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-2">
+                {kill.engaged ? (
+                  <ShieldOff className="w-4 h-4 text-red-400" />
+                ) : (
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                )}
+                Kill Switch
+              </h3>
+              <span
+                className={`text-xs px-2 py-0.5 rounded border ${
+                  kill.engaged
+                    ? 'bg-red-500/20 text-red-300 border-red-500/40'
+                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                }`}
+              >
+                {kill.engaged ? 'ENGAGED' : 'DISENGAGED'}
+              </span>
+            </div>
+            <p className="text-sm text-gray-400 mb-4">
+              {kill.engaged
+                ? 'Execution is halted. New trades are rejected by the trade manager.'
+                : 'Execution is active. The trade manager will process STRONG signals.'}
+            </p>
+            {kill.engaged && kill.reason && (
+              <p className="text-xs text-red-300/80 mb-3">Reason: {kill.reason}</p>
+            )}
+            <button
+              onClick={toggleKill}
+              disabled={busy}
+              className={`w-full px-4 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-50 ${
+                kill.engaged
+                  ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                  : 'bg-red-500 hover:bg-red-600 text-white'
               }`}
             >
-              {kill?.engaged ? 'ENGAGED' : 'DISENGAGED'}
-            </span>
+              {kill.engaged ? 'Disengage Kill Switch' : 'Engage Kill Switch'}
+            </button>
           </div>
-          <p className="text-sm text-gray-400 mb-4">
-            {kill?.engaged
-              ? 'Execution is halted. New trades are rejected by the trade manager.'
-              : 'Execution is active. The trade manager will process STRONG signals.'}
-          </p>
-          {kill?.engaged && kill.reason && (
-            <p className="text-xs text-red-300/80 mb-3">Reason: {kill.reason}</p>
-          )}
-          <button
-            onClick={toggleKill}
-            disabled={busy || !kill}
-            className={`w-full px-4 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-50 ${
-              kill?.engaged
-                ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
-                : 'bg-red-500 hover:bg-red-600 text-white'
-            }`}
-          >
-            {kill?.engaged ? 'Disengage Kill Switch' : 'Engage Kill Switch'}
-          </button>
-        </div>
 
-        <div className="rounded-xl p-5 border bg-gray-900/60 border-gray-700/50">
-          <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-2 mb-3">
-            <RefreshCw className="w-4 h-4 text-emerald-400" />
-            Manual Scan
-          </h3>
-          <p className="text-sm text-gray-400 mb-4">
-            Request the scanner to run an immediate cycle. Useful for testing
-            without waiting for the next scheduled scan.
-          </p>
-          <button
-            onClick={requestScan}
-            disabled={busy}
-            className="w-full px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg font-medium text-sm transition-colors"
-          >
-            Trigger Scan Now
-          </button>
-        </div>
+          <div className="rounded-xl p-5 border bg-gray-900/60 border-gray-700/50">
+            <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-2 mb-3">
+              <RefreshCw className="w-4 h-4 text-emerald-400" />
+              Manual Scan
+            </h3>
+            <p className="text-sm text-gray-400 mb-4">
+              Request the scanner to run an immediate cycle. Useful for testing
+              without waiting for the next scheduled scan.
+            </p>
+            <button
+              onClick={requestScan}
+              disabled={busy}
+              className="w-full px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg font-medium text-sm transition-colors"
+            >
+              Trigger Scan Now
+            </button>
+          </div>
         </div>
       )}
 
       {/* Read-only config */}
       {config && (
         <div className="grid gap-4 md:grid-cols-2">
-          <Card title="Score Thresholds">
-            <Row label="Strong tier"    value={`≥ ${config.thresholds.strong}/100`} />
-            <Row label="Good tier"      value={`≥ ${config.thresholds.good}/100`} />
-            <Row label="Watchlist tier" value={`≥ ${config.thresholds.watchlist}/100`} />
+          <Card title="Score Thresholds (0–100)">
+            <Row label="Strong tier"    value={isStrongScore(config.thresholds.strong) ? `≥ ${config.thresholds.strong}/100` : '—'} />
+            <Row label="Good tier"      value={isStrongScore(config.thresholds.good) ? `≥ ${config.thresholds.good}/100` : '—'} />
+            <Row label="Watchlist tier" value={isStrongScore(config.thresholds.watchlist) ? `≥ ${config.thresholds.watchlist}/100` : '—'} />
           </Card>
           <Card title="Scan Cadence">
             <Row label="Scan interval"   value={`${config.scan_interval_seconds}s`} />
@@ -213,130 +225,5 @@ const Row: React.FC<{ label: string; value: string }> = ({ label, value }) => (
     <span className="text-sm text-white font-mono">{value}</span>
   </div>
 );
-
-const BillingCard: React.FC = () => {
-  const { user } = useAuth();
-  const [billing, setBilling] = useState<BillingMe | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const load = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await billingApi.me();
-      setBilling(data);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to load billing');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { load(); }, []);
-
-  const openPortal = async () => {
-    setBusy(true);
-    try {
-      const origin = typeof window !== 'undefined' ? window.location.origin : '';
-      const portal = await billingApi.createPortal(`${origin}/settings`);
-      window.open(portal.url, '_blank', 'noopener');
-    } catch (err: any) {
-      setError(err?.message || 'Failed to open billing portal');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const isDemo = user?.role === 'demo' || user?.email === 'demo@trader.com';
-
-  const planLabel = (() => {
-    if (!billing?.subscription) return 'No active plan';
-    switch (billing.subscription.plan) {
-      case 'pro_monthly': return 'Pro Monthly';
-      case 'pro_annual': return 'Pro Annual';
-      case 'founding_monthly': return 'Founding Member';
-      default: return billing.subscription.plan;
-    }
-  })();
-
-  const statusLabel = (() => {
-    if (!billing?.subscription) return '—';
-    const s = billing.subscription.status;
-    if (s === 'past_due') return 'Past due — payment failed';
-    return s.charAt(0).toUpperCase() + s.slice(1);
-  })();
-
-  const formatDate = (iso: string | null) => {
-    if (!iso) return '—';
-    return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-  };
-
-  return (
-    <div className="rounded-xl p-5 border bg-gray-900/60 border-gray-700/50">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-2">
-          <CreditCard className="w-4 h-4 text-emerald-400" /> Billing
-        </h3>
-        <button onClick={load} className="text-xs text-gray-400 hover:text-white inline-flex items-center gap-1" disabled={loading}>
-          <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} /> Refresh
-        </button>
-      </div>
-
-      {isDemo && (
-        <p className="text-sm text-gray-400 mb-4">
-          Demo accounts do not have a billing relationship. Subscribe from a real account to manage Pro.
-        </p>
-      )}
-
-      {error && (
-        <p className="text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 mb-4">
-          {error}
-        </p>
-      )}
-
-      <div className="space-y-2 text-sm">
-        <Row label="Current plan" value={planLabel} />
-        <Row label="Subscription status" value={statusLabel} />
-        {billing?.subscription?.current_period_end && (
-          <Row label="Next renewal" value={formatDate(billing.subscription.current_period_end)} />
-        )}
-        {billing?.subscription?.cancel_at_period_end && (
-          <Row
-            label="Cancellation"
-            value={`Cancels on ${formatDate(billing.subscription.current_period_end)}`}
-          />
-        )}
-      </div>
-
-      {!isDemo && (
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          <button
-            onClick={openPortal}
-            disabled={busy || !billing?.subscription}
-            className="w-full px-4 py-2 rounded-lg font-medium text-sm transition-colors bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white inline-flex items-center justify-center gap-2"
-          >
-            <Wallet className="w-4 h-4" /> Manage billing
-          </button>
-          {!billing?.subscription && (
-            <a
-              href="/#pricing"
-              className="w-full px-4 py-2 rounded-lg font-medium text-sm transition-colors bg-gray-800 hover:bg-gray-700 text-white inline-flex items-center justify-center gap-2"
-            >
-              <ExternalLink className="w-4 h-4" /> View plans
-            </a>
-          )}
-        </div>
-      )}
-
-      {billing?.subscription?.cancel_at_period_end && (
-        <p className="mt-3 text-xs text-amber-300/80">
-          You can reactivate from the billing portal — your access continues until the period end.
-        </p>
-      )}
-    </div>
-  );
-};
 
 export default Settings;

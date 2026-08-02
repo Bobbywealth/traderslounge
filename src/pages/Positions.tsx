@@ -1,4 +1,7 @@
-// Positions — open trades synced from your connected broker.
+// Positions — currently open positions surfaced from the position feed.
+// Phase 1 (trust and consistency): the page no longer references the internal
+// execution worker. Operational controls (kill switch, manual scan, account
+// mode toggles) live in the admin view only.
 
 import React, { useEffect, useState } from 'react';
 import { Briefcase, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react';
@@ -36,7 +39,7 @@ const Positions: React.FC = () => {
             <Briefcase className="w-8 h-8 text-emerald-400" />
             Positions
           </h1>
-          <p className="text-gray-400 mt-1">Currently open trades synced from your connected broker.</p>
+          <p className="text-gray-400 mt-1">Currently open positions on your account.</p>
         </div>
         <button
           onClick={refresh}
@@ -57,9 +60,9 @@ const Positions: React.FC = () => {
       {!error && positions.length === 0 && !loading && (
         <div className="bg-gray-900/60 border border-gray-700/50 rounded-xl p-8 text-center">
           <Briefcase className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-          <p className="text-gray-400">No open positions.</p>
+          <p className="text-gray-400">No open positions right now.</p>
           <p className="text-gray-500 text-sm mt-1">
-            Positions will appear here when trades are open at your connected broker.
+            When the position feed reports an open trade, its size, entry, stop, and live result show here.
           </p>
         </div>
       )}

@@ -1905,7 +1905,7 @@ const TradingView: React.FC = () => {
           {cryptoAnalysis.decision_quality && <>
             <span className="rounded-md border border-cyan-400/15 bg-cyan-400/[0.06] px-2 py-1 text-[9px] font-black text-cyan-200">BIAS {cryptoAnalysis.decision_quality.market_bias_confidence}%</span>
             <span className="rounded-md border border-violet-400/15 bg-violet-400/[0.06] px-2 py-1 text-[9px] font-black text-violet-200">SETUP {cryptoAnalysis.decision_quality.setup_quality}%</span>
-            <span className="rounded-md border border-amber-400/15 bg-amber-400/[0.06] px-2 py-1 text-[9px] font-black text-amber-200">READY {cryptoAnalysis.decision_quality.execution_readiness}%</span>
+            <span className="rounded-md border border-amber-400/15 bg-amber-400/[0.06] px-2 py-1 text-[9px] font-black text-amber-200">TIMING {cryptoAnalysis.decision_quality.execution_readiness}%</span>
           </>}
           <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[10px] font-black text-slate-300">STR {cryptoAnalysis.category_breakdown.structure}/20</span>
           <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[10px] font-black text-slate-300">VOL {cryptoAnalysis.category_breakdown.volume}/10</span>

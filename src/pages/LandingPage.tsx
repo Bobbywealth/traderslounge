@@ -62,15 +62,29 @@ const LandingPage: React.FC = () => {
               <span className="flex items-center gap-2 rounded-[11px] bg-[#0a0e1a] px-5 py-2.5 text-sm font-bold transition group-hover:bg-transparent">Get started <ArrowRight className="h-4 w-4" /></span>
             </button>
           </div>
-          <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="rounded-xl border border-white/10 p-2.5 md:hidden" aria-label="Toggle menu">
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-white/10 p-2.5 md:hidden"
+            aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={mobileMenuOpen}
+            aria-controls="mobile-nav-drawer"
+          >
             {mobileMenuOpen ? <X /> : <Menu />}
           </button>
         </div>
         {mobileMenuOpen && (
-          <div className="border-t border-white/10 bg-[#080b14] px-5 py-5 md:hidden">
+          <div
+            id="mobile-nav-drawer"
+            role="dialog"
+            aria-label="Mobile navigation"
+            className="border-t border-white/10 bg-[#080b14] px-5 py-5 md:hidden"
+          >
             <div className="flex flex-col gap-2 text-slate-300">
-              {['platform', 'workflow', 'pricing', 'community'].map((item) => <a key={item} href={`#${item}`} onClick={() => setMobileMenuOpen(false)} className="rounded-lg px-3 py-3 capitalize hover:bg-white/5">{item}</a>)}
-              <div className="mt-3 grid grid-cols-2 gap-3"><button onClick={() => openAuth('login')} className="rounded-xl border border-white/10 py-3">Sign in</button><button onClick={() => openAuth('signup')} className="rounded-xl bg-gradient-to-r from-cyan-500 to-violet-500 py-3 font-bold">Get started</button></div>
+              <a href="#features" onClick={() => setMobileMenuOpen(false)} className="flex min-h-[44px] items-center rounded-lg px-3 capitalize hover:bg-white/5">Features</a>
+              <a href="#pricing" onClick={() => setMobileMenuOpen(false)} className="flex min-h-[44px] items-center rounded-lg px-3 capitalize hover:bg-white/5">Pricing</a>
+              <a href="#testimonials" onClick={() => setMobileMenuOpen(false)} className="flex min-h-[44px] items-center rounded-lg px-3 capitalize hover:bg-white/5">Reviews</a>
+              <button onClick={() => openAuth('login')} className="flex min-h-[44px] items-center rounded-xl border border-white/10 px-3">Sign in</button>
             </div>
           </div>
         )}

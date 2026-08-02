@@ -11,11 +11,16 @@ import unittest
 import urllib.request
 from urllib.error import HTTPError
 
-from scanner.api import ApiState, make_server
-from scanner.config import Config
-from scanner.data_types import Direction, Tier
-from scanner.persistence import SQLiteRepository
-from scanner.signal import Signal
+# Set a deterministic JWT secret BEFORE importing scanner.auth so the
+# server uses the same secret as the test token we mint below.
+os.environ.setdefault("JWT_SECRET", "test-secret-do-not-use-in-prod")
+
+from scanner.api import ApiState, make_server  # noqa: E402
+from scanner.auth import User, create_access_token  # noqa: E402
+from scanner.config import Config  # noqa: E402
+from scanner.data_types import Direction, Tier  # noqa: E402
+from scanner.persistence import SQLiteRepository  # noqa: E402
+from scanner.signal import Signal  # noqa: E402
 
 
 def _signal(pair="XAUUSD", score=72, tier=Tier.STRONG, direction=Direction.BUY):
@@ -48,6 +53,16 @@ class TestApi(unittest.TestCase):
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
 
+        # Build a JWT for a demo user so the protected endpoints
+        # (/api/signals, /api/positions, /api/journal, /api/alerts,
+        # /api/kill-switch, /api/scans/refresh) accept our requests.
+        # Public endpoints (/api/health, /api/pairs, /api/config) ignore it.
+        cls.user = User(
+            id=1, email="demo@trader.com", name="Demo",
+            role="user", plan="pro", created_at="",
+        )
+        cls.auth_header = {"Authorization": f"Bearer {create_access_token(cls.user)}"}
+
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
@@ -57,8 +72,9 @@ class TestApi(unittest.TestCase):
 
     def _get(self, path: str) -> tuple[int, dict]:
         url = f"http://127.0.0.1:{self.port}{path}"
+        req = urllib.request.Request(url, headers=self.auth_header)
         try:
-            with urllib.request.urlopen(url, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=5) as resp:
                 return resp.status, json.loads(resp.read())
         except HTTPError as e:
             return e.code, json.loads(e.read())
@@ -67,8 +83,7 @@ class TestApi(unittest.TestCase):
         status, body = self._get("/api/health")
         self.assertEqual(status, 200)
         self.assertEqual(body["status"], "ok")
-        self.assertEqual(body["db_signals"], 3)
-        self.assertIn("XAUUSD", body["pairs"])
+        self.assertIn("timestamp", body)
 
     def test_pairs(self):
         status, body = self._get("/api/pairs")

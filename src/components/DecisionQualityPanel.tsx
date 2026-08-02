@@ -157,7 +157,7 @@ const DecisionQualityPanel: React.FC<DecisionQualityPanelProps> = ({
       <div className="mt-4 grid gap-2 sm:grid-cols-3">
         <Metric label="Market bias confidence" value={biasConfidence} note={`${analysis?.market_context?.macro_bias || 'neutral'} macro bias`} />
         <Metric label="Setup quality" value={quality} note={`${analysis?.confidence_tier || 'developing'} evidence coverage`} />
-        <Metric label="Execution readiness" value={readiness} note={timing?.wait_for?.[0]?.replace(/_/g, ' ') || `Timing ${status.toLowerCase()}`} />
+        <Metric label="Timing readiness" value={readiness} note={timing?.wait_for?.[0]?.replace(/_/g, ' ') || `Timing ${status.toLowerCase()}`} />
       </div>
 
       <div className="mt-4 rounded-xl border border-rose-400/20 bg-rose-400/[0.06] p-3">
