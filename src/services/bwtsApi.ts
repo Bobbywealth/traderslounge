@@ -4,13 +4,14 @@
 // VITE_BWTS_API_URL takes precedence; falls back to VITE_API_URL.
 // In dev with no env set, points at the local default (8000).
 
+import { getAccessToken, setAccessToken } from './authBridge';
+
 const BASE =
   (import.meta as any).env?.VITE_BWTS_API_URL ||
   (import.meta as any).env?.VITE_API_URL ||
   'http://localhost:8000';
 
 const REFRESH_TOKEN_KEY = 'confluencex_refresh_token';
-let accessToken: string | null = null;
 let refreshInFlight: Promise<boolean> | null = null;
 
 export interface BackendAuthUser {
@@ -41,7 +42,7 @@ const rawAuthRequest = async <T>(path: string, body: Record<string, unknown>): P
 };
 
 const saveTokens = (payload: AuthResponse) => {
-  accessToken = payload.access_token;
+  setAccessToken(payload.access_token);
   localStorage.setItem(REFRESH_TOKEN_KEY, payload.refresh_token);
 };
 
@@ -51,15 +52,16 @@ const refreshAccessToken = async (): Promise<boolean> => {
   if (!refreshToken) return false;
   refreshInFlight = rawAuthRequest<AuthResponse>('/api/auth/refresh', { refresh_token: refreshToken })
     .then((payload) => { saveTokens(payload); return true; })
-    .catch(() => { accessToken = null; localStorage.removeItem(REFRESH_TOKEN_KEY); return false; })
+    .catch(() => { setAccessToken(null); localStorage.removeItem(REFRESH_TOKEN_KEY); return false; })
     .finally(() => { refreshInFlight = null; });
   return refreshInFlight;
 };
 
 const fetchWithAuth = async (url: string, init: RequestInit = {}, retry = true): Promise<Response> => {
-  if (!accessToken) await refreshAccessToken();
+  if (!getAccessToken()) await refreshAccessToken();
   const headers = new Headers(init.headers || {});
-  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
+  const token = getAccessToken();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
   const response = await fetch(url, { ...init, headers });
   if (response.status === 401 && retry && await refreshAccessToken()) {
     return fetchWithAuth(url, init, false);
@@ -79,7 +81,7 @@ export const bwtsAuth = {
     return payload.user || null;
   },
   restore: refreshAccessToken,
-  clear: () => { accessToken = null; localStorage.removeItem(REFRESH_TOKEN_KEY); },
+  clear: () => { setAccessToken(null); localStorage.removeItem(REFRESH_TOKEN_KEY); },
   hasRefreshToken: () => Boolean(localStorage.getItem(REFRESH_TOKEN_KEY)),
 };
 
@@ -627,6 +629,17 @@ export interface MarketSnapshot {
   score_history: ScoreHistory;
 }
 
+export interface UserAlert {
+  id: string;
+  symbol: string;
+  condition: string;
+  threshold?: number;
+  message: string;
+  status: 'active' | 'triggered' | 'dismissed';
+  created_at: string;
+  triggered_at?: string;
+}
+
 export interface DashboardSnapshot {
   snapshot_id: string;
   generated_at: string;
@@ -704,6 +717,9 @@ export const bwtsApi = {
 
   getPerformanceStats: (filters?: { assetClass?: string; symbol?: string; direction?: string; scoreBand?: string; confidenceTier?: string; dateFrom?: string; dateTo?: string }) =>
     get<PerformanceStats>('/api/performance/stats', filters as Record<string, string>),
+
+  createAlert: (alert: { symbol: string; condition: string; threshold?: number; message: string }) =>
+    post<UserAlert>('/api/alerts', alert),
 
   baseUrl: () => BASE,
 };

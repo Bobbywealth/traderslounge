@@ -1,8 +1,11 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { tradeLockerRouter } from './routes/tradelocker.js';
 import { signalsRouter } from './routes/signals.js';
 import { getBars, getMultiTimeframeBars } from './services/marketData.js';
+import { billingRouter, webhookRouter } from './routes/billing.js';
+import { runMigrationsOnce } from './services/billing/migrate.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -63,6 +66,13 @@ app.get('/health', (req, res) => {
 app.use('/api/tradelocker', tradeLockerRouter);
 app.use('/api/signals', signalsRouter);
 
+// Mount the webhook router BEFORE the JSON-parsing middleware so the raw
+// body is preserved for signature verification. (Stripe needs the raw bytes.)
+app.use(webhookRouter);
+
+// Billing routes (Checkout, Portal, /me, founding-member counter, pricing).
+app.use(billingRouter);
+
 // Market data debug endpoint — helps diagnose why signals fail
 app.get('/api/market-data/:symbol', async (req, res) => {
   const { symbol } = req.params;
@@ -96,11 +106,24 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 TradersLounge API Server running on port ${PORT}`);
-  console.log(`   Health check: http://localhost:${PORT}/health`);
-  console.log(`   CORS allowed origins: ${activeAllowedOrigins.join(', ') || 'none'}`);
-});
+async function bootstrap() {
+  if (process.env.BILLING_RUN_MIGRATIONS === '1' || process.env.BILLING_RUN_MIGRATIONS === 'true') {
+    try {
+      const result = await runMigrationsOnce();
+      if (!result.skipped) {
+        console.log(`[billing] applied migrations: ${result.applied.join(', ')}`);
+      }
+    } catch (err) {
+      console.error('[billing] migration failed during bootstrap', err.message);
+    }
+  }
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 TradersLounge API Server running on port ${PORT}`);
+    console.log(`   Health check: http://localhost:${PORT}/health`);
+    console.log(`   CORS allowed origins: ${activeAllowedOrigins.join(', ') || 'none'}`);
+  });
+}
+
+bootstrap();
 
 export default app;
