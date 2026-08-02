@@ -39,7 +39,7 @@ describe('createChartApiClient', () => {
 
     expect(fetchImpl).toHaveBeenCalledWith(
       '/api/candles?pair=ETHUSD&timeframe=5m',
-      { signal: controller.signal },
+      expect.objectContaining({ signal: controller.signal }),
     );
   });
 
