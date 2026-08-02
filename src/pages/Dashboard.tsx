@@ -390,12 +390,12 @@ const Dashboard: React.FC = () => {
         </div>
         {positionsError ? (
           <div className="rounded-2xl border border-dashed border-white/10 px-5 py-6 text-sm text-slate-500">
-            Position feed unavailable. The execution worker may be offline — open positions still exist at your broker.
+            Position feed unavailable. Open positions may still exist at your broker even when this feed is offline.
           </div>
         ) : positions.length === 0 ? (
           <div className="flex items-center gap-3 rounded-2xl border border-dashed border-white/10 px-5 py-6 text-sm text-slate-500">
             <Briefcase className="h-5 w-5 shrink-0 text-slate-600" />
-            When the execution worker opens a trade, its size, entry, stop, and live result show here.
+            When the position feed reports an open trade, its size, entry, stop, and live result show here.
           </div>
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">

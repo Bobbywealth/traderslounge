@@ -342,7 +342,7 @@ export const SetupCard: React.FC<SetupCardProps> = ({
             <>
               <span className="rounded-md border border-cyan-400/15 bg-cyan-400/[0.06] px-2 py-1 text-[10px] font-black text-cyan-200">Bias {decision.market_bias_confidence}%</span>
               <span className="rounded-md border border-violet-400/15 bg-violet-400/[0.06] px-2 py-1 text-[10px] font-black text-violet-200">Setup {decision.setup_quality}%</span>
-              <span className="rounded-md border border-amber-400/15 bg-amber-400/[0.06] px-2 py-1 text-[10px] font-black text-amber-200">Ready {decision.execution_readiness}%</span>
+              <span className="rounded-md border border-amber-400/15 bg-amber-400/[0.06] px-2 py-1 text-[10px] font-black text-amber-200">Timing {decision.execution_readiness}%</span>
             </>
           )}
         </div>

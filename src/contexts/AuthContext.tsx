@@ -16,6 +16,8 @@ interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isAdmin: boolean;
+  isDemoTrader: boolean;
   login: (email: string, password: string) => Promise<boolean>;
   signup: (email: string, password: string, name: string) => Promise<boolean>;
   logout: () => void;
@@ -128,11 +130,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const isAdmin = user?.role === 'admin';
+  // Demo Trader is the read-only trial account shipped with the product.
+  // Anything that can mutate the running system must be hidden from it. The
+  // email is the source of truth — the role coming back from the backend is
+  // always 'user' for the trial account.
+  const isDemoTrader = user?.email?.toLowerCase() === 'demo@trader.com';
+
   return (
     <AuthContext.Provider value={{
       user,
       isAuthenticated: !!user,
       isLoading,
+      isAdmin,
+      isDemoTrader,
       login,
       signup,
       logout,

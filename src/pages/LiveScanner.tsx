@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, Filter, FlaskConical, Loader2, RefreshCw } from 'lucide-react';
 import { bwtsApi, type CalendarGateStatus, type CryptoAnalysis, type V2BacktestReport } from '../services/bwtsApi';
 import { SetupCard } from '../components/SetupCard';
+import DataAttribution from '../components/DataAttribution';
 
 type Row = {
   pair: string;
@@ -151,8 +152,13 @@ const LiveScanner: React.FC = () => {
             <p className="mt-2 text-sm text-slate-400">
               One engine for score, direction, movement, and trade eligibility.{' '}
               {lastUpdate && (
-                <span className="ml-2 text-xs text-slate-600">
-                  Updated {lastUpdate.toLocaleTimeString()}
+                <span className="ml-2 inline-block">
+                  <DataAttribution
+                    provider="Scanner"
+                    timestamp={lastUpdate}
+                    live={!refreshing}
+                    variant="inline"
+                  />
                 </span>
               )}
             </p>
