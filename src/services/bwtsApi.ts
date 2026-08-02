@@ -706,6 +706,38 @@ export const bwtsApi = {
     get<PerformanceStats>('/api/performance/stats', filters as Record<string, string>),
 
   baseUrl: () => BASE,
+  alertPreferences: () => get<AlertPreferences>('/api/alerts/preferences'),
+  saveAlertPreferences: (prefs: Partial<AlertPreferences>) => post<AlertPreferences>('/api/alerts/preferences', prefs as Record<string, unknown>),
+  alertFeed: (limit = 50) => get<{ events: AlertEvent[]; count: number }>('/api/alerts/feed', { limit }),
 };
+
+export interface AlertPreferences {
+  user_id: number;
+  watchlist: string[];
+  timeframes: Record<string, boolean>;
+  sessions: string[];
+  setup_quality_minimum: number;
+  timing_minimum: number;
+  risk_per_trade_pct: number;
+  enabled_alert_types: string[];
+  delivery_channels: string[];
+  telegram_chat_id: string | null;
+  daily_briefing_enabled: boolean;
+  weekly_briefing_enabled: boolean;
+  last_daily_briefing_at: string | null;
+  last_weekly_briefing_at: string | null;
+}
+
+export interface AlertEvent {
+  user_id: number;
+  alert_type: string;
+  pair: string;
+  timeframe: string | null;
+  title: string;
+  body: string;
+  severity: 'info' | 'warning' | 'critical';
+  payload: Record<string, unknown>;
+  created_at: string;
+}
 
 export default bwtsApi;

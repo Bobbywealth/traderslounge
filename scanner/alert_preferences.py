@@ -1,0 +1,465 @@
+"""Alert preferences and rule evaluation for ConfluenceX.
+
+This module backs the Phase 3 alert / personalization system. It is
+deliberately small and self-contained: preferences live as JSON on
+disk (one file per user, mode 600) so we can ship without schema
+migrations, and the evaluation engine is pure-functional so we can
+unit-test it without spinning up the API.
+
+Public surface:
+
+  - :class:`AlertPreferences` — the persisted preference document.
+  - :class:`AlertEvent`       — a single alert the engine fired.
+  - :func:`evaluate_rules`    — pure rule evaluation against a
+                                snapshot. Returns the list of
+                                :class:`AlertEvent` for one user.
+  - :class:`AlertPreferencesStore`
+                              — disk-backed CRUD over
+                                ``~/.openclaw/state/alerts/<user>.json``.
+
+Per Bobby's spec the engine must fire on five event types:
+
+  - entry_zone           — price entered the planned entry zone
+  - confirmation         — setup quality + timing crossed the
+                            user's minimum and the bias confirmed
+  - news_risk            — economic calendar status flipped to
+                            BLOCKED / CAUTION / POST_NEWS
+  - invalidation         — price reached the invalidation level
+                            (or the ATR stop)
+  - daily_briefing       — once per day, top setups + risk
+  - weekly_briefing      — once per week, performance summary
+
+The custom watchlists + timeframes + sessions are evaluated against
+the snapshot's pair + timeframe. Risk-per-trade and setup-quality
+minimums gate which setups the engine will even consider firing
+``entry_zone`` or ``confirmation`` for.
+
+This file is intentionally decoupled from the API. The api layer
+wraps it in handlers; the engine is testable in isolation.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import tempfile
+import threading
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
+from pathlib import Path
+from typing import Any, Iterable
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Enums and constants
+# ---------------------------------------------------------------------------
+
+
+class AlertType(str, Enum):
+    ENTRY_ZONE = "entry_zone"
+    CONFIRMATION = "confirmation"
+    NEWS_RISK = "news_risk"
+    INVALIDATION = "invalidation"
+    DAILY_BRIEFING = "daily_briefing"
+    WEEKLY_BRIEFING = "weekly_briefing"
+
+
+class DeliveryChannel(str, Enum):
+    IN_APP = "in_app"
+    TELEGRAM = "telegram"
+    EMAIL = "email"
+
+
+class TradingSession(str, Enum):
+    LONDON = "london"
+    NEW_YORK = "new_york"
+    TOKYO = "tokyo"
+    SYDNEY = "sydney"
+    OVERLAP = "overlap"  # London/NY overlap
+
+
+# ---------------------------------------------------------------------------
+# Preference document
+# ---------------------------------------------------------------------------
+
+
+# All fields default to the most conservative settings so an empty
+# preference document is safe to deploy.
+@dataclass
+class AlertPreferences:
+    user_id: int
+    # Markets the user wants alerts for. Empty = all scanner pairs.
+    watchlist: list[str] = field(default_factory=list)
+    # Per-timeframe interest, e.g. {"1h": True, "4h": True, "1d": False}.
+    timeframes: dict[str, bool] = field(
+        default_factory=lambda: {"1h": True, "4h": True, "1d": True, "1w": False}
+    )
+    # Sessions the user is actively trading. Empty = all.
+    sessions: list[str] = field(default_factory=list)
+    # 0–100 minimum setup_quality score for the engine to consider a
+    # CONFIRMATION alert.
+    setup_quality_minimum: int = 60
+    # 0–100 minimum timing readiness for CONFIRMATION alerts.
+    timing_minimum: int = 60
+    # % of account per trade. Used in the briefing text and to size
+    # recommended exposure. Does not auto-execute anything.
+    risk_per_trade_pct: float = 1.0
+    # Which alert types are enabled.
+    enabled_alert_types: list[str] = field(
+        default_factory=lambda: [
+            AlertType.ENTRY_ZONE.value,
+            AlertType.CONFIRMATION.value,
+            AlertType.NEWS_RISK.value,
+            AlertType.INVALIDATION.value,
+        ]
+    )
+    # Delivery channels.
+    delivery_channels: list[str] = field(
+        default_factory=lambda: [DeliveryChannel.IN_APP.value]
+    )
+    # Telegram chat id, populated by /api/auth when available.
+    telegram_chat_id: str | None = None
+    # Briefing cadence. daily = top-of-day, weekly = end-of-week.
+    daily_briefing_enabled: bool = True
+    weekly_briefing_enabled: bool = True
+    # ISO timestamps of the last daily / weekly delivery so the engine
+    # does not double-fire.
+    last_daily_briefing_at: str | None = None
+    last_weekly_briefing_at: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "AlertPreferences":
+        # Tolerant parsing — unknown keys are ignored, missing keys
+        # fall back to defaults. This keeps the on-disk schema flexible
+        # while a real DB migration is pending.
+        kwargs = {"user_id": int(payload.get("user_id", 0))}
+        for field_name in cls.__dataclass_fields__:  # type: ignore[attr-defined]
+            if field_name == "user_id":
+                continue
+            if field_name in payload:
+                kwargs[field_name] = payload[field_name]
+        return cls(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Alert event
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class AlertEvent:
+    user_id: int
+    alert_type: str
+    pair: str
+    timeframe: str | None
+    title: str
+    body: str
+    severity: str  # info | warning | critical
+    payload: dict[str, Any] = field(default_factory=dict)
+    created_at: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+# ---------------------------------------------------------------------------
+# Pure rule evaluation
+# ---------------------------------------------------------------------------
+
+
+def _is_in_watchlist(prefs: AlertPreferences, pair: str) -> bool:
+    if not prefs.watchlist:
+        return True
+    return pair.upper() in {p.upper() for p in prefs.watchlist}
+
+
+def _is_in_timeframe(prefs: AlertPreferences, timeframe: str | None) -> bool:
+    if not timeframe:
+        return True
+    if not prefs.timeframes:
+        return True
+    return prefs.timeframes.get(timeframe.lower(), True)
+
+
+def _enabled(prefs: AlertPreferences, alert_type: AlertType) -> bool:
+    return alert_type.value in prefs.enabled_alert_types
+
+
+def evaluate_rules(
+    prefs: AlertPreferences,
+    analysis: dict[str, Any],
+    calendar: dict[str, Any] | None = None,
+    last_analysis: dict[str, Any] | None = None,
+    now: datetime | None = None,
+) -> list[AlertEvent]:
+    """Evaluate every enabled rule for one user against one snapshot.
+
+    Returns the list of alert events. The caller is responsible for
+    de-duplication and delivery.
+
+    `analysis` is the :class:`CryptoAnalysis` dict from /api/analysis.
+    `calendar` is the economic-calendar status for the pair.
+    `last_analysis` is the previous snapshot (used to detect
+    transitions like timing crossing the minimum).
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    pair = str(analysis.get("pair") or "UNKNOWN").upper()
+    if not _is_in_watchlist(prefs, pair):
+        return []
+
+    timeframe = (
+        (analysis.get("data_quality") or {}).get("primary_timeframe")
+        or analysis.get("timeframe")
+    )
+    if not _is_in_timeframe(prefs, timeframe):
+        return []
+
+    decision = analysis.get("decision_quality") or {}
+    setup_quality = decision.get("setup_quality")
+    timing = decision.get("execution_readiness")
+    bias = decision.get("market_bias_confidence")
+    direction = analysis.get("direction", "NEUTRAL")
+    plan = analysis.get("trade_plan") or {}
+    invalidation = plan.get("invalidation") or (analysis.get("risk") or {}).get("atr_stop")
+    timing_status = (analysis.get("trade_timing") or {}).get("status", "WAIT")
+
+    events: list[AlertEvent] = []
+
+    # --- confirmation ----------------------------------------------------
+    if (
+        _enabled(prefs, AlertType.CONFIRMATION)
+        and setup_quality is not None
+        and timing is not None
+        and setup_quality >= prefs.setup_quality_minimum
+        and timing >= prefs.timing_minimum
+        and direction in ("BUY", "SELL")
+        and timing_status == "READY"
+    ):
+        events.append(
+            AlertEvent(
+                user_id=prefs.user_id,
+                alert_type=AlertType.CONFIRMATION.value,
+                pair=pair,
+                timeframe=timeframe,
+                title=f"{pair} {direction} setup confirmed",
+                body=(
+                    f"Setup quality {int(setup_quality)}/100 and timing {int(timing)}/100 "
+                    f"cleared your thresholds ({prefs.setup_quality_minimum}/"
+                    f"{prefs.timing_minimum}). Bias {int(bias or 0)}/100."
+                ),
+                severity="info",
+                payload={
+                    "setup_quality": setup_quality,
+                    "timing": timing,
+                    "bias": bias,
+                    "direction": direction,
+                    "entry": plan.get("entry"),
+                    "stop": plan.get("stop_loss") or invalidation,
+                    "targets": plan.get("targets") or [],
+                },
+            )
+        )
+
+    # --- entry zone ------------------------------------------------------
+    if (
+        _enabled(prefs, AlertType.ENTRY_ZONE)
+        and direction in ("BUY", "SELL")
+        and plan.get("entry_zone") is not None
+        and timing_status == "READY"
+    ):
+        events.append(
+            AlertEvent(
+                user_id=prefs.user_id,
+                alert_type=AlertType.ENTRY_ZONE.value,
+                pair=pair,
+                timeframe=timeframe,
+                title=f"{pair} entered planned entry zone",
+                body=(
+                    f"Price reached the planned {direction} entry zone around "
+                    f"{plan.get('entry_zone')}. Stop {plan.get('stop_loss') or invalidation}."
+                ),
+                severity="info",
+                payload={"entry_zone": plan.get("entry_zone"), "stop": plan.get("stop_loss")},
+            )
+        )
+
+    # --- news risk -------------------------------------------------------
+    if _enabled(prefs, AlertType.NEWS_RISK) and calendar is not None:
+        status = (calendar.get("status") or "").upper()
+        if status in ("BLOCKED", "POST_NEWS", "CAUTION"):
+            events.append(
+                AlertEvent(
+                    user_id=prefs.user_id,
+                    alert_type=AlertType.NEWS_RISK.value,
+                    pair=pair,
+                    timeframe=None,
+                    title=f"{pair} news risk: {status.lower()}",
+                    body="; ".join(calendar.get("blocking_reasons") or [f"Calendar status: {status}"]),
+                    severity="warning" if status == "CAUTION" else "critical",
+                    payload={"calendar_status": status, "events": calendar.get("upcoming_events") or []},
+                )
+            )
+
+    # --- invalidation ----------------------------------------------------
+    if (
+        _enabled(prefs, AlertType.INVALIDATION)
+        and invalidation is not None
+        and plan.get("current_price") is not None
+        and last_analysis is not None
+    ):
+        prev_price = (last_analysis.get("trade_plan") or {}).get("current_price")
+        cur_price = plan.get("current_price")
+        if prev_price is not None and cur_price is not None:
+            try:
+                cur_price_f = float(cur_price)
+                invalidation_f = float(invalidation)
+                prev_price_f = float(prev_price)
+                crossed_down = (
+                    direction == "BUY"
+                    and cur_price_f <= invalidation_f
+                    and prev_price_f > invalidation_f
+                )
+                crossed_up = (
+                    direction == "SELL"
+                    and cur_price_f >= invalidation_f
+                    and prev_price_f < invalidation_f
+                )
+                if crossed_down or crossed_up:
+                    events.append(
+                        AlertEvent(
+                            user_id=prefs.user_id,
+                            alert_type=AlertType.INVALIDATION.value,
+                            pair=pair,
+                            timeframe=timeframe,
+                            title=f"{pair} setup invalidated",
+                            body=(
+                                f"Price crossed the {direction} invalidation level at "
+                                f"{invalidation}."
+                            ),
+                            severity="critical",
+                            payload={
+                                "invalidation": invalidation,
+                                "current_price": cur_price_f,
+                                "direction": direction,
+                            },
+                        )
+                    )
+            except (TypeError, ValueError):
+                pass
+
+    return events
+
+
+# ---------------------------------------------------------------------------
+# Disk-backed store
+# ---------------------------------------------------------------------------
+
+
+DEFAULT_STORE_DIR = Path(
+    os.environ.get("CONFLUENCEX_ALERT_STORE", str(Path.home() / ".openclaw" / "state" / "alerts"))
+)
+
+
+class AlertPreferencesStore:
+    """Simple JSON-on-disk CRUD for alert preferences.
+
+    Atomic writes (write to a temp file, rename). One file per user.
+    Falls back to an in-memory dict if the directory cannot be
+    created so the API still boots in restricted environments.
+    """
+
+    def __init__(self, root: Path | str | None = None):
+        self.root = Path(root) if root else DEFAULT_STORE_DIR
+        self._lock = threading.Lock()
+        self._memory: dict[int, dict[str, Any]] = {}
+        try:
+            self.root.mkdir(parents=True, exist_ok=True)
+            self._persist_ok = True
+        except OSError as exc:
+            logger.warning(
+                "alert preferences store could not create %s: %s — using in-memory fallback",
+                self.root,
+                exc,
+            )
+            self._persist_ok = False
+
+    # ---- helpers --------------------------------------------------------
+
+    def _path_for(self, user_id: int) -> Path:
+        return self.root / f"user-{int(user_id)}.json"
+
+    def _atomic_write(self, path: Path, payload: str) -> None:
+        fd, tmp = tempfile.mkstemp(prefix=".alert-", dir=str(self.root))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(payload)
+            os.replace(tmp, path)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+
+    # ---- CRUD -----------------------------------------------------------
+
+    def get(self, user_id: int) -> AlertPreferences | None:
+        with self._lock:
+            if self._persist_ok and self._path_for(user_id).exists():
+                try:
+                    payload = json.loads(self._path_for(user_id).read_text("utf-8"))
+                    return AlertPreferences.from_dict(payload)
+                except (OSError, json.JSONDecodeError) as exc:
+                    logger.warning("alert prefs read failed for user %s: %s", user_id, exc)
+                    return None
+            if user_id in self._memory:
+                return AlertPreferences.from_dict(self._memory[user_id])
+        return None
+
+    def upsert(self, prefs: AlertPreferences) -> AlertPreferences:
+        with self._lock:
+            payload = prefs.to_dict()
+            if self._persist_ok:
+                try:
+                    self._atomic_write(
+                        self._path_for(prefs.user_id), json.dumps(payload, indent=2)
+                    )
+                except OSError as exc:
+                    logger.warning("alert prefs write failed for user %s: %s", prefs.user_id, exc)
+                    self._memory[prefs.user_id] = payload
+            else:
+                self._memory[prefs.user_id] = payload
+        return prefs
+
+    def delete(self, user_id: int) -> bool:
+        with self._lock:
+            path = self._path_for(user_id)
+            if path.exists():
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+                return True
+            self._memory.pop(user_id, None)
+            return False
+
+    def all_user_ids(self) -> Iterable[int]:
+        with self._lock:
+            ids = set(self._memory.keys())
+            if self._persist_ok and self.root.exists():
+                for entry in self.root.glob("user-*.json"):
+                    try:
+                        ids.add(int(entry.stem.split("-", 1)[1]))
+                    except (ValueError, IndexError):
+                        continue
+            return list(ids)

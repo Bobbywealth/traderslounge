@@ -52,6 +52,12 @@ from .trade_planner import build_trade_plan
 from .published_signals import build_published_signal
 from .institutional_analysis import enrich_with_plan
 from .decision_quality import attach_decision_quality
+from .alert_preferences import (
+    AlertEvent,
+    AlertPreferences,
+    AlertPreferencesStore,
+    evaluate_rules,
+)
 from .validation_metrics import calibration_report, grouped_calibration, walk_forward_report
 from .v2_backtester import run_v2_backtest
 from .trade_repo import ClosedTradeRepository, PositionRepository
@@ -93,6 +99,8 @@ PROTECTED_ROUTES: frozenset[str] = frozenset({
     "/api/backtest/v2",
     "/api/kill-switch",
     "/api/scans/refresh",
+    "/api/alerts/preferences",
+    "/api/alerts/feed",
 })
 
 
@@ -186,6 +194,12 @@ class ApiState:
     # sites default to None and fall back to the legacy SQLite paths.
     signal_repo: Optional[Any] = None
     alert_repo: Optional[Any] = None
+    # In-process alert preferences store. Always present so /api/alerts
+    # endpoints can answer without a database.
+    alert_preferences_store: Optional[AlertPreferencesStore] = None
+    # Last in-memory snapshot per pair, used by the invalidation rule
+    # to detect price crossing the invalidation level.
+    last_analysis_by_pair: dict = field(default_factory=dict)
     perf_repo: Optional[Any] = None
     market_event_repo: Optional[Any] = None
     trade_setup_repo: Optional[Any] = None
@@ -358,7 +372,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 return self._error(denied[0], denied[1])
 
             # Legacy protected paths check (signals/positions/journal)
-            protected_paths = ['/api/signals', '/api/positions', '/api/journal', '/api/alerts']
+            protected_paths = ['/api/signals', '/api/positions', '/api/journal', '/api/alerts',
+                               '/api/alerts/preferences', '/api/alerts/feed']
             if path in protected_paths or path.startswith("/api/signals/"):
                 result = self._require_auth(self.headers)
                 if isinstance(result, tuple):
@@ -409,6 +424,10 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 return self._kill_status()
             if path == "/api/performance/stats":
                 return self._performance_stats(query)
+            if path == "/api/alerts/preferences":
+                return self._alerts_get_preferences()
+            if path == "/api/alerts/feed":
+                return self._alerts_feed(query)
             if path == "/api/validation/report":
                 return self._validation_report(query)
             return self._error(404, f"unknown route: {path}")
@@ -444,6 +463,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._ai_analyze(body)
         if path == "/api/ai/chart-analyze":
             return self._ai_chart_analyze(body)
+        if path == "/api/alerts/preferences":
+            return self._alerts_set_preferences(body)
         return self._error(404, f"unknown route: {path}")
 
     # --- handlers -------------------------------------------------------
@@ -962,13 +983,23 @@ class _ApiHandler(BaseHTTPRequestHandler):
         timeframe = _timeframe_alias(tf_raw)
         if timeframe is None:
             return self._error(400, f"unsupported timeframe: {tf_raw}")
+        # 1000 covers a full initial chart load (matches Binance's per-page
+        # cap); "before" lets the chart page further back on scroll-back for
+        # crypto (Twelve Data has no pagination knob, see MultiSourceClient).
         limit = _clamp_int(query.get("limit"), default=250, lo=1, hi=1000)
-        cache_key = f"candles:{pair}:{timeframe}:{limit}"
+        before_raw = query.get("before")
+        end_time_ms: Optional[int] = None
+        if before_raw not in (None, ""):
+            try:
+                end_time_ms = int(float(before_raw) * 1000)
+            except (TypeError, ValueError):
+                return self._error(400, "before must be a unix timestamp in seconds")
+        cache_key = f"candles:{pair}:{timeframe}:{limit}:{end_time_ms or 0}"
         cached = self._cache_get(cache_key)
         if cached is not None:
             return self._json(200, cached)
         try:
-            candles = client.fetch_candles(pair, timeframe, limit=limit)
+            candles = client.fetch_candles(pair, timeframe, limit=limit, end_time_ms=end_time_ms)
         except Exception as exc:
             stale = self._cache_get(cache_key, allow_stale=True)
             if stale is not None:
@@ -984,8 +1015,11 @@ class _ApiHandler(BaseHTTPRequestHandler):
         body = {
             "pair": pair, "timeframe": timeframe,
             "candles": rows, "count": len(rows),
+            "has_more": end_time_ms is not None and len(rows) >= limit,
         }
-        self._cache_set(cache_key, body, ttl=15, stale_ttl=120)
+        # Pagination pages are immutable (a fixed historical window), so cache
+        # them far longer than the live "latest" window.
+        self._cache_set(cache_key, body, ttl=15 if end_time_ms is None else 3600, stale_ttl=120)
         self._json(200, body)
 
     def _harmonics(self, query: dict) -> None:
@@ -1133,6 +1167,15 @@ class _ApiHandler(BaseHTTPRequestHandler):
         except Exception:
             logging.exception("failed to persist actionable V2 forecast for %s", analysis.get("pair"))
 
+        # Alert evaluation: for every user with preferences configured,
+        # evaluate the rules against this snapshot. Persist any events
+        # through the alert_repo (Postgres-backed when available) so the
+        # in-app /alerts feed surfaces them on next page load.
+        try:
+            self._evaluate_and_persist_alerts(analysis)
+        except Exception:
+            logging.exception("alert evaluation failed for %s", analysis.get("pair"))
+
     def _list_signals(self, query: dict) -> None:
         limit = _clamp_int(query.get("limit"), default=50, lo=1, hi=500)
         tier = query.get("tier")
@@ -1161,6 +1204,94 @@ class _ApiHandler(BaseHTTPRequestHandler):
                                     "note": "position_repo not configured"})
         rows = repo.open_positions()
         self._json(200, {"positions": rows, "count": len(rows)})
+
+    # --- alert preferences / feed ---------------------------------------
+
+    def _alert_store(self) -> AlertPreferencesStore:
+        store = getattr(_STATE, "alert_preferences_store", None)
+        if store is None:
+            store = AlertPreferencesStore()
+            _STATE.alert_preferences_store = store  # type: ignore[attr-defined]
+        return store
+
+    def _alerts_get_preferences(self) -> None:
+        user = self._authenticate(self.headers)
+        if not user:
+            return self._error(401, "Unauthorized")
+        prefs = self._alert_store().get(int(user.id))
+        if prefs is None:
+            # Return conservative defaults so the UI can render even
+            # before the user has saved preferences once.
+            prefs = AlertPreferences(user_id=int(user.id))
+        self._json(200, prefs.to_dict())
+
+    def _alerts_set_preferences(self, body: dict) -> None:
+        user = self._authenticate(self.headers)
+        if not user:
+            return self._error(401, "Unauthorized")
+        try:
+            body = body or {}
+            body["user_id"] = int(user.id)
+            prefs = AlertPreferences.from_dict(body)
+        except (TypeError, ValueError) as exc:
+            return self._error(400, f"invalid preferences payload: {exc}")
+        saved = self._alert_store().upsert(prefs)
+        self._json(200, saved.to_dict())
+
+    def _alerts_feed(self, query: dict) -> None:
+        user = self._authenticate(self.headers)
+        if not user:
+            return self._error(401, "Unauthorized")
+        limit = _clamp_int(query.get("limit"), default=50, lo=1, hi=200)
+        repo = getattr(_STATE, "alert_repo", None)
+        events: list[dict] = []
+        if repo is not None and hasattr(repo, "recent_for_user"):
+            try:
+                events = list(repo.recent_for_user(int(user.id), limit=limit))
+            except Exception:
+                logging.exception("alert_repo.recent_for_user failed")
+                events = []
+        # If no persistent repo is wired, return an empty feed so the
+        # UI renders the empty state correctly without 503-ing.
+        self._json(200, {"events": events, "count": len(events)})
+
+    def _evaluate_and_persist_alerts(self, analysis: dict) -> None:
+        """Run :func:`evaluate_rules` for every known user, persist events.
+
+        Failures here never bubble up — alerts are an additive concern
+        and must never break the canonical /api/analysis path.
+        """
+        store = self._alert_store()
+        user_ids = list(store.all_user_ids())
+        if not user_ids:
+            return
+        pair = str(analysis.get("pair") or "").upper()
+        last_analysis = _STATE.last_analysis_by_pair.get(pair) if hasattr(_STATE, "last_analysis_by_pair") else None
+        # Per-user evaluation is independent so we can evaluate in a
+        # tight loop without holding the store lock across calls.
+        try:
+            calendar = (analysis.get("economic_calendar") or {})
+        except Exception:
+            calendar = {}
+        for uid in user_ids:
+            prefs = store.get(int(uid))
+            if prefs is None:
+                continue
+            events = evaluate_rules(prefs, analysis, calendar=calendar, last_analysis=last_analysis)
+            if not events:
+                continue
+            repo = getattr(_STATE, "alert_repo", None)
+            if repo is not None and hasattr(repo, "save_events"):
+                try:
+                    repo.save_events([e.to_dict() for e in events])
+                except Exception:
+                    logging.exception("alert_repo.save_events failed for user %s", uid)
+        # Update last_analysis cache for the invalidation rule next cycle.
+        try:
+            if hasattr(_STATE, "last_analysis_by_pair"):
+                _STATE.last_analysis_by_pair[pair] = analysis
+        except Exception:
+            pass
 
     def _list_journal(self, query: dict) -> None:
         repo = _STATE.closed_trade_repo

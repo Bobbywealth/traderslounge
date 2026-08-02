@@ -19,6 +19,7 @@ import os
 import threading
 
 from .api import ApiState, make_server
+from .alert_preferences import AlertPreferencesStore
 from .binance_client import BinanceClient
 from .config import load_from_env
 from .data_provider import TwelveDataClient
@@ -87,6 +88,7 @@ def main() -> int:
         scan_request_path=scan_request_path,
         market_client=client,
         news_filter=news,
+        alert_preferences_store=AlertPreferencesStore(),
     )
     host = os.environ.get("API_HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))
