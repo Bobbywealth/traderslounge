@@ -1,33 +1,69 @@
 {
+  "id": "/",
   "name": "ConfluenceX - Professional Trading Dashboard",
   "short_name": "ConfluenceX",
   "description": "Live market intelligence where signals, structure, harmonics, and ADR converge.",
-  "start_url": "/",
+  "start_url": "/?source=pwa",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
   "background_color": "#070a12",
   "theme_color": "#7c3aed",
-  "orientation": "portrait-primary",
+  "lang": "en-US",
+  "dir": "ltr",
+  "categories": ["finance", "business", "productivity"],
   "icons": [
     {
       "src": "/confluencex-mark.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ],
-  "categories": ["finance", "business", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Live Scanner",
+      "short_name": "Scanner",
+      "description": "Real-time market intelligence dashboard",
+      "url": "/scanner?source=shortcut",
+      "icons": [
+        { "src": "/icons/shortcut-scanner.png", "sizes": "96x96", "type": "image/png" }
+      ]
+    },
+    {
+      "name": "Trading Chart",
+      "short_name": "Chart",
+      "description": "Full-screen charting workspace",
+      "url": "/tradingview?source=shortcut",
+      "icons": [
+        { "src": "/icons/shortcut-chart.png", "sizes": "96x96", "type": "image/png" }
+      ]
+    },
+    {
+      "name": "Signals",
+      "short_name": "Signals",
+      "description": "Guarded, durable trade-call feed",
+      "url": "/signals?source=shortcut",
+      "icons": [
+        { "src": "/icons/shortcut-signals.png", "sizes": "96x96", "type": "image/png" }
+      ]
+    }
+  ],
   "screenshots": [
     {
       "src": "/screenshot-wide.png",
       "sizes": "1280x720",
       "type": "image/png",
-      "form_factor": "wide"
+      "form_factor": "wide",
+      "label": "ConfluenceX desktop dashboard"
     },
     {
       "src": "/screenshot-narrow.png",
       "sizes": "750x1334",
       "type": "image/png",
-      "form_factor": "narrow"
+      "form_factor": "narrow",
+      "label": "ConfluenceX mobile dashboard"
     }
   ]
 }
