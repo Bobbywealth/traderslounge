@@ -71,14 +71,57 @@ const Dashboard: React.FC = () => {
     if (manual) setRefreshing(true);
     setError(null);
     try {
-      const protectedSnapshot = Promise.race([
-        bwtsApi.dashboardSnapshot(),
-        new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Protected snapshot timed out')), 8000)),
-      ]);
-      const data = await protectedSnapshot.catch(() => bwtsApi.publicDashboardSnapshot());
+      const { pairs } = await bwtsApi.pairs();
+      const pairList = (Array.isArray(pairs) ? pairs : []).filter((pair): pair is string => typeof pair === 'string' && pair.length > 0);
+      const results = await Promise.allSettled(pairList.map(async (pair) => ({ pair, analysis: await bwtsApi.cryptoAnalysis(pair) })));
+      const generatedAt = new Date().toISOString();
+      const markets = results.flatMap((result) => {
+        if (result.status !== 'fulfilled') return [];
+        const { pair, analysis } = result.value;
+        const plan = analysis.trade_plan;
+        const targets = plan?.targets || [];
+        return [{
+          signal: {
+            id: 0,
+            created_at: generatedAt,
+            pair,
+            direction: analysis.direction,
+            tier: (plan?.eligible ? 'STRONG' : (analysis.total_score || 0) >= 50 ? 'WATCHLIST' : 'NO_TRADE') as const,
+            confidence_score: analysis.total_score || 0,
+            entry: plan?.entry || null,
+            stop_loss: plan?.stop || plan?.invalidation || null,
+            tp1: targets[0]?.price || plan?.tp1 || null,
+            tp2: targets[1]?.price || plan?.tp2 || null,
+            tp3: targets[2]?.price || plan?.tp3 || null,
+            risk_level: plan?.eligible ? 'Managed' : 'Watch',
+            session: plan?.timing?.session?.name || 'Current',
+            adr_status: plan?.daily_range ? `${Math.round(plan.daily_range.percent_used || 0)}% used` : 'unknown',
+            htf_bias: analysis.market_context?.macro_bias || 'neutral',
+            pattern: analysis.scenarios?.primary || 'forming',
+            reasons: (plan?.reasons || []).map(planReasonText).filter(Boolean).slice(0, 3),
+          },
+          analysis,
+          market_info: { status: 'analysis' },
+          lifecycle_state: { state: String(analysis.lifecycle_state || 'observing') },
+          recent_transitions: [],
+          score_history: { scores: [analysis.total_score || 0], count: 1 },
+        }];
+      }) as DashboardSnapshot['markets'];
+      const data = {
+        snapshot_id: `client-${Date.now()}`,
+        generated_at: generatedAt,
+        market_data_timestamp: generatedAt,
+        scanner_health: { status: markets.length ? 'ok' : 'degraded', db_signals: 0, pairs: pairList },
+        config: { pairs: pairList, thresholds: { strong: 65, good: 50, watchlist: 35 }, scan_interval_seconds: 300, news_blackout_minutes: 15 },
+        provider_health: { market_data: markets.length ? 'ok' : 'degraded', calendar: 'checking', minimax: 'checking' } as any,
+        economic_event_risk: { level: 'checking', active_events: 0 },
+        markets,
+        performance_summary: { trades: 0, win_rate: 0, avg_r: 0 },
+        model_version: 'client-command-center',
+      } as DashboardSnapshot;
       setSnapshot(data);
-      setUpdatedAt(new Date(data.generated_at || Date.now()));
-      const top = uniqueMarkets(data.markets).sort((a, b) => heatScore(b.analysis) - heatScore(a.analysis))[0];
+      setUpdatedAt(new Date(generatedAt));
+      const top = markets.sort((a, b) => heatScore(b.analysis) - heatScore(a.analysis))[0];
       if (top?.signal?.pair) {
         bwtsApi.calendarStatus(top.signal.pair).then(setCalendar).catch(() => setCalendar(null));
       }
