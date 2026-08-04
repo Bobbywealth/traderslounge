@@ -747,6 +747,14 @@ export const bwtsApi = {
   alertPreferences: () => get<AlertPreferences>('/api/alerts/preferences'),
   saveAlertPreferences: (prefs: Partial<AlertPreferences>) => post<AlertPreferences>('/api/alerts/preferences', prefs as Record<string, unknown>),
   alertFeed: (limit = 50) => get<{ events: AlertEvent[]; count: number }>('/api/alerts/feed', { limit }),
+
+  telegramStatus: () => get<TelegramStatus>('/api/telegram/status'),
+  telegramLinkToken: () => post<TelegramLinkToken>('/api/telegram/link-token', {}),
+  telegramRegisterWebhook: (publicBaseUrl: string) =>
+    post<{ set_webhook: { ok: boolean }; webhook_info: TelegramWebhookInfo }>(
+      '/api/telegram/register-webhook',
+      { public_base_url: publicBaseUrl },
+    ),
 };
 
 export interface AlertPreferences {
@@ -776,6 +784,26 @@ export interface AlertEvent {
   severity: 'info' | 'warning' | 'critical';
   payload: Record<string, unknown>;
   created_at: string;
+}
+
+export interface TelegramStatus {
+  configured: boolean;
+  username?: string | null;
+  webhook_secret_set?: boolean;
+}
+
+export interface TelegramLinkToken {
+  token: string;
+  deep_link: string;
+  bot_username?: string | null;
+  expires_in_seconds: number;
+}
+
+export interface TelegramWebhookInfo {
+  url?: string;
+  pending_update_count?: number;
+  has_custom_certificate?: boolean;
+  allowed_updates?: string[];
 }
 
 export default bwtsApi;

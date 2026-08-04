@@ -23,8 +23,10 @@ from .kill_switch import KillSwitch
 from .multi_source import MultiSourceClient
 from .news_feed import ForexFactoryClient, refresh_filter
 from .news_filter import NewsFilter
+from .alert_preferences import AlertPreferencesStore
 from .persistence import SQLiteUserRepository
 from .repository_factory import create_signal_repository
+from .telegram_bot import TelegramBot
 from .trade_repo import SQLiteClosedTradeRepository, SQLitePositionRepository
 
 
@@ -77,6 +79,28 @@ def main() -> int:
         news_filter=news,
         market_client=market_client,
     )
+    # Wire the Telegram bot handle into API state. Constructing the
+    # handle is safe even when TELEGRAM_BOT_TOKEN is unset; every
+    # send_message / set_webhook call will be a logged no-op until a
+    # token is provided.
+    telegram_bot = TelegramBot()
+    state.telegram_bot = telegram_bot
+    if telegram_bot.is_configured:
+        # Rebuild the chat_id -> user_id reverse index from persisted
+        # preferences so an API restart does not require every user to
+        # re-link their Telegram chat.
+        store = state.alert_preferences_store
+        if store is None:
+            store = AlertPreferencesStore()
+            state.alert_preferences_store = store
+        for uid in store.all_user_ids():
+            prefs = store.get(int(uid))
+            chat_id = getattr(prefs, "telegram_chat_id", None) if prefs else None
+            if chat_id:
+                try:
+                    telegram_bot.remember_chat_link(chat_id, int(uid))
+                except (TypeError, ValueError):
+                    continue
     server = make_server(state, host=host, port=port)
     print(f"API listening on http://{host}:{port}", file=sys.stderr)
     try:

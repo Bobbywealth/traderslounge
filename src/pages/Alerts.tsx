@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Bell,
@@ -8,11 +8,13 @@ import {
   Info,
   Loader2,
   Save,
+  Send,
   XCircle,
 } from 'lucide-react';
 import bwtsApi, {
   type AlertEvent,
   type AlertPreferences,
+  type TelegramStatus,
 } from '../services/bwtsApi';
 import DataAttribution from '../components/DataAttribution';
 
@@ -127,18 +129,21 @@ const Alerts: React.FC = () => {
   const [feed, setFeed] = useState<AlertEvent[]>([]);
   const [status, setStatus] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [telegramStatus, setTelegramStatus] = useState<TelegramStatus | null>(null);
 
   const load = useCallback(async () => {
     setStatus('loading');
     setErrorMessage(null);
     try {
-      const [prefsResult, feedResult] = await Promise.all([
+      const [prefsResult, feedResult, tgStatus] = await Promise.all([
         bwtsApi.alertPreferences(),
         bwtsApi.alertFeed(50),
+        bwtsApi.telegramStatus().catch(() => ({ configured: false })),
       ]);
       setPrefs(prefsResult);
       setOriginal(prefsResult);
       setFeed(feedResult.events || []);
+      setTelegramStatus(tgStatus);
       setStatus('idle');
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err));
@@ -370,13 +375,13 @@ const Alerts: React.FC = () => {
                 ))}
               </div>
               {prefs.delivery_channels.includes('telegram') && (
-                <input
-                  type="text"
-                  value={prefs.telegram_chat_id || ''}
-                  onChange={(e) => updatePrefs({ telegram_chat_id: e.target.value || null })}
-                  placeholder="Telegram chat id (set automatically when you log in via Telegram)"
-                  className="mt-3 w-full rounded-md border border-white/[0.06] bg-black/20 px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:border-cyan-400/30 focus:outline-none"
-                  data-testid="telegram-chat-id"
+                <TelegramConnect
+                  status={telegramStatus}
+                  chatId={prefs.telegram_chat_id}
+                  onLinked={(chatId) => {
+                    updatePrefs({ telegram_chat_id: chatId });
+                  }}
+                  onClearLink={() => updatePrefs({ telegram_chat_id: null })}
                 />
               )}
             </div>
@@ -485,6 +490,163 @@ const Alerts: React.FC = () => {
             </div>
           </section>
         </>
+      )}
+    </div>
+  );
+};
+
+interface TelegramConnectProps {
+  status: TelegramStatus | null;
+  chatId: string | null;
+  onLinked: (chatId: string) => void;
+  onClearLink: () => void;
+}
+
+// Polls /api/alerts/preferences for up to ~60s after the user opens the
+// Telegram deep link, so the linked chat_id shows up without a manual
+// page reload. Stops early as soon as the value changes.
+const TelegramConnect: React.FC<TelegramConnectProps> = ({ status, chatId, onLinked, onClearLink }) => {
+  const [linkState, setLinkState] = useState<'idle' | 'minting' | 'awaiting' | 'linked' | 'error'>('idle');
+  const [deepLink, setDeepLink] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const pollTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollTimer.current !== null) {
+        window.clearInterval(pollTimer.current);
+      }
+    };
+  }, []);
+
+  const stopPolling = () => {
+    if (pollTimer.current !== null) {
+      window.clearInterval(pollTimer.current);
+      pollTimer.current = null;
+    }
+  };
+
+  const connect = async () => {
+    if (!status?.configured) {
+      setError('Telegram alerts are not configured on the server yet.');
+      return;
+    }
+    setError(null);
+    setLinkState('minting');
+    try {
+      const token = await bwtsApi.telegramLinkToken();
+      setDeepLink(token.deep_link);
+      setLinkState('awaiting');
+      window.open(token.deep_link, '_blank', 'noopener');
+      let elapsed = 0;
+      pollTimer.current = window.setInterval(async () => {
+        elapsed += 2000;
+        try {
+          const prefs = await bwtsApi.alertPreferences();
+          if (prefs.telegram_chat_id) {
+            stopPolling();
+            setLinkState('linked');
+            onLinked(prefs.telegram_chat_id);
+            return;
+          }
+        } catch {
+          // swallow — keep polling until the timer expires
+        }
+        if (elapsed >= 60_000) {
+          stopPolling();
+          setLinkState('error');
+          setError("We didn't see a /start from the bot. The link expires after 10 minutes — try again.");
+        }
+      }, 2000);
+    } catch (err) {
+      setLinkState('error');
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const unlink = () => {
+    stopPolling();
+    setLinkState('idle');
+    setDeepLink(null);
+    setError(null);
+    onClearLink();
+  };
+
+  if (!status?.configured) {
+    return (
+      <div className="mt-3 rounded-md border border-amber-400/20 bg-amber-400/[0.06] p-3 text-xs leading-relaxed text-amber-200">
+        Telegram alerts are not configured on this deployment yet. Set{' '}
+        <code className="font-mono">TELEGRAM_BOT_TOKEN</code> on the API service to enable them.
+      </div>
+    );
+  }
+
+  const botHandle = status.username ? `@${status.username}` : 'the bot';
+
+  if (chatId) {
+    return (
+      <div className="mt-3 flex items-start justify-between gap-3 rounded-md border border-emerald-400/20 bg-emerald-400/[0.06] p-3 text-xs leading-relaxed text-emerald-100">
+        <div className="min-w-0">
+          <div className="font-bold text-emerald-200">Linked</div>
+          <div className="mt-0.5 text-emerald-100/80">
+            Alerts will arrive in <code className="font-mono">{botHandle}</code>. Chat id:{' '}
+            <code className="font-mono">{chatId}</code>.
+          </div>
+          <div className="mt-1 text-emerald-100/70">
+            Send <code className="font-mono">/status</code> in the chat to verify, or{' '}
+            <code className="font-mono">/stop</code> to disable delivery.
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={unlink}
+          className="flex-none rounded border border-emerald-400/30 px-2 py-1 text-[11px] font-bold text-emerald-200 transition hover:bg-emerald-400/10"
+          data-testid="telegram-unlink"
+        >
+          Unlink
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-md border border-white/[0.06] bg-black/20 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 text-xs leading-relaxed text-slate-300">
+          Link <code className="font-mono">{botHandle}</code> to receive alerts in Telegram.
+          <br />
+          <span className="text-slate-500">
+            You'll be asked to tap <b>Start</b> in Telegram. We'll detect the link automatically.
+          </span>
+          {error && <div className="mt-1 text-rose-300">{error}</div>}
+        </div>
+        <button
+          type="button"
+          onClick={connect}
+          disabled={linkState === 'minting' || linkState === 'awaiting'}
+          data-testid="telegram-connect"
+          className="inline-flex flex-none items-center gap-1.5 rounded-md border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5 text-xs font-black text-cyan-300 transition hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {linkState === 'minting' || linkState === 'awaiting' ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {linkState === 'minting' ? 'Opening…' : 'Waiting for /start'}
+            </>
+          ) : (
+            <>
+              <Send className="h-3.5 w-3.5" />
+              Connect Telegram
+            </>
+          )}
+        </button>
+      </div>
+      {deepLink && linkState === 'awaiting' && (
+        <div className="mt-2 break-all text-[11px] text-slate-500">
+          If Telegram didn't open:{' '}
+          <a className="text-cyan-300 underline" href={deepLink} target="_blank" rel="noopener noreferrer">
+            {deepLink}
+          </a>
+        </div>
       )}
     </div>
   );

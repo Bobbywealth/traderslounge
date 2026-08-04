@@ -58,6 +58,7 @@ from .alert_preferences import (
     AlertPreferencesStore,
     evaluate_rules,
 )
+from .telegram_bot import TelegramBot
 from .validation_metrics import calibration_report, grouped_calibration, walk_forward_report
 from .v2_backtester import run_v2_backtest
 from .trade_repo import ClosedTradeRepository, PositionRepository
@@ -242,6 +243,10 @@ class ApiState:
     # to detect price crossing the invalidation level.
     last_analysis_by_pair: dict = field(default_factory=dict)
     perf_repo: Optional[Any] = None
+    # Telegram bot handle. Optional so the API still boots when the
+    # TELEGRAM_BOT_TOKEN env var is not configured. When present,
+    # ``/api/telegram/*`` and the alert dispatcher route through it.
+    telegram_bot: Optional[TelegramBot] = None
     market_event_repo: Optional[Any] = None
     trade_setup_repo: Optional[Any] = None
     trade_outcome_repo: Optional[Any] = None
@@ -475,6 +480,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 return self._alerts_get_preferences()
             if path == "/api/alerts/feed":
                 return self._alerts_feed(query)
+            if path == "/api/telegram/status":
+                return self._telegram_status()
             if path == "/api/validation/report":
                 return self._validation_report(query)
             return self._error(404, f"unknown route: {path}")
@@ -512,6 +519,12 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._ai_chart_analyze(body)
         if path == "/api/alerts/preferences":
             return self._alerts_set_preferences(body)
+        if path == "/api/telegram/webhook":
+            return self._telegram_webhook(body)
+        if path == "/api/telegram/link-token":
+            return self._telegram_link_token(body)
+        if path == "/api/telegram/register-webhook":
+            return self._telegram_register_webhook(body)
         return self._error(404, f"unknown route: {path}")
 
     # --- handlers -------------------------------------------------------
@@ -1324,6 +1337,81 @@ class _ApiHandler(BaseHTTPRequestHandler):
         # UI renders the empty state correctly without 503-ing.
         self._json(200, {"events": events, "count": len(events)})
 
+    # --- Telegram bot routes --------------------------------------------
+
+    def _telegram_bot(self) -> Optional[TelegramBot]:
+        return getattr(_STATE, "telegram_bot", None)
+
+    def _telegram_status(self) -> None:
+        """Public GET describing whether the Telegram bot is wired."""
+        bot = self._telegram_bot()
+        if bot is None:
+            self._json(200, {"configured": False})
+            return
+        self._json(200, {
+            "configured": bool(bot.is_configured),
+            "username": bot.bot_username or None,
+            "webhook_secret_set": bool(bot.webhook_secret),
+        })
+
+    def _telegram_webhook(self, body: dict) -> None:
+        """Receive a Telegram Update from the Bot API webhook."""
+        bot = self._telegram_bot()
+        if bot is None or not bot.is_configured:
+            return self._error(503, "telegram bot not configured")
+        if not bot.verify_webhook_secret(self.headers):
+            return self._error(403, "invalid webhook secret")
+        if not isinstance(body, dict):
+            return self._error(400, "expected JSON object body")
+        try:
+            response_text = bot.handle_update(body, _STATE)
+        except Exception:
+            logging.exception("telegram webhook handler crashed")
+            return self._error(500, "handler error")
+        if response_text:
+            chat_id = (body.get("message") or body.get("edited_message") or {}).get("chat", {}).get("id")
+            if chat_id is not None:
+                bot.send_message(chat_id, response_text)
+        self._json(200, {"ok": True})
+
+    def _telegram_link_token(self, body: dict) -> None:
+        """Mint a one-time link token for the authenticated user."""
+        bot = self._telegram_bot()
+        if bot is None or not bot.is_configured:
+            return self._error(503, "telegram bot not configured")
+        user = self._authenticate(self.headers)
+        if not user:
+            return self._error(401, "Unauthorized")
+        token = bot.mint_link_token(int(user.id))
+        self._json(200, {
+            "token": token,
+            "deep_link": bot.deep_link(token),
+            "bot_username": bot.bot_username or None,
+            "expires_in_seconds": 600,
+        })
+
+    def _telegram_register_webhook(self, body: dict) -> None:
+        """Call ``setWebhook`` against the bot for the current deployment."""
+        bot = self._telegram_bot()
+        if bot is None or not bot.is_configured:
+            return self._error(503, "telegram bot not configured")
+        user = self._authenticate(self.headers)
+        if not user:
+            return self._error(401, "Unauthorized")
+        if getattr(user, "role", "") != "admin":
+            return self._error(403, "Admin role required for this operation")
+        body = body or {}
+        base = (body.get("public_base_url") or os.environ.get("PUBLIC_BASE_URL", "")).rstrip("/")
+        if not base:
+            return self._error(400, "public_base_url is required (or set PUBLIC_BASE_URL)")
+        url = f"{base}/api/telegram/webhook"
+        result = bot.set_webhook(url)
+        if result is None:
+            return self._error(502, "telegram api call failed")
+        info = bot.get_webhook_info() or {}
+        self._json(200, {"set_webhook": result, "webhook_info": info})
+
+
     def _evaluate_and_persist_alerts(self, analysis: dict) -> None:
         """Run :func:`evaluate_rules` for every known user, persist events.
 
@@ -1342,6 +1430,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
             calendar = (analysis.get("economic_calendar") or {})
         except Exception:
             calendar = {}
+        bot = getattr(_STATE, "telegram_bot", None)
         for uid in user_ids:
             prefs = store.get(int(uid))
             if prefs is None:
@@ -1349,12 +1438,22 @@ class _ApiHandler(BaseHTTPRequestHandler):
             events = evaluate_rules(prefs, analysis, calendar=calendar, last_analysis=last_analysis)
             if not events:
                 continue
+            event_dicts = [e.to_dict() for e in events]
             repo = getattr(_STATE, "alert_repo", None)
             if repo is not None and hasattr(repo, "save_events"):
                 try:
-                    repo.save_events([e.to_dict() for e in events])
+                    repo.save_events(event_dicts)
                 except Exception:
                     logging.exception("alert_repo.save_events failed for user %s", uid)
+            # Telegram dispatch is per-user so it sits inside the loop.
+            # TelegramBot.dispatch_event is a no-op when the user has
+            # not linked a chat_id, so the hot path stays cheap.
+            if bot is not None:
+                for ev in event_dicts:
+                    try:
+                        bot.dispatch_event(ev, prefs)
+                    except Exception:
+                        logging.exception("telegram dispatch failed for user %s", uid)
         # Update last_analysis cache for the invalidation rule next cycle.
         try:
             if hasattr(_STATE, "last_analysis_by_pair"):

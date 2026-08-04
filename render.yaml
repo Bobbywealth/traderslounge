@@ -114,6 +114,16 @@ services:
         sync: false
       - key: MINIMAX_MODEL
         value: MiniMax-M3
+      - key: ADMIN_EMAILS
+        sync: false  # comma-separated; users on this list are promoted to role=admin on register/login
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false  # bot token from @BotFather; empty disables the bot
+      - key: TELEGRAM_BOT_USERNAME
+        sync: false  # e.g. confluencex_alerts_bot (no @)
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false  # random string used as X-Telegram-Bot-Api-Secret-Token
+      - key: PUBLIC_BASE_URL
+        sync: false  # https://traderslounge-bwts-api.onrender.com — used to register the webhook
 
   # ------------------------------------------------------------------
   # 4. Scanner worker — fetches data, scores, persists every cycle

@@ -418,6 +418,21 @@ class SQLiteUserRepository:
             (last_login, user_id),
         )
 
+    def set_role(self, user_id: int, role: str) -> bool:
+        """Update a user's role. Returns True if the user existed.
+
+        Used to bootstrap admin accounts from the ADMIN_EMAILS env var
+        during auth_register / auth_login. Roles are intentionally
+        low-cardinality (``user`` / ``admin`` / ``demo``) so this can be
+        invoked safely without per-call authorisation when the caller
+        has already proven control of the user account via password.
+        """
+        cur = self.conn.execute(
+            "UPDATE users SET role = ? WHERE id = ?",
+            (role, int(user_id)),
+        )
+        return cur.rowcount > 0
+
     def close(self) -> None:
         self.conn.close()
 
