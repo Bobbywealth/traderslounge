@@ -4,6 +4,7 @@ import ConfluenceXLogo from './ConfluenceXLogo';
 import {
   Activity, BarChart3, BookOpen, ChevronLeft, ChevronRight, X,
   FlaskConical, LayoutDashboard, LineChart, Newspaper, Settings as SettingsIcon, Zap, Search,
+  Briefcase, History,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -24,6 +25,19 @@ interface SidebarProps {
 type NavItem = { name: string; href: string; icon: React.ElementType };
 type NavGroup = { label: string; items: NavItem[] };
 
+/**
+ * Sidebar surfaces
+ * ----------------
+ * `botMode` is reserved for the upcoming automated-trading strategy. When
+ * that ships, we will surface broker execution views (open positions, trade
+ * history) from the bot strategy itself. The route files for /positions and
+ * /trades stay in the repo so the strategy can navigate to them directly
+ * without re-adding nav links here.
+ *
+ * The current product is read-only market intelligence, so the broker pages
+ * are intentionally hidden from the sidebar. The single source of truth for
+ * which pages appear in the nav is `groups` below.
+ */
 const groups: NavGroup[] = [
   {
     label: 'Find trades',
@@ -51,6 +65,20 @@ const groups: NavGroup[] = [
     ],
   },
 ];
+
+/**
+ * Broker / bot surfaces that are intentionally NOT in the main nav but stay
+ * available in code for the future bot strategy:
+ *   - /positions  (Briefcase,  Positions.tsx)
+ *   - /trades     (History,    TradingTable.tsx)
+ * Flip this flag to true when the bot strategy is ready, then re-introduce
+ * the items in the appropriate group.
+ */
+export const botNavigationItems: NavItem[] = [
+  { name: 'Positions', href: '/positions', icon: Briefcase },
+  { name: 'Trade History', href: '/trades', icon: History },
+];
+
 
 const Sidebar: React.FC<SidebarProps> = ({
   collapsed,
