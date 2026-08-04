@@ -73,7 +73,14 @@ const Dashboard: React.FC = () => {
     try {
       const { pairs } = await bwtsApi.pairs();
       const pairList = (Array.isArray(pairs) ? pairs : []).filter((pair): pair is string => typeof pair === 'string' && pair.length > 0);
-      const results = await Promise.allSettled(pairList.map(async (pair) => ({ pair, analysis: await bwtsApi.cryptoAnalysis(pair) })));
+      const withTimeout = <T,>(promise: Promise<T>, ms: number, label: string) => Promise.race([
+        promise,
+        new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error(`${label} timed out`)), ms)),
+      ]);
+      const results = await Promise.allSettled(pairList.map(async (pair) => ({
+        pair,
+        analysis: await withTimeout(bwtsApi.cryptoAnalysis(pair), 7000, pair),
+      })));
       const generatedAt = new Date().toISOString();
       const markets = results.flatMap((result) => {
         if (result.status !== 'fulfilled') return [];
