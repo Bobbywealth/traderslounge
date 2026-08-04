@@ -942,7 +942,7 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
 
     coverage = len(available_categories) / 9
     confidence_tier = "high" if coverage >= 0.9 else "qualified" if coverage >= 0.75 else "developing" if coverage >= 0.5 else "watch"
-    data_freshness_seconds = int(now_ts - reference_ts) if reference_ts and reference_ts > 0 else 0
+    data_freshness_seconds = max(0, int(now_ts - reference_ts)) if reference_ts and reference_ts > 0 else 0
     quality["freshness_threshold_seconds"] = freshness_threshold
     quality["data_stale"] = bool(data_freshness_seconds and data_freshness_seconds > freshness_threshold)
     bias = {name: trends.get(name, {"trend": "neutral", "labels": []}) for name in ("mn1", "w1", "d1", "h4", "h1")}

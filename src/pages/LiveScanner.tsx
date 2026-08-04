@@ -101,6 +101,9 @@ const LiveScanner: React.FC = () => {
   const average = loaded.length
     ? Math.round(loaded.reduce((sum, r) => sum + (r.analysis?.total_score || 0), 0) / loaded.length)
     : 0;
+  const hottest = useMemo(() => [...loaded]
+    .sort((a, b) => (b.analysis?.total_score || 0) - (a.analysis?.total_score || 0))
+    .slice(0, 4), [loaded]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -206,10 +209,10 @@ const LiveScanner: React.FC = () => {
           </div>
         </div>
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Metric label="MARKETS" value={String(rows.length)} />
-          <Metric label="ELIGIBLE PLANS" value={String(eligible)} />
-          <Metric label="BIAS" value={`${buyCount} buy · ${sellCount} sell`} />
-          <Metric label="AVERAGE SCORE" value={`${average}/100`} />
+          <Metric label="MARKETS" value={rows.length ? `${loaded.length}/${rows.length}` : refreshing ? 'Loading' : '0'} />
+          <Metric label="ELIGIBLE PLANS" value={loaded.length ? String(eligible) : 'Loading'} />
+          <Metric label="BIAS" value={loaded.length ? `${buyCount} buy · ${sellCount} sell` : 'Loading'} />
+          <Metric label="AVERAGE SCORE" value={loaded.length ? `${average}/100` : 'Loading'} />
         </div>
       </section>
 
@@ -272,6 +275,30 @@ const LiveScanner: React.FC = () => {
         </div>
       </section>
 
+      {hottest.length > 0 && (
+        <section className="rounded-[20px] border border-orange-400/15 bg-[#090d18] p-5">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[9px] font-black tracking-[0.2em] text-orange-300">HOT RIGHT NOW</div>
+              <h2 className="mt-1 text-lg font-black">Highest-readiness markets</h2>
+            </div>
+            <span className="text-[10px] text-slate-500">Sorted by live V2 score</span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {hottest.map((row) => (
+              <div key={row.pair} className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-black text-white">{row.pair}</span>
+                  <span className="rounded-lg bg-cyan-400/10 px-2 py-1 text-[10px] font-black text-cyan-300">{row.analysis?.total_score || 0}/100</span>
+                </div>
+                <div className="mt-2 text-xs text-slate-500">{row.analysis?.trade_timing?.wait_for?.[0]?.replace(/_/g, ' ') || row.analysis?.trade_timing?.status || 'Watching'}</div>
+                <a href={`/analysis/${row.pair}`} className="mt-3 inline-block text-xs font-bold text-cyan-300 hover:text-cyan-200">Analyze</a>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {globalError && (
         <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-rose-300">
           {globalError}
@@ -314,7 +341,7 @@ const LiveScanner: React.FC = () => {
       )}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        {rows.map((row) => {
+        {(loaded.length ? sorted : rows).map((row) => {
           if (row.loading) {
             return (
               <div

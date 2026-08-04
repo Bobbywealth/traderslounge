@@ -2,8 +2,8 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import ConfluenceXLogo from './ConfluenceXLogo';
 import {
-  Activity, BarChart3, BookOpen, Briefcase, ChevronLeft, ChevronRight, X,
-  FlaskConical, History, LayoutDashboard, LineChart, Newspaper, Settings as SettingsIcon, Zap, Search,
+  Activity, BarChart3, BookOpen, ChevronLeft, ChevronRight, X,
+  FlaskConical, LayoutDashboard, LineChart, Newspaper, Settings as SettingsIcon, Zap, Search,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -26,21 +26,20 @@ type NavGroup = { label: string; items: NavItem[] };
 
 const groups: NavGroup[] = [
   {
-    label: 'Trade',
+    label: 'Find trades',
     items: [
       { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+      { name: 'Hot Scanner', href: '/scanner', icon: Activity },
       { name: 'Signals', href: '/signals', icon: Zap },
-      { name: 'Positions', href: '/positions', icon: Briefcase },
-      { name: 'Trade History', href: '/trades', icon: History },
+      { name: 'Chart', href: '/tradingview', icon: BarChart3 },
     ],
   },
   {
-    label: 'Analyze',
+    label: 'Research',
     items: [
       { name: 'Market Analysis', href: '/analysis', icon: Search },
-      { name: 'Live Scanner', href: '/scanner', icon: Activity },
-      { name: 'Chart', href: '/tradingview', icon: BarChart3 },
       { name: 'Economic News', href: '/calendar', icon: Newspaper },
+      { name: 'Backtest & Accuracy', href: '/backtester', icon: FlaskConical },
     ],
   },
   {
@@ -48,7 +47,7 @@ const groups: NavGroup[] = [
     items: [
       { name: 'Performance', href: '/performance', icon: LineChart },
       { name: 'Journal', href: '/journal', icon: BookOpen },
-      { name: 'Backtest & Accuracy', href: '/backtester', icon: FlaskConical },
+      { name: 'Settings', href: '/settings', icon: SettingsIcon },
     ],
   },
 ];
@@ -129,9 +128,6 @@ const Sidebar: React.FC<SidebarProps> = ({
         ))}
       </nav>
 
-      <div className="border-t border-gray-700/50 p-3">
-        {renderItem({ name: 'Settings', href: '/settings', icon: SettingsIcon })}
-      </div>
     </div>
   );
 

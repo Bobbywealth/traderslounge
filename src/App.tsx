@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import ConfluenceXLogo from './components/ConfluenceXLogo';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Sidebar from './components/Sidebar';
@@ -128,7 +128,9 @@ const AppContent: React.FC = () => {
             <div className={isTradingWorkspace ? 'h-full min-w-0 min-h-0 overflow-hidden p-0' : 'p-6'}>
               <Routes>
                 <Route path="/" element={<Dashboard />} />
+                <Route path="/dashboard" element={<Navigate to="/" replace />} />
                 <Route path="/scanner" element={<LiveScanner />} />
+                <Route path="/analysis" element={<MarketAnalysis />} />
                 <Route path="/analysis/:pair" element={<MarketAnalysis />} />
                 <Route path="/alerts" element={<Alerts />} />
                 <Route path="/signals" element={<Signals />} />
