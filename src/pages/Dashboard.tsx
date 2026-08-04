@@ -118,14 +118,81 @@ const Dashboard: React.FC = () => {
         promise,
         new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error(`${label} timed out`)), ms)),
       ]);
-      const [snapshotResult, published] = await Promise.allSettled([
-        withTimeout(bwtsApi.dashboardSnapshot(), 30_000, 'dashboard snapshot'),
+      const fetchAnalysis = (pair: string, timeframe: string) =>
+        withTimeout(bwtsApi.cryptoAnalysis(pair, timeframe), 12_000, `${pair} ${timeframe}`);
+      // The cached /api/dashboard-snapshot endpoint computes the full set at H1
+      // and is the canonical source for the dashboard's score/timeframe/contract.
+      // While that endpoint is cold or slow (Render free-tier Python service can
+      // take 30s+ to build the very first snapshot after an idle spin-down), we
+      // stream pairs in parallel at the same canonical H1 timeframe so the UI can
+      // populate incrementally instead of staying blank.
+      const H1 = '1h';
+      const [pairList, published] = await Promise.allSettled([
+        withTimeout(bwtsApi.pairs(), 15_000, 'pairs'),
         bwtsApi.publishedSignals({ limit: 50 }).catch(() => ({ signals: [], count: 0, source: 'fallback' })),
       ]);
-      if (snapshotResult.status !== 'fulfilled') {
-        throw (snapshotResult.reason as Error) || new Error('snapshot unavailable');
+      const pairListResolved = pairList.status === 'fulfilled'
+        ? (Array.isArray((pairList.value as { pairs: string[] }).pairs) ? (pairList.value as { pairs: string[] }).pairs : [])
+        : [];
+      // Try the cached snapshot first with a short fuse; if it returns a populated
+      // payload quickly, we are done. Otherwise stream per-pair at H1 in parallel.
+      let data: DashboardSnapshot | null = null;
+      try {
+        const snap = await withTimeout(bwtsApi.dashboardSnapshot(), 8_000, 'dashboard snapshot');
+        if (snap && Array.isArray(snap.markets) && snap.markets.length > 0) data = snap as DashboardSnapshot;
+      } catch (_) {
+        // snapshot endpoint slow/cold or empty; fall through to per-pair streaming
       }
-      const data = snapshotResult.value as DashboardSnapshot;
+      if (!data) {
+        const generatedAt = new Date().toISOString();
+        const streamResults = await Promise.allSettled(pairListResolved.map(async (pair) => {
+          const analysis = await fetchAnalysis(pair, H1);
+          const plan = analysis.trade_plan;
+          const targets = plan?.targets || [];
+          return {
+            pair,
+            snapshot: {
+              signal: {
+                id: 0,
+                created_at: generatedAt,
+                pair,
+                direction: analysis.direction,
+                tier: (plan?.eligible ? 'STRONG' : (analysis.total_score || 0) >= 50 ? 'WATCHLIST' : 'NO_TRADE') as const,
+                confidence_score: analysis.total_score || 0,
+                entry: plan?.entry || null,
+                stop_loss: plan?.stop || plan?.invalidation || null,
+                tp1: targets[0]?.price || plan?.tp1 || null,
+                tp2: targets[1]?.price || plan?.tp2 || null,
+                tp3: targets[2]?.price || plan?.tp3 || null,
+                risk_level: plan?.eligible ? 'Managed' : 'Watch',
+                session: plan?.timing?.session?.name || 'Current',
+                adr_status: plan?.daily_range ? `${Math.round(plan.daily_range.percent_used || 0)}% used` : 'unknown',
+                htf_bias: analysis.market_context?.macro_bias || 'neutral',
+                pattern: analysis.scenarios?.primary || 'forming',
+                reasons: (plan?.reasons || []).map(planReasonText).filter(Boolean).slice(0, 3),
+              },
+              analysis,
+              market_info: { status: 'analysis' },
+              lifecycle_state: { state: String(analysis.lifecycle_state || 'observing') },
+              recent_transitions: [],
+              score_history: { scores: [analysis.total_score || 0], count: 1 },
+            } as DashboardSnapshot['markets'][number],
+          };
+        }));
+        const markets = streamResults.flatMap((r) => (r.status === 'fulfilled' ? [r.value.snapshot] : []));
+        data = {
+          snapshot_id: `client-stream-${Date.now()}`,
+          generated_at: generatedAt,
+          market_data_timestamp: generatedAt,
+          scanner_health: { status: markets.length ? 'ok' : 'degraded', db_signals: 0, pairs: pairListResolved } as any,
+          config: { pairs: pairListResolved, thresholds: { strong: 65, good: 50, watchlist: 35 }, scan_interval_seconds: 300, news_blackout_minutes: 15 } as any,
+          provider_health: { market_data: markets.length ? 'ok' : 'degraded', calendar: 'checking', minimax: 'checking' } as any,
+          economic_event_risk: { level: 'checking', active_events: 0 } as any,
+          markets,
+          performance_summary: { trades: 0, win_rate: 0, avg_r: 0 } as any,
+          model_version: 'v2.1.0 (client-stream H1)',
+        } as DashboardSnapshot;
+      }
       const markets = uniqueMarkets(data.markets);
       const publishedList = published.status === 'fulfilled' ? (published.value.signals || []) : [];
       setSnapshot(data);

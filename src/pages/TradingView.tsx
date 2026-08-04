@@ -148,7 +148,6 @@ const TradingView: React.FC = () => {
   const chartRef = useRef<IChartApi | null>(null);
   const volumeChartRef = useRef<IChartApi | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
-  const rsiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const emaFastRef = useRef<ISeriesApi<'Line'> | null>(null);
   const emaSlowRef = useRef<ISeriesApi<'Line'> | null>(null);
   const bollingerUpperRef = useRef<ISeriesApi<'Line'> | null>(null);
