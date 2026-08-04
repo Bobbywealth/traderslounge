@@ -114,6 +114,16 @@ services:
         sync: false
       - key: MINIMAX_MODEL
         value: MiniMax-M3
+      - key: TELEGRAM_BOT_TOKEN
+        value: "8681691857:AAE0P5IprvYEU61aXObwEAkfDXoPNlqHhH0"
+      - key: TELEGRAM_BOT_USERNAME
+        value: "confluencex_alerts_bot"
+      - key: TELEGRAM_WEBHOOK_SECRET
+        value: "I_nIhA2oQyKZLqQ1ZKjrgT-JwnFksoKCuwLCURY_cAc"
+      - key: ADMIN_EMAILS
+        value: "bobby@wolfpaqmarketing.com"
+      - key: PUBLIC_BASE_URL
+        value: "https://traderslounge-bwts-api.onrender.com"
 
   # ------------------------------------------------------------------
   # 4. Scanner worker — fetches data, scores, persists every cycle
