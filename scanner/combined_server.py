@@ -30,6 +30,7 @@ from .news_feed import ForexFactoryClient
 from .news_filter import NewsFilter
 from .repository_factory import create_signal_repository
 from .scheduler import Scanner
+from .telegram_bot import TelegramBot
 from .trade_repo import SQLiteClosedTradeRepository, SQLitePositionRepository
 
 
@@ -90,6 +91,20 @@ def main() -> int:
         news_filter=news,
         alert_preferences_store=AlertPreferencesStore(),
     )
+    # Wire the Telegram bot into API state and rebuild the chat_id
+    # reverse index from persisted preferences so a deploy does not
+    # require every user to re-link their Telegram chat.
+    telegram_bot = TelegramBot()
+    state.telegram_bot = telegram_bot
+    if telegram_bot.is_configured:
+        for uid in state.alert_preferences_store.all_user_ids():
+            prefs = state.alert_preferences_store.get(int(uid))
+            chat_id = getattr(prefs, "telegram_chat_id", None) if prefs else None
+            if chat_id:
+                try:
+                    telegram_bot.remember_chat_link(chat_id, int(uid))
+                except (TypeError, ValueError):
+                    continue
     host = os.environ.get("API_HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))
     server = make_server(state, host=host, port=port)
