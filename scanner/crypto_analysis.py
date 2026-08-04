@@ -463,7 +463,7 @@ def _build_setup_zones(*, price, atr_value, zones, indicators, direction, market
 
         setup_zones.append({
             "direction": item["direction"], "low": round(item["low"], 8), "high": round(item["high"], 8), "center": round(item["center"], 8),
-            "score": score,
+            "score": score if actionable else None,
             "tier": "A" if score >= 80 else "B" if score >= 65 else "C" if score >= 50 else "WATCH",
             "actionable": actionable,
             "conflicting_with_harmonic": conflicting_with_harmonic,
@@ -779,13 +779,40 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         indicators.update({**{f"ema_{p}": ema_values[p] for p in ema_periods}, **{f"sma_{p}": sma_values[p] for p in sma_periods}, "ema_stack_aligned": ema_stack, "sma_stack_aligned": sma_stack, "golden_cross": golden_cross, "death_cross": death_cross})
         scores["moving_averages"] = _clamp((4 if ema_stack else 1) + (3 if sma_stack else 0) + (2 if dynamic_support else 0) + (1 if (golden_cross and sign > 0) or (death_cross and sign < 0) else 0), 0, 10) if sign else 0
 
-        fib_zone = _build_fibonacci_zone(bars, price, level_atr, sr_zones, primary_name)
-        if fib_zone:
-            zones["fibonacci"] = fib_zone
-            leg_dir = fib_zone["leg"]
-            retrace = fib_zone["retracement"]
-            confluence = fib_zone.get("sr_confluence") or []
-            in_golden_pocket = bool((fib_zone.get("golden_pocket") or {}).get("contains_price"))
+        leg = _significant_leg(bars, level_atr)
+        if leg:
+            low, high, leg_dir = leg
+            retrace = retracement_pct(price, low, high, leg_dir)
+            span = high - low
+            # Standard Fibonacci retracement ladder. 0.65 was a non-standard
+            # pseudo-golden level that conflicted with the canonical Fib 0.618
+            # and misled users (e.g. labeling a 0.65 band as a "golden pocket").
+            retracement_ratios = (.236, .382, .5, .618, .786)
+            extension_ratios = (1.272, 1.618, 2.0, 2.618)
+            fibs = {
+                f"{ratio:g}": high - span*ratio if leg_dir == "up" else low + span*ratio
+                for ratio in retracement_ratios
+            }
+            fibs.update({
+                f"{ratio:g}": low + span*ratio if leg_dir == "up" else high - span*ratio
+                for ratio in extension_ratios
+            })
+            fib_tolerance = max((level_atr or 0)*.25, price*.001)
+            confluence = []
+            for ratio, fib_level in fibs.items():
+                matched = [zone for zone in sr_zones if abs(zone["level"]-fib_level) <= fib_tolerance]
+                if matched:
+                    confluence.append({"ratio": ratio, "level": fib_level, "sr_level": matched[0]["level"], "sr_strength": matched[0]["strength"], "distance": abs(matched[0]["level"]-fib_level)})
+            # Golden pocket is the canonical 0.618–0.786 band.
+            golden_low, golden_high = sorted((fibs["0.618"], fibs["0.786"]))
+            in_golden_pocket = golden_low <= price <= golden_high
+            nearest_ratio, nearest_level = min(fibs.items(), key=lambda item: abs(item[1]-price))
+            zones["fibonacci"] = {
+                "leg": leg_dir, "swing_low": low, "swing_high": high, "leg_size_atr": span/(level_atr or span),
+                "retracement": retrace, "levels": fibs, "golden_pocket": {"low": golden_low, "high": golden_high, "contains_price": in_golden_pocket},
+                "nearest": {"ratio": nearest_ratio, "level": nearest_level, "distance_atr": abs(price-nearest_level)/(level_atr or span)},
+                "sr_confluence": confluence,
+            }
             aligned_leg = sign and ((leg_dir == "up") == (sign > 0))
             scores["fibonacci"] = _clamp((4 if aligned_leg else 0) + (3 if .382 <= retrace <= .786 else 0) + (2 if confluence else 0) + (1 if in_golden_pocket else 0), 0, 10)
             htf_fibs = []

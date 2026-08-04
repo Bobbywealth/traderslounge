@@ -1,17 +1,23 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts';
+import { createVolumePane, createRsiPane, computeVolume, computeRsi } from '../components/chartPanes';
+import { V2ScoreBadge, MtfBar, QuickSymbolPills, TradeLevels, TechnicalAnalysisTable, SetupGuideHero, CandlePatternMarkers, detectCandlePatterns } from '../components/ChartUxEnhancements';
 import {
   Settings,
   Maximize2,
   Search,
   Wifi,
   WifiOff,
+  Play,
+  Pause,
   BarChart3,
   Activity,
   Target,
   Zap,
   RefreshCw,
   Pencil,
+  Sun,
+  Moon,
   LineChart,
   CandlestickChart,
   BarChart2,
@@ -79,18 +85,6 @@ type ChartType = 'candlestick' | 'line' | 'area';
 type DrawingTool = 'pan' | 'select' | 'trend' | 'horizontal' | 'sr' | 'rectangle' | 'fib' | 'text';
 type DrawingPoint = { time: number; price: number };
 
-const CRYPTO_OR_METAL_PATTERN = /(BTC|ETH|SOL|XRP|ADA|DOGE|LTC|BNB|DOT|AVAX|LINK|XAU|XAG)/i;
-
-function formatTrendDistance(distance: number, symbol: string): string {
-  const value = Number(distance);
-  if (!Number.isFinite(value)) return 'distance unavailable';
-  const upper = String(symbol || '').toUpperCase();
-  if (CRYPTO_OR_METAL_PATTERN.test(upper)) {
-    return `${value.toFixed(value >= 100 ? 0 : 2)} points away`;
-  }
-  const pipMultiplier = upper.includes('JPY') ? 100 : 10000;
-  return `${(value * pipMultiplier).toFixed(1)} pips away`;
-}
 type ManualDrawing = { id: string; type: Exclude<DrawingTool, 'select' | 'pan'>; points: DrawingPoint[]; text?: string; color?: string; locked?: boolean; lineStyle?: 'solid' | 'dashed'; showPrice?: boolean };
 
 interface SymbolInfo {
@@ -132,7 +126,7 @@ const BWTS_SYMBOLS: SymbolInfo[] = [
   { symbol: 'NZDUSD', name: 'New Zealand Dollar / US Dollar', exchange: 'Twelve Data', type: 'forex' },
   // Metals (Twelve Data feed)
   { symbol: 'XAUUSD', name: 'Gold / US Dollar', exchange: 'Twelve Data', type: 'commodity' },
-  // Stocks & ETFs (Financial Modeling Prep feed) — daily OHLCV on the free
+  // Stocks & ETFs (Financial Modeling Prep feed) - daily OHLCV on the free
   // plan; intraday timeframes unlock with a paid FMP subscription.
   { symbol: 'AAPL', name: 'Apple Inc.', exchange: 'Financial Modeling Prep', type: 'stock' },
   { symbol: 'MSFT', name: 'Microsoft Corp.', exchange: 'Financial Modeling Prep', type: 'stock' },
@@ -149,10 +143,13 @@ const TradingView: React.FC = () => {
   const workspaceRef = useRef<HTMLDivElement>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const volumeContainerRef = useRef<HTMLDivElement>(null);
+  const rsiContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const volumeChartRef = useRef<IChartApi | null>(null);
-  const mainSeriesRef = useRef<ISeriesApi<'Candlestick'> | ISeriesApi<'Line'> | ISeriesApi<'Area'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const rsiChartRef = useRef<IChartApi | null>(null);
+  const rsiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const mainSeriesRef = useRef<ISeriesApi<'Candlestick'> | ISeriesApi<'Line'> | ISeriesApi<'Area'> | null>(null);
   const chartInitialized = useRef<boolean>(false);
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const harmonicSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
@@ -166,9 +163,12 @@ const TradingView: React.FC = () => {
   const lastUiPriceUpdateRef = useRef(0);
   const [chartType, setChartType] = useState<ChartType>('candlestick');
   const [showVolume, setShowVolume] = useState(true);
+  const [showRsi, setShowRsi] = useState(true);
+  const [chartTheme, setChartTheme] = useState<'dark' | 'light'>('dark');
   const [chartRevision, setChartRevision] = useState(0);
   const [chartUpdatedAt, setChartUpdatedAt] = useState<Date | null>(null);
-  
+  const [candlePatterns, setCandlePatterns] = useState<Array<{ type: 'doji' | 'hammer' | 'engulfing' | 'shooting_star' | 'spinning_top'; direction: 'bullish' | 'bearish' | 'neutral'; index: number }>>([]);
+
   // State management
   const [selectedSymbol, setSelectedSymbol] = useState('BTCUSD');
   const [timeframe, setTimeframe] = useState('1h');
@@ -181,7 +181,7 @@ const TradingView: React.FC = () => {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [availableSymbols, setAvailableSymbols] = useState<SymbolInfo[]>(BWTS_SYMBOLS);
   const [selectedBroker, setSelectedBroker] = useState('polygon');
-  
+
   // Technical analysis data
   const [harmonicPatterns, setHarmonicPatterns] = useState<HarmonicPattern[]>([]);
   const [adrData, setAdrData] = useState<ChartAdr | null>(null);
@@ -222,7 +222,7 @@ const TradingView: React.FC = () => {
     const assetType = availableSymbols.find((symbol) => symbol.symbol === selectedSymbol)?.type;
     // V2 analysis runs server-side for any asset class via the same
     // /api/analysis endpoint (MultiSourceClient routes FX/gold to Twelve
-    // Data). Show it for crypto, forex and commodities — not just crypto.
+    // Data). Show it for crypto, forex and commodities - not just crypto.
     if (!assetType || !['crypto', 'forex', 'commodity', 'stock'].includes(assetType)) {
       setCryptoAnalysis(null);
       return;
@@ -232,9 +232,43 @@ const TradingView: React.FC = () => {
     setChartAiAnalysis(null);
     setChartAiConfigured(null);
     setChartAiError(null);
-    bwtsApi.cryptoAnalysis(selectedSymbol, timeframe)
-      .then((analysis) => { if (active) setCryptoAnalysis(analysis); })
-      .catch(() => { if (active) setCryptoAnalysis(null); });
+
+    // Retry the V2 analysis up to 3 times. On slower timeframes (1W, 1M) the
+    // backend occasionally warms up after the timeframe change so a single
+    // call can return an empty payload. Without a retry the UI shows "no V2"
+    // until the user hits the refresh button manually.
+    const fetchWithRetry = (attempt = 0): void => {
+      if (!active) return;
+      const delay = attempt === 0 ? 0 : 1200 * attempt;
+      window.setTimeout(() => {
+        if (!active) return;
+        bwtsApi.cryptoAnalysis(selectedSymbol, timeframe)
+          .then((analysis) => {
+            if (!active) return;
+            const hasContent = analysis && (analysis.total_score != null || analysis.direction);
+            if (hasContent) {
+              setCryptoAnalysis(analysis);
+              return;
+            }
+            if (attempt < 2) {
+              fetchWithRetry(attempt + 1);
+            } else {
+              setCryptoAnalysis(null);
+            }
+          })
+          .catch(() => {
+            if (!active) return;
+            if (attempt < 2) {
+              fetchWithRetry(attempt + 1);
+            } else {
+              setCryptoAnalysis(null);
+            }
+          });
+      }, delay);
+    };
+
+    fetchWithRetry(0);
+
     return () => { active = false; };
   }, [selectedSymbol, timeframe, availableSymbols]);
 
@@ -513,7 +547,7 @@ const TradingView: React.FC = () => {
 
     try {
       console.log('🔌 Connecting to TradeLocker...');
-      
+
       // Authenticate with TradeLocker
       const authResponse = await tradeLockerService.authenticate({
         email: tradeLockerCredentials.email,
@@ -530,7 +564,7 @@ const TradingView: React.FC = () => {
 
       // Initialize WebSocket for real-time data
       initializeTradeLockerWebSocket();
-      
+
     } catch (error) {
       console.error('❌ TradeLocker connection failed:', error);
       alert('Failed to connect to TradeLocker. Please check your credentials.');
@@ -541,13 +575,13 @@ const TradingView: React.FC = () => {
 
   // Initialize WebSocket connection to TradeLocker
   const initializeTradeLockerWebSocket = () => {
-    const wsUrl = tradeLockerCredentials.isDemo 
-      ? 'wss://demo.tradelocker.com/streaming-api' 
+    const wsUrl = tradeLockerCredentials.isDemo
+      ? 'wss://demo.tradelocker.com/streaming-api'
       : 'wss://live.tradelocker.com/streaming-api';
 
     try {
       console.log(`🔗 Connecting to WebSocket: ${wsUrl}`);
-      
+
       // Note: TradeLocker may use different WebSocket URL format
       // This is a placeholder - you'll need to check TradeLocker's actual WebSocket API
       const ws = new WebSocket(wsUrl);
@@ -555,7 +589,7 @@ const TradingView: React.FC = () => {
       ws.onopen = () => {
         console.log('✅ WebSocket connected');
         setIsConnected(true);
-        
+
         // Subscribe to symbol data
         ws.send(JSON.stringify({
           type: 'subscribe',
@@ -567,7 +601,7 @@ const TradingView: React.FC = () => {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          
+
           if (data.type === 'quote' || data.type === 'candlestick') {
             // Update chart with real data
             const newCandle = {
@@ -577,11 +611,11 @@ const TradingView: React.FC = () => {
               low: data.low,
               close: data.close,
             };
-            
+
             if (candlestickSeriesRef.current) {
               candlestickSeriesRef.current.update(newCandle);
             }
-            
+
             setCurrentPrice(data.close);
           }
         } catch (error) {
@@ -667,13 +701,13 @@ const TradingView: React.FC = () => {
   const loadSymbolData = async (symbol: string) => {
     try {
       console.log(`🔄 Loading data for ${symbol}...`);
-      
+
       // Harmonics are loaded independently from the BWTS Python scanner so
       // they refresh whenever the symbol or timeframe changes.
 
       // These were awaited in sequence, so a symbol switch paid trendline
       // latency + price-history latency + fibonacci latency back to back
-      // before anything appeared. They are independent — run them together,
+      // before anything appeared. They are independent - run them together,
       // and let one failing leave the other rendered.
       const trendTask = showTrendLines
         ? fetchBwtsTrendLines(symbol, timeframe)
@@ -702,7 +736,7 @@ const TradingView: React.FC = () => {
 
   // Overlays are derived from the previously selected market. Until the new
   // symbol's analysis arrives they would keep drawing the old symbol's
-  // harmonics, levels and setup zones over the new candles — the levels look
+  // harmonics, levels and setup zones over the new candles - the levels look
   // "wrong" because they belong to a different instrument. Clear on switch.
   useEffect(() => {
     setHarmonicPatterns([]);
@@ -712,7 +746,7 @@ const TradingView: React.FC = () => {
     setAdrData(null);
     // loadSymbolData previously ran only on mount and on an explicit symbol
     // pick, so trendlines and fibonacci were never recomputed for a new
-    // timeframe — the chart kept 1h levels while displaying 15m candles.
+    // timeframe - the chart kept 1h levels while displaying 15m candles.
     loadSymbolData(selectedSymbol);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSymbol, timeframe]);
@@ -846,7 +880,7 @@ const TradingView: React.FC = () => {
     // The container can be unmounted or zero-sized on the first pass (layout
     // not settled, panel still collapsed). This effect used to have [] deps and
     // bail permanently in that case, leaving a blank chart that never
-    // recovered — the "sometimes it doesn't open" report. Retry next frame.
+    // recovered - the "sometimes it doesn't open" report. Retry next frame.
     const container = chartContainerRef.current;
     if (!container || container.clientWidth === 0 || container.clientHeight === 0) {
       const raf = requestAnimationFrame(() => setChartInitAttempt((n) => n + 1));
@@ -889,7 +923,7 @@ const TradingView: React.FC = () => {
       setChartError(null);
 
       // Technical analysis is loaded by the symbol/timeframe effect, which also
-      // runs on mount — calling it here too issued every request twice.
+      // runs on mount - calling it here too issued every request twice.
 
       // Observe the actual container, not just window resize. This catches
       // sidebar collapse and async harmonic/ADR status bars without leaving
@@ -919,6 +953,83 @@ const TradingView: React.FC = () => {
       setChartError(error instanceof Error ? error.message : 'Chart failed to initialise.');
     }
   }, [chartInitAttempt]);
+
+  // Initialize the volume and RSI panes when, and only when, the chart has
+  // been mounted. The panes share the same time scale as the main chart via
+  // a subscription on the main chart's time range, so panning/zooming on the
+  // main chart keeps the indicators aligned.
+  useEffect(() => {
+    if (!chartInitialized.current) return;
+    if (!volumeContainerRef.current || !rsiContainerRef.current) return;
+    if (volumeChartRef.current || rsiChartRef.current) return;
+
+    const volume = createVolumePane(volumeContainerRef.current, 110);
+    volumeChartRef.current = volume.chart;
+    volumeSeriesRef.current = volume.series;
+
+    const rsi = createRsiPane(rsiContainerRef.current, 110);
+    rsiChartRef.current = rsi.chart;
+    rsiSeriesRef.current = rsi.series;
+
+    // Sync the pane time scales with the main chart so a pan/zoom on the
+    // candles mirrors onto the indicators.
+    const mainChart = chartRef.current;
+    const syncTimeFromMain = () => {
+      if (!mainChart || !volumeChartRef.current || !rsiChartRef.current) return;
+      const range = mainChart.timeScale().getVisibleLogicalRange();
+      if (!range) return;
+      try {
+        volumeChartRef.current.timeScale().setVisibleLogicalRange(range);
+        rsiChartRef.current.timeScale().setVisibleLogicalRange(range);
+      } catch (error) {
+        // logical range sync is best-effort; ignore invalidation errors
+      }
+    };
+    const mainTimeHandler = mainChart?.timeScale().subscribeVisibleTimeRangeChange(() => {
+      syncTimeFromMain();
+    }) as unknown as (() => void) | undefined;
+    const mainLogicalHandler = mainChart?.timeScale().subscribeVisibleLogicalRangeChange(() => {
+      syncTimeFromMain();
+    }) as unknown as (() => void) | undefined;
+
+    return () => {
+      if (typeof mainTimeHandler === 'function') {
+        try { mainTimeHandler(); } catch { /* ignore */ }
+      }
+      if (typeof mainLogicalHandler === 'function') {
+        try { mainLogicalHandler(); } catch { /* ignore */ }
+      }
+      if (volumeChartRef.current) {
+        try { volumeChartRef.current.remove(); } catch { /* ignore */ }
+        volumeChartRef.current = null;
+      }
+      if (rsiChartRef.current) {
+        try { rsiChartRef.current.remove(); } catch { /* ignore */ }
+        rsiChartRef.current = null;
+      }
+      volumeSeriesRef.current = null;
+      rsiSeriesRef.current = null;
+    };
+  }, [chartInitialized.current]);
+
+  // Push live candle data into the volume and RSI panes whenever the cache
+  // for the current symbol/timeframe changes.
+  useEffect(() => {
+    const key = `${selectedSymbol}:${timeframe}`;
+    const candles = candleCacheRef.current[key];
+    if (!candles || candles.length === 0) return;
+    if (volumeSeriesRef.current) {
+      volumeSeriesRef.current.setData(computeVolume(candles));
+    }
+    if (rsiSeriesRef.current) {
+      const rsi = computeRsi(candles.map((c) => ({ time: c.time, close: c.close })));
+      rsiSeriesRef.current.setData(rsi);
+    }
+    // Detect the most recent candle patterns and surface them to the UI.
+    // Pure function - no allocation beyond the result array.
+    const detected = detectCandlePatterns(candles);
+    setCandlePatterns(detected);
+  }, [chartRevision, selectedSymbol, timeframe]);
 
   // ADR changes slowly, so refresh once per minute rather than on every
   // candle poll.
@@ -1118,7 +1229,7 @@ const TradingView: React.FC = () => {
           przLabel.setAttribute('fill', color);
           przLabel.setAttribute('font-size', '13');
           przLabel.setAttribute('font-weight', '800');
-          przLabel.textContent = `${pattern.type} PRZ ${pattern.prz.min.toFixed(2)}–${pattern.prz.max.toFixed(2)}${referenceTag}`;
+          przLabel.textContent = `${pattern.type} PRZ ${pattern.prz.min.toFixed(2)}-${pattern.prz.max.toFixed(2)}${referenceTag}`;
           svg.appendChild(przLabel);
         }
       }
@@ -1607,7 +1718,7 @@ const TradingView: React.FC = () => {
     setSelectedSymbol(newSymbol);
     setSearchTerm(newSymbol);
     loadCandlesForSymbol(newSymbol, timeframe);
-    
+
     // Load new technical analysis
     loadSymbolData(newSymbol);
   };
@@ -1623,10 +1734,25 @@ const TradingView: React.FC = () => {
   const symbolDatabase = availableSymbols.length > 0 ? availableSymbols : BWTS_SYMBOLS;
 
   const currentSymbolInfo = getSymbolInfo(selectedSymbol);
+  const [fullscreenFallback, setFullscreenFallback] = useState(false);
+
   const toggleFullscreen = async () => {
-    if (!document.fullscreenElement) await workspaceRef.current?.requestFullscreen();
-    else await document.exitFullscreen();
-    setIsFullscreen(Boolean(document.fullscreenElement));
+    try {
+      if (!document.fullscreenElement) {
+        await workspaceRef.current?.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+      setIsFullscreen(Boolean(document.fullscreenElement));
+      setFullscreenFallback(false);
+    } catch (error) {
+      // The browser blocked Fullscreen API (common in iframes or untrusted
+      // gestures). Fall back to a CSS-only fullscreen that hides the rest of
+      // the page chrome so the chart still gets the entire viewport.
+      console.warn('Fullscreen API blocked, falling back to CSS layout', error);
+      setFullscreenFallback((prev) => !prev);
+      setIsFullscreen((prev) => !prev);
+    }
   };
 
   const analyzeChartWithAi = useCallback(async () => {
@@ -1678,7 +1804,7 @@ const TradingView: React.FC = () => {
     .filter((zone: any) => ['BUY', 'SELL'].includes(zone.direction) && Number.isFinite(Number(zone.low)) && Number.isFinite(Number(zone.high)))
     .filter((zone: any, index: number, zones: any[]) => zones.findIndex((item) => item.direction === zone.direction) === index)
     .slice(0, 2);
-  const setupPrice = (value: number | null | undefined) => value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const setupPrice = (value: number | null | undefined) => value == null || !Number.isFinite(Number(value)) ? '-' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
   const fibData = cryptoAnalysis?.zones?.fibonacci;
   const fibNearest = fibData?.nearest;
   const fibGolden = fibData?.golden_pocket;
@@ -1688,14 +1814,21 @@ const TradingView: React.FC = () => {
   const fibWaitFor = Array.isArray(fibContext?.wait_for) ? fibContext.wait_for.slice(0, 3).map((item: string) => item.replace(/_/g, ' ')) : [];
 
   return (
-    <div ref={workspaceRef} className="relative h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 text-white flex flex-col">
+    <div ref={workspaceRef} className={`relative h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 text-white flex flex-col ${fullscreenFallback ? 'fixed inset-0 z-[100]' : ''}`}>
       {/* Enhanced Top Controls */}
       <div className="relative bg-gray-800 border-b border-gray-700 px-4 py-3">
         <div className="flex items-center justify-between">
           {/* Left Section - Logo & Symbol Search */}
           <div className="flex items-center space-x-4">
             <ConfluenceXLogo size="sm" />
-            
+
+            {/* Quick symbol pills - lets users hop between pairs without typing */}
+            <QuickSymbolPills
+              symbols={availableSymbols.length > 0 ? availableSymbols : BWTS_SYMBOLS}
+              activeSymbol={selectedSymbol}
+              onSelect={(symbol) => handleSymbolChange(symbol)}
+            />
+
             {/* Symbol Search */}
             <div className="relative">
               <div className="flex items-center space-x-2 bg-gray-700 rounded-lg px-3 py-2">
@@ -1705,11 +1838,11 @@ const TradingView: React.FC = () => {
                   value={searchTerm}
                   onChange={(e) => handleSymbolSearch(e.target.value)}
                   onFocus={() => updateSymbolSuggestions(searchTerm)}
-                  placeholder="Search symbols..."
+                  placeholder={`Search... (current: ${selectedSymbol})`}
                   className="bg-transparent text-white placeholder-gray-400 outline-none w-48"
                 />
               </div>
-              
+
               {/* Symbol Suggestions Dropdown */}
               {showSuggestions && symbolSuggestions.length > 0 && (
                 <div className="absolute top-full left-0 mt-1 w-80 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 max-h-64 overflow-y-auto">
@@ -1751,11 +1884,22 @@ const TradingView: React.FC = () => {
                 </div>
                 <div className="text-right">
                   <div className={`font-mono text-lg ${currentPrice > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
-                    {currentPrice > 0 ? currentPrice.toFixed(getDecimalPlaces(selectedSymbol)) : '—'}
+                    {currentPrice > 0 ? currentPrice.toFixed(getDecimalPlaces(selectedSymbol)) : '-'}
                   </div>
                   <div className="text-xs text-slate-500">{currentPrice > 0 ? 'Latest completed candle / live tick' : 'Waiting for market data'}</div>
                 </div>
               </div>
+            )}
+            {/* Hero V2 badge - the conviction signal the trader checks first */}
+            {cryptoAnalysis && (
+              <V2ScoreBadge
+                score={cryptoAnalysis.total_score}
+                direction={cryptoAnalysis.direction}
+                lifecycle={cryptoAnalysis.direction_stability?.lifecycle}
+                timingStatus={setupTimingStatus}
+                calendarStatus={setupCalendarStatus}
+                size="lg"
+              />
             )}
           </div>
 
@@ -1766,8 +1910,8 @@ const TradingView: React.FC = () => {
                 key={tf.value}
                 onClick={() => setTimeframe(tf.value)}
                 className={`px-3 py-1 text-sm rounded transition-colors ${
-                  timeframe === tf.value 
-                    ? 'bg-emerald-500 text-white' 
+                  timeframe === tf.value
+                    ? 'bg-emerald-500 text-white'
                     : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                 }`}
               >
@@ -1793,7 +1937,18 @@ const TradingView: React.FC = () => {
               </span>
             </div>
 
-            <button 
+            <button
+              onClick={() => setIsLive((value) => !value)}
+              className={`flex items-center space-x-2 px-3 py-2 rounded transition-colors ${
+                isLive ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-600 hover:bg-gray-700'
+              }`}
+              title={isLive ? 'Pause live updates' : 'Resume live updates'}
+            >
+              {isLive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+              <span className="text-sm">{isLive ? 'LIVE' : 'PAUSED'}</span>
+            </button>
+
+            <button
               onClick={() => {
                 loadCandlesForSymbol(selectedSymbol, timeframe, true);
                 loadSymbolData(selectedSymbol);
@@ -1804,15 +1959,23 @@ const TradingView: React.FC = () => {
               <RefreshCw className="w-4 h-4" />
             </button>
 
-            <button 
+            <button
               onClick={() => setShowSettings(!showSettings)}
-              className="p-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
-              title="Settings"
+              className={`p-2 rounded transition-colors ${showSettings ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-700 hover:bg-gray-600'}`}
+              title="Chart settings & overlays"
             >
               <Settings className="w-4 h-4" />
             </button>
-            
-            <button 
+
+            <button
+              onClick={() => setChartTheme(chartTheme === 'dark' ? 'light' : 'dark')}
+              className="p-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
+              title={`Switch to ${chartTheme === 'dark' ? 'light' : 'dark'} theme`}
+            >
+              {chartTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+
+            <button
               onClick={toggleFullscreen}
               className="p-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
               title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
@@ -1821,7 +1984,74 @@ const TradingView: React.FC = () => {
             </button>
           </div>
         </div>
-        {showSettings && <div className="absolute right-4 top-14 z-50 w-56 rounded-xl border border-white/10 bg-[#0b1020] p-3 shadow-2xl"><div className="mb-2 text-[9px] font-black tracking-widest text-slate-500">OVERLAYS</div>{[[showHarmonics,setShowHarmonics,'Harmonics'],[showSupportResistance,setShowSupportResistance,'Support / resistance'],[showFibonacci,setShowFibonacci,'Fibonacci'],[showSetups,setShowSetups,'Possible setups'],[showSetupGuide,setShowSetupGuide,'Setup guide'],[showManualDrawings,setShowManualDrawings,'Manual drawings']].map(([checked,setChecked,label]) => <label key={String(label)} className="flex items-center justify-between py-1.5 text-xs text-slate-300"><span>{String(label)}</span><input type="checkbox" checked={Boolean(checked)} onChange={(event) => (setChecked as React.Dispatch<React.SetStateAction<boolean>>)(event.target.checked)}/></label>)}</div>}
+        {showSettings && (
+          <div className="absolute right-4 top-14 z-50 w-72 rounded-xl border border-white/10 bg-[#0b1020] p-3 shadow-2xl">
+            <div className="mb-2 text-[9px] font-black tracking-widest text-slate-500">OVERLAYS</div>
+            <div className="space-y-1">
+              {[
+                [showHarmonics, setShowHarmonics, 'Harmonic Patterns'],
+                [showTrendLines, setShowTrendLines, 'Trend Lines'],
+                [showSupportResistance, setShowSupportResistance, 'Support / Resistance'],
+                [showFibonacci, setShowFibonacci, 'Fibonacci Levels'],
+                [showSetups, setShowSetups, 'Possible setups'],
+                [showSetupGuide, setShowSetupGuide, 'Setup guide'],
+                [showManualDrawings, setShowManualDrawings, 'Manual drawings'],
+              ].map(([checked, setChecked, label]) => (
+                <label key={String(label)} className="flex items-center justify-between py-1.5 text-xs text-slate-300 hover:bg-white/[0.04] rounded px-1">
+                  <span>{String(label)}</span>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(checked)}
+                    onChange={(event) => (setChecked as React.Dispatch<React.SetStateAction<boolean>>)(event.target.checked)}
+                    className="rounded border-slate-500 text-emerald-500 focus:ring-emerald-500"
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="mt-3 mb-2 border-t border-white/[0.06] pt-2 text-[9px] font-black tracking-widest text-slate-500">PANES</div>
+            <div className="space-y-1">
+              <label className="flex items-center justify-between py-1.5 text-xs text-slate-300 hover:bg-white/[0.04] rounded px-1">
+                <span>Volume</span>
+                <input
+                  type="checkbox"
+                  checked={showVolume}
+                  onChange={(e) => setShowVolume(e.target.checked)}
+                  className="rounded border-slate-500 text-emerald-500 focus:ring-emerald-500"
+                />
+              </label>
+              <label className="flex items-center justify-between py-1.5 text-xs text-slate-300 hover:bg-white/[0.04] rounded px-1">
+                <span>RSI (14)</span>
+                <input
+                  type="checkbox"
+                  checked={showRsi}
+                  onChange={(e) => setShowRsi(e.target.checked)}
+                  className="rounded border-slate-500 text-emerald-500 focus:ring-emerald-500"
+                />
+              </label>
+            </div>
+            <div className="mt-3 mb-2 border-t border-white/[0.06] pt-2 text-[9px] font-black tracking-widest text-slate-500">DRAWINGS</div>
+            <div className="space-y-1">
+              <button
+                onClick={() => setMagnetDrawing((v) => !v)}
+                className="flex w-full items-center justify-between py-1.5 text-xs text-slate-300 hover:bg-white/[0.04] rounded px-1"
+              >
+                <span>Magnet to OHLC</span>
+                <span className={`rounded px-2 py-0.5 text-[9px] font-black ${magnetDrawing ? 'bg-cyan-400/15 text-cyan-300' : 'bg-slate-500/15 text-slate-500'}`}>
+                  {magnetDrawing ? 'ON' : 'OFF'}
+                </span>
+              </button>
+              <button
+                onClick={() => setShowManualDrawings((v) => !v)}
+                className="flex w-full items-center justify-between py-1.5 text-xs text-slate-300 hover:bg-white/[0.04] rounded px-1"
+              >
+                <span>Show / hide drawings</span>
+                <span className={`rounded px-2 py-0.5 text-[9px] font-black ${showManualDrawings ? 'bg-cyan-400/15 text-cyan-300' : 'bg-slate-500/15 text-slate-500'}`}>
+                  {showManualDrawings ? 'ON' : 'OFF'}
+                </span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Manual drawing toolbar. Drawings persist independently per symbol and timeframe. */}
@@ -1868,7 +2098,27 @@ const TradingView: React.FC = () => {
         />
         {harmonicPatterns.length > 0 && <span className="rounded bg-emerald-400/10 px-2 py-1 text-emerald-300">{harmonicPatterns.length} harmonic</span>}
         {adrData && <span className={`rounded px-2 py-1 ${adrData.exhausted ? 'bg-rose-400/10 text-rose-300' : 'bg-sky-400/10 text-sky-300'}`}>ADR {adrData.percent_used.toFixed(0)}%</span>}
-        {cryptoAnalysis && <><span className="rounded bg-violet-400/10 px-2 py-1 text-violet-300">V2 {cryptoAnalysis.total_score}/100</span><span className={cryptoAnalysis.direction === 'BUY' ? 'text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.direction}</span><span>{timeframe}</span><span className="text-slate-400">{cryptoAnalysis.trade_timing?.status || 'WAIT'}</span>{cryptoAnalysis.trade_plan && <span className={`rounded px-2 py-1 ${cryptoAnalysis.trade_plan.direction === 'BUY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.trade_plan.direction === 'SELL' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 text-slate-400'}`}>{cryptoAnalysis.trade_plan.direction === 'NEUTRAL' ? 'NO ACTIVE SETUP' : `${cryptoAnalysis.trade_plan.direction} SETUP ${cryptoAnalysis.trade_plan.eligible ? 'ELIGIBLE' : 'WAIT'}`}</span>}</>}
+        {cryptoAnalysis && (
+          <V2ScoreBadge
+            score={cryptoAnalysis.total_score}
+            direction={cryptoAnalysis.direction}
+            lifecycle={cryptoAnalysis.direction_stability?.lifecycle}
+            timingStatus={setupTimingStatus}
+            calendarStatus={setupCalendarStatus}
+          />
+        )}
+        {cryptoAnalysis?.market_context && (
+          <MtfBar
+            timeframes={{
+              month: cryptoAnalysis.market_context.timeframes.mn1?.trend,
+              week: cryptoAnalysis.market_context.timeframes.w1?.trend,
+              day: cryptoAnalysis.market_context.timeframes.d1?.trend,
+              selected: cryptoAnalysis.market_context.timeframes.selected?.trend,
+            }}
+            alignmentScore={cryptoAnalysis.market_context.alignment_score}
+            selectedLabel={timeframe}
+          />
+        )}
         <button onClick={() => setShowTechnicalControls((value) => !value)} className="ml-auto rounded bg-white/[0.06] px-2.5 py-1 text-[9px] text-slate-300 hover:bg-white/[0.1]">{showTechnicalControls ? 'Hide tools' : 'Analysis tools'}</button>
         <button onClick={() => setShowChartContext((value) => !value)} className="rounded bg-cyan-400/10 px-2.5 py-1 text-[9px] text-cyan-300 hover:bg-cyan-400/20">{showChartContext ? 'Hide details' : 'Details'}</button>
         {!showSetupGuide && <button onClick={() => setShowSetupGuide(true)} className="rounded bg-emerald-400/10 px-2.5 py-1 text-[9px] text-emerald-300 hover:bg-emerald-400/20">Guide</button>}
@@ -1878,7 +2128,7 @@ const TradingView: React.FC = () => {
         <div className="flex min-w-max items-center justify-between gap-6">
           <div className="flex items-center space-x-4">
             <span className="text-sm text-gray-400">Technical Analysis:</span>
-            
+
             <label className="flex items-center space-x-2">
               <input
                 type="checkbox"
@@ -1967,7 +2217,7 @@ const TradingView: React.FC = () => {
           {harmonicPatterns.length > 0 ? (
             harmonicPatterns.map((pattern) => (
               <span key={pattern.id} className="font-medium">
-                CANDIDATE · {pattern.direction.toUpperCase()} {pattern.type} on {selectedSymbol} {timeframe} · PRZ {pattern.prz.min.toFixed(2)}–{pattern.prz.max.toFixed(2)} · unvalidated geometry, X-A-B-C-D drawn below
+                CANDIDATE · {pattern.direction.toUpperCase()} {pattern.type} on {selectedSymbol} {timeframe} · PRZ {pattern.prz.min.toFixed(2)}-{pattern.prz.max.toFixed(2)} · unvalidated geometry, X-A-B-C-D drawn below
               </span>
             ))
           ) : (
@@ -2028,8 +2278,8 @@ const TradingView: React.FC = () => {
         <span className="font-black tracking-wider text-amber-300">FIB CONTEXT</span>
         <span className={fibData.leg === 'up' ? 'text-emerald-300' : 'text-rose-300'}>{fibData.leg === 'up' ? 'Bullish swing' : 'Bearish swing'}</span>
         {fibNearest && <span>Nearest <b className="text-cyan-300">{String(fibNearest.ratio)}</b> at <b className="text-slate-100">{setupPrice(Number(fibNearest.level))}</b></span>}
-        {fibGolden && <span>Golden pocket <b className="text-violet-300">{setupPrice(Number(fibGolden.low))}–{setupPrice(Number(fibGolden.high))}</b></span>}
-        {fibTopCluster && <span>Cluster <b className="text-amber-200">{setupPrice(Number(fibTopCluster.low))}–{setupPrice(Number(fibTopCluster.high))}</b> <span className="text-slate-500">{fibTopCluster.timeframes?.join('/')}</span></span>}
+        {fibGolden && <span>Golden pocket <b className="text-violet-300">{setupPrice(Number(fibGolden.low))}-{setupPrice(Number(fibGolden.high))}</b></span>}
+        {fibTopCluster && <span>Cluster <b className="text-amber-200">{setupPrice(Number(fibTopCluster.low))}-{setupPrice(Number(fibTopCluster.high))}</b> <span className="text-slate-500">{fibTopCluster.timeframes?.join('/')}</span></span>}
         {fibHtfConflicts.length > 0 ? <span className="rounded bg-rose-400/10 px-2 py-1 text-[9px] font-black text-rose-300">HTF CONFLICT {fibHtfConflicts.join('/')}</span> : <span className="rounded bg-emerald-400/10 px-2 py-1 text-[9px] font-black text-emerald-300">HTF ALIGNED</span>}
         {fibData.selection_reason && <span className="text-slate-500">{String(fibData.selection_reason)}</span>}
         {fibWaitFor.length > 0 && <span className="ml-auto text-amber-300">Wait: {fibWaitFor.join(' · ')}</span>}
@@ -2056,10 +2306,37 @@ const TradingView: React.FC = () => {
 
       {/* Chart Area */}
       <div className="flex-1 min-w-0 min-h-0 overflow-hidden relative bg-gray-900">
-        <div
-          ref={chartContainerRef}
-          className="w-full h-full min-w-0 min-h-0 overflow-hidden"
-        />
+        <div className="flex h-full min-h-0 flex-col">
+          <div
+            ref={chartContainerRef}
+            className="w-full min-w-0 min-h-0 overflow-hidden"
+            style={{ flex: '1 1 60%' }}
+          />
+          {showVolume && (
+            <div className="relative border-t border-white/[0.06]">
+              <div className="absolute left-2 top-1 z-10 rounded bg-black/40 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-slate-400">
+                VOLUME
+              </div>
+              <div
+                ref={volumeContainerRef}
+                className="w-full min-w-0 overflow-hidden"
+                style={{ height: 110 }}
+              />
+            </div>
+          )}
+          {showRsi && (
+            <div className="relative border-t border-white/[0.06]">
+              <div className="absolute left-2 top-1 z-10 rounded bg-black/40 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-violet-300">
+                RSI(14)
+              </div>
+              <div
+                ref={rsiContainerRef}
+                className="w-full min-w-0 overflow-hidden"
+                style={{ height: 110 }}
+              />
+            </div>
+          )}
+        </div>
 
         {showFibonacci && fibData && (
           <div className="pointer-events-none absolute left-4 top-4 z-30 w-[min(460px,calc(100%-2rem))] rounded-xl border border-amber-400/20 bg-[#0b1020]/92 p-3 text-[11px] text-slate-300 shadow-2xl backdrop-blur">
@@ -2070,8 +2347,8 @@ const TradingView: React.FC = () => {
             </div>
             <div className="grid gap-1">
               {fibNearest && <div className="flex justify-between gap-3"><span className="text-slate-500">Nearest Fib</span><b className="text-cyan-300">{String(fibNearest.ratio)} · {setupPrice(Number(fibNearest.level))}</b></div>}
-              {fibGolden && <div className="flex justify-between gap-3"><span className="text-slate-500">Golden pocket</span><b className="text-violet-300">{setupPrice(Number(fibGolden.low))}–{setupPrice(Number(fibGolden.high))}</b></div>}
-              {fibTopCluster && <div className="flex justify-between gap-3"><span className="text-slate-500">Best cluster</span><b className="text-amber-200">{setupPrice(Number(fibTopCluster.low))}–{setupPrice(Number(fibTopCluster.high))}</b></div>}
+              {fibGolden && <div className="flex justify-between gap-3"><span className="text-slate-500">Golden pocket</span><b className="text-violet-300">{setupPrice(Number(fibGolden.low))}-{setupPrice(Number(fibGolden.high))}</b></div>}
+              {fibTopCluster && <div className="flex justify-between gap-3"><span className="text-slate-500">Best cluster</span><b className="text-amber-200">{setupPrice(Number(fibTopCluster.low))}-{setupPrice(Number(fibTopCluster.high))}</b></div>}
               {fibWaitFor.length > 0 && <div className="text-[10px] leading-relaxed text-amber-300">Wait: {fibWaitFor.join(' · ')}</div>}
               {fibData.selection_reason && <div className="text-[10px] leading-relaxed text-slate-500">Auto leg: {String(fibData.selection_reason)}</div>}
             </div>
@@ -2103,61 +2380,64 @@ const TradingView: React.FC = () => {
             </div>
           </div>
         )}
-        {showSetupGuide && setupPlan && <div className="absolute right-4 top-4 z-30 w-[min(350px,calc(100%-2rem))] rounded-xl border border-white/10 bg-[#0b1020]/95 p-3 text-xs text-slate-300 shadow-2xl backdrop-blur">
-          <div className="flex items-center justify-between gap-3">
-            <span className="font-black tracking-widest text-cyan-300">SETUP GUIDE</span>
-            <div className="flex items-center gap-2">
-              <span className={`rounded px-2 py-1 text-[9px] font-black ${setupReady ? 'bg-emerald-400/15 text-emerald-300' : setupHardBlocked ? 'bg-rose-400/15 text-rose-300' : 'bg-amber-400/15 text-amber-300'}`}>{setupReady ? `${setupPlan.direction} READY` : setupHardBlocked ? 'BLOCKED' : 'WAIT'}</span>
-              <button onClick={() => setShowSetupGuide(false)} className="rounded px-1.5 py-0.5 text-slate-500 hover:bg-white/[0.08] hover:text-slate-200" aria-label="Hide setup guide">×</button>
-            </div>
-          </div>
-          {setupPlan.direction !== 'NEUTRAL' && setupPlan.entry != null ? <div className="mt-3 space-y-2">
-            <div className="flex justify-between gap-3"><span className="text-slate-500">Possible {setupPlan.direction.toLowerCase()} area</span><b className={setupPlan.direction === 'BUY' ? 'text-emerald-300' : 'text-rose-300'}>{setupPrice(setupPlan.entry)}</b></div>
-            <div className="flex justify-between gap-3"><span className="text-slate-500">Invalid if price reaches</span><b className="text-rose-300">{setupPrice(setupPlan.stop ?? setupPlan.invalidation)}</b></div>
-            <div className="flex justify-between gap-3"><span className="text-slate-500">Targets</span><b className="text-cyan-300">{setupPlan.targets?.slice(0, 3).map((target) => setupPrice(target.price)).join(' · ') || 'Waiting'}</b></div>
-          </div> : (() => {
-            const v2Score = Number(cryptoAnalysis?.total_score || 0);
-            const belowThreshold = v2Score < 60;
-            const calendarBlocked = setupHardBlocked;
-            const timingWait = setupTimingStatus !== 'READY';
-            // Only show zones that the backend marked as actionable. When none
-            // qualify, the panel truthfully shows "no reference areas".
-            const displayZones = setupReady
-              ? setupZones.filter((z: any) => z.actionable !== false)
-              : [];
-            const isReferenceMode = displayZones.length > 0 && !setupReady;
-            return (
-              <div className="mt-3 space-y-2">
-                <p className="font-semibold text-slate-200">NO ACTIVE SETUP</p>
-                {belowThreshold && <p className="text-[10px] leading-relaxed text-rose-300">V2 score is {v2Score}/100 — below the 60 threshold. Zones are not actionable until score clears.</p>}
-                {calendarBlocked && <p className="text-[10px] leading-relaxed text-rose-300">Economic calendar gate is BLOCKED. No new entries until the gate clears.</p>}
-                {timingWait && !belowThreshold && !calendarBlocked && <p className="text-[10px] leading-relaxed text-amber-300">Timing is WAIT — waiting on a confirming candle, volume, ADR, and V2 direction.</p>}
-                {displayZones.length === 0 && !belowThreshold && !calendarBlocked && !timingWait && <p className="text-[10px] leading-relaxed text-slate-500">No qualifying zones on this timeframe yet.</p>}
-                {displayZones.map((zone: any) => {
-                  const actionable = zone.actionable !== false;
-                  const conflicting = zone.conflicting_with_harmonic === true;
-                  const scoreLabel = actionable && zone.score != null ? <small className="text-slate-500"> {zone.score}/100</small> : null;
-                  const labelClass = actionable
-                    ? (zone.direction === 'BUY' ? 'text-emerald-300' : 'text-rose-300')
-                    : 'text-slate-500';
-                  const prefix = actionable
-                    ? `${zone.direction} only if price returns here`
-                    : (conflicting ? 'Harmonic conflict — wait for confirmation' : 'Reference area — not actionable');
-                  return (
-                    <div key={`${zone.direction}-${zone.center}`} className="flex justify-between gap-3">
-                      <span className={labelClass}>{prefix}{scoreLabel}</span>
-                      <b className={actionable ? 'text-slate-200' : 'text-slate-500'}>{setupPrice(zone.low)} – {setupPrice(zone.high)}</b>
-                    </div>
-                  );
-                })}
-                {displayZones[0]?.reasons?.length > 0 && <p className="text-[10px] leading-relaxed text-slate-500">Why: {displayZones[0].reasons.slice(0, 3).join(' · ')}</p>}
-                {!isReferenceMode && (belowThreshold || calendarBlocked || timingWait) && <p className="text-[10px] leading-relaxed text-slate-500">Then wait for a confirming candle, volume, ADR, and V2 direction.</p>}
-              </div>
-            );
-          })()}
 
-          <p className="mt-3 border-t border-white/[0.08] pt-2 text-[10px] leading-relaxed text-slate-500">{setupReady ? 'Deterministic gates are clear. Confirm the trigger before acting.' : setupHardBlocked ? 'Calendar gate is blocking this setup.' : `Wait for ${(cryptoAnalysis?.trade_timing?.wait_for || ['confirmation']).slice(0, 2).join(' and ').replace(/_/g, ' ')}.`}</p>
-        </div>}
+        {showSetupGuide && cryptoAnalysis && (
+          <div className="absolute right-4 top-4 z-30 w-[min(360px,calc(100%-2rem))] space-y-2">
+            <SetupGuideHero
+              setupReady={setupReady}
+              setupHardBlocked={setupHardBlocked}
+              setupTimingStatus={setupTimingStatus}
+              v2Score={Number(cryptoAnalysis.total_score || 0)}
+              direction={setupPlan?.direction || 'NEUTRAL'}
+              calendarStatus={setupCalendarStatus}
+              onClose={() => setShowSetupGuide(false)}
+            >
+              {setupPlan && setupPlan.direction !== 'NEUTRAL' && setupPlan.entry != null && (
+                <TradeLevels
+                  direction={setupPlan.direction}
+                  entry={setupPlan.entry}
+                  stop={setupPlan.stop ?? setupPlan.invalidation}
+                  targets={setupPlan.targets?.slice(0, 3) || []}
+                  currentPrice={currentPrice}
+                  formatPrice={setupPrice}
+                />
+              )}
+              {setupPlan && setupPlan.direction === 'NEUTRAL' && (() => {
+                const v2Score = Number(cryptoAnalysis?.total_score || 0);
+                const belowThreshold = v2Score < 60;
+                const calendarBlocked = setupHardBlocked;
+                const timingWait = setupTimingStatus !== 'READY';
+                const displayZones = setupReady
+                  ? setupZones.filter((z: any) => z.actionable !== false)
+                  : [];
+                return (
+                  <div className="mt-2 space-y-1.5 border-t border-white/[0.06] pt-2">
+                    {displayZones.length === 0 && !belowThreshold && !calendarBlocked && !timingWait && (
+                      <p className="text-[10px] leading-relaxed text-slate-500">No qualifying zones on this timeframe yet.</p>
+                    )}
+                    {displayZones.map((zone: any) => {
+                      const actionable = zone.actionable !== false;
+                      const conflicting = zone.conflicting_with_harmonic === true;
+                      const labelClass = actionable
+                        ? (zone.direction === 'BUY' ? 'text-emerald-300' : 'text-rose-300')
+                        : 'text-slate-500';
+                      const prefix = actionable
+                        ? `${zone.direction} only if price returns here`
+                        : (conflicting ? 'Harmonic conflict - wait for confirmation' : 'Reference area - not actionable');
+                      return (
+                        <div key={`${zone.direction}-${zone.center}`} className="flex justify-between gap-3 text-[10px]">
+                          <span className={labelClass}>{prefix}</span>
+                          <b className={actionable ? 'text-slate-200' : 'text-slate-500'}>{setupPrice(zone.low)} - {setupPrice(zone.high)}</b>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </SetupGuideHero>
+          </div>
+        )}
+
         {showManualDrawings && <svg data-revision={drawingRevision} className="absolute inset-0 z-20 h-full w-full" style={{ pointerEvents: drawingTool === 'pan' ? 'none' : 'auto', cursor: drawingTool === 'select' ? 'default' : drawingTool === 'pan' ? 'grab' : 'crosshair' }} onPointerDown={handleDrawingPointerDown} onPointerMove={handleDrawingPointerMove} onPointerUp={handleDrawingPointerUp}>
           {[...drawings, ...(draftDrawing ? [draftDrawing] : [])].map((drawing) => {
             const points = drawingCoordinates(drawing); if (!points.length || points.some((point) => point.x == null || point.y == null)) return null;
@@ -2168,51 +2448,43 @@ const TradingView: React.FC = () => {
             if (drawing.type === 'text') return <g key={drawing.id}>{<text x={points[0].x!} y={points[0].y!} fill={stroke} fontSize="12" fontWeight="700" onPointerDown={select} onDoubleClick={() => { if (!drawing.locked) { const text=window.prompt('Edit annotation',drawing.text || ''); if (text?.trim()) saveDrawingChange(drawings.map((item)=>item.id===drawing.id?{...item,text:text.trim()}:item)); } }} style={{ pointerEvents: 'all' }}>{drawing.text}</text>}{anchors}</g>;
             if (points.length < 2) return null;
             if (drawing.type === 'trend') return <g key={drawing.id}><line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke="transparent" strokeWidth="14" onPointerDown={select} style={{pointerEvents:'stroke'}}/><line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke={stroke} strokeWidth={selected ? 2.5 : 1.7} strokeDasharray={dash} onPointerDown={select} style={{ pointerEvents: 'stroke' }}/>{drawing.showPrice && <text x={points[1].x!+5} y={points[1].y!-5} fill={stroke} fontSize="9">{drawing.points[1].price.toFixed(2)}</text>}{anchors}</g>;
-            if (drawing.type === 'rectangle') { const x=Math.min(points[0].x!,points[1].x!), y=Math.min(points[0].y!,points[1].y!), width=Math.abs(points[1].x!-points[0].x!), height=Math.abs(points[1].y!-points[0].y!); return <g key={drawing.id}><rect x={x} y={y} width={width} height={height} fill={`${stroke}18`} stroke={stroke} strokeDasharray={dash} strokeWidth={selected ? 2 : 1.5} onPointerDown={select} style={{ pointerEvents: 'all' }}/>{drawing.showPrice && <text x={x+4} y={y+12} fill={stroke} fontSize="9">{Math.min(...drawing.points.map((point)=>point.price)).toFixed(2)}–{Math.max(...drawing.points.map((point)=>point.price)).toFixed(2)}</text>}{anchors}</g>; }
+            if (drawing.type === 'rectangle') { const x=Math.min(points[0].x!,points[1].x!), y=Math.min(points[0].y!,points[1].y!), width=Math.abs(points[1].x!-points[0].x!), height=Math.abs(points[1].y!-points[0].y!); return <g key={drawing.id}><rect x={x} y={y} width={width} height={height} fill={`${stroke}18`} stroke={stroke} strokeDasharray={dash} strokeWidth={selected ? 2 : 1.5} onPointerDown={select} style={{ pointerEvents: 'all' }}/>{drawing.showPrice && <text x={x+4} y={y+12} fill={stroke} fontSize="9">{Math.min(...drawing.points.map((point)=>point.price)).toFixed(2)}-{Math.max(...drawing.points.map((point)=>point.price)).toFixed(2)}</text>}{anchors}</g>; }
             if (drawing.type === 'fib') { const ratios=[0,.236,.382,.5,.618,.786,1,1.272,1.618]; const ax=Math.min(points[0].x!,points[1].x!), bx=Math.max(points[0].x!,points[1].x!); return <g key={drawing.id} onPointerDown={select} style={{ pointerEvents: 'stroke' }}><rect x={ax} y={Math.min(points[0].y!,points[1].y!)} width={Math.max(0,bx-ax)} height={Math.max(0,Math.abs(points[1].y!-points[0].y!))} fill={`${stroke}0f`} stroke="none" style={{ pointerEvents: 'none' }}/>{ratios.map((ratio) => { const y=points[0].y!+(points[1].y!-points[0].y!)*ratio; const price=drawing.points[0].price+(drawing.points[1].price-drawing.points[0].price)*ratio; const golden=String(ratio)==='0.618'; const color=golden?'#c084fc':stroke; return <g key={ratio}><line x1="0" x2="100%" y1={y} y2={y} stroke="transparent" strokeWidth="14" style={{ pointerEvents: 'stroke' }}/><line x1="0" x2="100%" y1={y} y2={y} stroke={color} strokeWidth={selected ? 2 : 1} strokeDasharray={dash || '4 3'} style={{ pointerEvents: 'none' }}/>{drawing.showPrice !== false && <text x="100%" dx={-6} y={y+3} textAnchor="end" fill={color} fontSize="9" style={{ pointerEvents: 'none' }}>{ratio} · {price.toFixed(2)}</text>}</g>; })}<line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke={stroke} strokeWidth={selected ? 2 : 1.4} strokeDasharray="2 3" style={{ pointerEvents: 'none' }}/>{anchors}</g>; }
             return null;
           })}
         </svg>}
-        
-        {/* Pattern Info Overlay */}
-        {(harmonicPatterns.length > 0 || trendLines.length > 0) && (
-          <div className="absolute top-4 left-4 bg-gray-800 bg-opacity-90 rounded-lg p-4 max-w-sm">
-            <h4 className="text-white font-semibold mb-2 flex items-center">
-              <BarChart3 className="w-4 h-4 mr-2" />
-              Technical Analysis
-            </h4>
-            
-            {harmonicPatterns.map((pattern, index) => (
-              <div key={pattern.id} className="mb-2 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className={`font-medium ${
-                    pattern.direction === 'bullish' ? 'text-emerald-400' : 'text-red-400'
-                  }`}>
-                    {pattern.type} Pattern
-                  </span>
-                  <span className="text-gray-400">{pattern.confidence.toFixed(0)}%</span>
-                </div>
-                <div className="text-gray-400 text-xs">
-                  PRZ: {pattern.prz.min.toFixed(5)} - {pattern.prz.max.toFixed(5)}
-                </div>
-              </div>
-            ))}
 
-            {trendLines.map((line, index) => (
-              <div key={line.id} className="mb-2 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className={`font-medium ${
-                    line.type === 'support' ? 'text-blue-400' : 'text-orange-400'
-                  }`}>
-                    {line.type} Line
-                  </span>
-                  <span className="text-gray-400">{line.strength}%</span>
-                </div>
-                <div className="text-gray-400 text-xs">
-                  {line.touches} touches • {formatTrendDistance(line.distance, selectedSymbol)}
-                </div>
-              </div>
-            ))}
+        {/* Pattern Info Overlay */}
+        {(harmonicPatterns.length > 0 || trendLines.length > 0 || fibonacciLevels.length > 0) && (
+          <div className="absolute bottom-4 left-4 max-w-sm rounded-xl border border-white/10 bg-[#0b1020]/95 p-3 text-xs text-slate-300 shadow-2xl backdrop-blur">
+            <h4 className="mb-2 flex items-center text-white">
+              <BarChart3 className="mr-2 h-4 w-4 text-cyan-300" />
+              <span className="font-black tracking-widest text-cyan-300">TECHNICAL ANALYSIS</span>
+            </h4>
+            <TechnicalAnalysisTable
+              patterns={harmonicPatterns.map((p) => ({
+                type: p.type,
+                direction: p.direction,
+                confidence: p.confidence,
+                prz: { min: p.prz.min, max: p.prz.max },
+              }))}
+              fibLevels={fibonacciLevels.map((f) => ({
+                level: f.level,
+                price: f.price,
+                type: f.type,
+                strength: f.strength,
+              }))}
+              trendLines={trendLines}
+              currentPrice={currentPrice}
+              formatPrice={(value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: getDecimalPlaces(selectedSymbol) })}
+            />
+          </div>
+        )}
+
+        {/* Candle pattern markers - quick read of the most recent formation */}
+        {candlePatterns.length > 0 && (
+          <div className="absolute right-4 bottom-4 z-20">
+            <CandlePatternMarkers candlePatterns={candlePatterns} />
           </div>
         )}
       </div>
@@ -2225,7 +2497,7 @@ const TradingView: React.FC = () => {
               <Link className="w-6 h-6 mr-2 text-emerald-500" />
               Connect to TradeLocker
             </h2>
-            
+
             <div className="space-y-4">
               <div>
                 <label className="block text-sm text-gray-400 mb-1">Email</label>
@@ -2237,7 +2509,7 @@ const TradingView: React.FC = () => {
                   placeholder="your@email.com"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm text-gray-400 mb-1">Password</label>
                 <input
@@ -2248,7 +2520,7 @@ const TradingView: React.FC = () => {
                   placeholder="Your password"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm text-gray-400 mb-1">Server</label>
                 <select
@@ -2261,7 +2533,7 @@ const TradingView: React.FC = () => {
                   <option value="live">Live Server</option>
                 </select>
               </div>
-              
+
               <div className="flex items-center space-x-2">
                 <input
                   type="checkbox"
@@ -2273,7 +2545,7 @@ const TradingView: React.FC = () => {
                 <label htmlFor="isDemo" className="text-sm text-gray-400">Use Demo Account</label>
               </div>
             </div>
-            
+
             <div className="flex space-x-3 mt-6">
               <button
                 onClick={connectToTradeLocker}
@@ -2288,7 +2560,7 @@ const TradingView: React.FC = () => {
                 Cancel
               </button>
             </div>
-            
+
             <p className="text-xs text-gray-500 mt-4 text-center">
               Your credentials are only used to authenticate with TradeLocker and are never stored on our servers.
             </p>
