@@ -82,6 +82,12 @@ def test_fibonacci_levels_include_true_golden_pocket_and_actionable_ratios():
         assert ratio in levels
     assert fib["golden_pocket"]["low"] == min(levels["0.618"], levels["0.65"])
     assert fib["golden_pocket"]["high"] == max(levels["0.618"], levels["0.65"])
+    assert fib["swing_start_price"] is not None
+    assert fib["swing_end_price"] is not None
+    assert "selection_reason" in fib
+    assert isinstance(fib.get("higher_timeframes"), list)
+    assert isinstance(fib.get("clusters"), list)
+    assert "context" in fib
 
 
 def test_setup_zone_score_is_visible_even_when_not_actionable():

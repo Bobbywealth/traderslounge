@@ -116,6 +116,20 @@ def _freshness_threshold_seconds(name):
     return max(300, int(_timeframe_seconds(name) * 1.5 + 60))
 
 
+def _canonical_frame_key(name):
+    tf = str(name or "").lower()
+    return {
+        "1m": "m1", "m1": "m1",
+        "5m": "m5", "m5": "m5",
+        "15m": "m15", "m15": "m15",
+        "1h": "h1", "h1": "h1",
+        "4h": "h4", "h4": "h4",
+        "1d": "d1", "d1": "d1",
+        "1w": "w1", "w1": "w1",
+        "1mo": "mn1", "1mth": "mn1", "mn1": "mn1",
+    }.get(tf, tf)
+
+
 def _candles(values):
     """Discard malformed bars and return bars in supplied chronological order."""
     valid = []
@@ -461,9 +475,7 @@ def _build_setup_zones(*, price, atr_value, zones, indicators, direction, market
 
 def _significant_leg(candles, atr_value):
     """Choose the latest swing leg large enough to matter on this timeframe."""
-    if len(candles) < 12:
-        return latest_leg(candles)
-    swings = detect_swings(candles, max(2, min(7, len(candles)//60)))
+    swings = detect_swings(candles, max(2, min(7, len(candles)//60))) if len(candles) >= 12 else detect_swings(candles, 3)
     minimum = (atr_value or 0) * 2.0
     intervals = [candles[i].time-candles[i-1].time for i in range(1, min(len(candles), 40)) if candles[i].time > candles[i-1].time]
     minimum_duration = (sorted(intervals)[len(intervals)//2] if intervals else 0)*8
@@ -473,8 +485,115 @@ def _significant_leg(candles, atr_value):
             duration = abs((getattr(end, "time", 0) or 0)-(getattr(start, "time", 0) or 0))
             if start.type != end.type and abs(end.price-start.price) >= minimum and duration >= minimum_duration:
                 low, high = sorted((float(start.price), float(end.price)))
-                return low, high, "up" if end.price > start.price else "down"
-    return latest_leg(candles)
+                return {
+                    "low": low, "high": high,
+                    "direction": "up" if end.price > start.price else "down",
+                    "start_time": getattr(start, "time", None), "end_time": getattr(end, "time", None),
+                    "start_price": float(start.price), "end_price": float(end.price),
+                    "start_type": start.type, "end_type": end.type,
+                    "selection_reason": f"latest opposing swing leg at least {minimum / (atr_value or 1):.1f} ATR and {minimum_duration or 0:.0f}s wide",
+                }
+    fallback = latest_leg(candles)
+    if not fallback:
+        return None
+    low, high, direction = fallback
+    return {
+        "low": low, "high": high, "direction": direction,
+        "start_time": None, "end_time": None,
+        "start_price": low if direction == "up" else high,
+        "end_price": high if direction == "up" else low,
+        "start_type": "low" if direction == "up" else "high",
+        "end_type": "high" if direction == "up" else "low",
+        "selection_reason": "latest available opposing swing leg",
+    }
+
+
+def _ratio_key(ratio):
+    return f"{ratio:g}"
+
+
+def _fibonacci_levels(low, high, leg_dir):
+    span = high - low
+    retracement_ratios = (0.0, .236, .382, .5, .618, .65, .705, .786, .886, 1.0)
+    extension_ratios = (1.272, 1.618, 2.0, 2.618)
+    fibs = {
+        _ratio_key(ratio): high - span*ratio if leg_dir == "up" else low + span*ratio
+        for ratio in retracement_ratios
+    }
+    fibs.update({
+        _ratio_key(ratio): low + span*ratio if leg_dir == "up" else high - span*ratio
+        for ratio in extension_ratios
+    })
+    return fibs
+
+
+def _build_fibonacci_zone(candles, price, atr_value, sr_zones=None, timeframe=None):
+    leg = _significant_leg(candles, atr_value)
+    if not leg or price is None:
+        return None
+    low, high, leg_dir = leg["low"], leg["high"], leg["direction"]
+    span = high - low
+    if span <= 0:
+        return None
+    fibs = _fibonacci_levels(low, high, leg_dir)
+    retrace = retracement_pct(price, low, high, leg_dir)
+    level_atr = atr_value or span
+    fib_tolerance = max((level_atr or 0)*.25, price*.001)
+    confluence = []
+    for ratio, fib_level in fibs.items():
+        matched = [zone for zone in (sr_zones or []) if abs(zone["level"]-fib_level) <= fib_tolerance]
+        if matched:
+            confluence.append({"ratio": ratio, "level": fib_level, "sr_level": matched[0]["level"], "sr_strength": matched[0]["strength"], "distance": abs(matched[0]["level"]-fib_level)})
+    golden_low, golden_high = sorted((fibs["0.618"], fibs["0.65"]))
+    nearest_ratio, nearest_level = min(fibs.items(), key=lambda item: abs(item[1]-price))
+    zone = {
+        "timeframe": timeframe,
+        "leg": leg_dir, "swing_low": low, "swing_high": high, "leg_size_atr": span/(level_atr or span),
+        "swing_start_time": leg.get("start_time"), "swing_end_time": leg.get("end_time"),
+        "swing_start_price": leg.get("start_price"), "swing_end_price": leg.get("end_price"),
+        "swing_start_type": leg.get("start_type"), "swing_end_type": leg.get("end_type"),
+        "selection_reason": leg.get("selection_reason"),
+        "retracement": retrace, "levels": fibs,
+        "golden_pocket": {"low": golden_low, "high": golden_high, "contains_price": golden_low <= price <= golden_high},
+        "nearest": {"ratio": nearest_ratio, "level": nearest_level, "distance_atr": abs(price-nearest_level)/(level_atr or span)},
+        "sr_confluence": confluence,
+    }
+    return zone
+
+
+def _fibonacci_clusters(primary_fib, htf_fibs, atr_value):
+    levels = []
+    for tf_name, fib in [(primary_fib.get("timeframe") or "selected", primary_fib), *[(item.get("timeframe"), item) for item in htf_fibs or []]]:
+        for ratio, level in (fib.get("levels") or {}).items():
+            if ratio not in {"0.236", "0.382", "0.5", "0.618", "0.65", "0.705", "0.786", "0.886"}:
+                continue
+            try:
+                levels.append({"timeframe": tf_name, "ratio": ratio, "level": float(level)})
+            except (TypeError, ValueError):
+                continue
+    tolerance = max((atr_value or 0) * 0.35, (primary_fib.get("nearest") or {}).get("level", 0) * 0.001)
+    clusters = []
+    for item in sorted(levels, key=lambda row: row["level"]):
+        existing = next((cluster for cluster in clusters if abs(cluster["center"] - item["level"]) <= tolerance), None)
+        if existing:
+            existing["levels"].append(item)
+            vals = [row["level"] for row in existing["levels"]]
+            existing["low"], existing["high"] = min(vals), max(vals)
+            existing["center"] = sum(vals) / len(vals)
+        else:
+            clusters.append({"center": item["level"], "low": item["level"], "high": item["level"], "levels": [item]})
+    output = []
+    for cluster in clusters:
+        timeframes = sorted({str(row["timeframe"] or "selected") for row in cluster["levels"]})
+        ratios = sorted({str(row["ratio"]) for row in cluster["levels"]})
+        if len(cluster["levels"]) < 2:
+            continue
+        output.append({
+            "center": round(cluster["center"], 8), "low": round(cluster["low"], 8), "high": round(cluster["high"], 8),
+            "strength": len(cluster["levels"]), "timeframes": timeframes, "ratios": ratios,
+            "label": f"Fib cluster {len(timeframes)}TF / {len(ratios)} levels",
+        })
+    return sorted(output, key=lambda cluster: (-cluster["strength"], abs(cluster["center"] - (primary_fib.get("nearest") or {}).get("level", cluster["center"]))))[:5]
 
 
 def _candle_patterns(candles):
@@ -660,42 +779,43 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         indicators.update({**{f"ema_{p}": ema_values[p] for p in ema_periods}, **{f"sma_{p}": sma_values[p] for p in sma_periods}, "ema_stack_aligned": ema_stack, "sma_stack_aligned": sma_stack, "golden_cross": golden_cross, "death_cross": death_cross})
         scores["moving_averages"] = _clamp((4 if ema_stack else 1) + (3 if sma_stack else 0) + (2 if dynamic_support else 0) + (1 if (golden_cross and sign > 0) or (death_cross and sign < 0) else 0), 0, 10) if sign else 0
 
-        leg = _significant_leg(bars, level_atr)
-        if leg:
-            low, high, leg_dir = leg
-            retrace = retracement_pct(price, low, high, leg_dir)
-            span = high - low
-            # Standard retracement ladder plus the levels ConfluenceX scores
-            # against. Keep 0.65 as the upper edge of the true golden pocket;
-            # 0.786 is a separate deep-retracement level, not the pocket edge.
-            retracement_ratios = (0.0, .236, .382, .5, .618, .65, .705, .786, .886, 1.0)
-            extension_ratios = (1.272, 1.618, 2.0, 2.618)
-            fibs = {
-                f"{ratio:g}": high - span*ratio if leg_dir == "up" else low + span*ratio
-                for ratio in retracement_ratios
-            }
-            fibs.update({
-                f"{ratio:g}": low + span*ratio if leg_dir == "up" else high - span*ratio
-                for ratio in extension_ratios
-            })
-            fib_tolerance = max((level_atr or 0)*.25, price*.001)
-            confluence = []
-            for ratio, fib_level in fibs.items():
-                matched = [zone for zone in sr_zones if abs(zone["level"]-fib_level) <= fib_tolerance]
-                if matched:
-                    confluence.append({"ratio": ratio, "level": fib_level, "sr_level": matched[0]["level"], "sr_strength": matched[0]["strength"], "distance": abs(matched[0]["level"]-fib_level)})
-            # Golden pocket is the canonical 0.618–0.65 band.
-            golden_low, golden_high = sorted((fibs["0.618"], fibs["0.65"]))
-            in_golden_pocket = golden_low <= price <= golden_high
-            nearest_ratio, nearest_level = min(fibs.items(), key=lambda item: abs(item[1]-price))
-            zones["fibonacci"] = {
-                "leg": leg_dir, "swing_low": low, "swing_high": high, "leg_size_atr": span/(level_atr or span),
-                "retracement": retrace, "levels": fibs, "golden_pocket": {"low": golden_low, "high": golden_high, "contains_price": in_golden_pocket},
-                "nearest": {"ratio": nearest_ratio, "level": nearest_level, "distance_atr": abs(price-nearest_level)/(level_atr or span)},
-                "sr_confluence": confluence,
-            }
+        fib_zone = _build_fibonacci_zone(bars, price, level_atr, sr_zones, primary_name)
+        if fib_zone:
+            zones["fibonacci"] = fib_zone
+            leg_dir = fib_zone["leg"]
+            retrace = fib_zone["retracement"]
+            confluence = fib_zone.get("sr_confluence") or []
+            in_golden_pocket = bool((fib_zone.get("golden_pocket") or {}).get("contains_price"))
             aligned_leg = sign and ((leg_dir == "up") == (sign > 0))
             scores["fibonacci"] = _clamp((4 if aligned_leg else 0) + (3 if .382 <= retrace <= .786 else 0) + (2 if confluence else 0) + (1 if in_golden_pocket else 0), 0, 10)
+            htf_fibs = []
+            primary_frame_key = _canonical_frame_key(primary_name)
+            for tf_name in ("h1", "h4", "d1"):
+                tf_bars = frames.get(tf_name) or []
+                if tf_name == primary_frame_key or not tf_bars:
+                    continue
+                tf_fib = _build_fibonacci_zone(tf_bars, price, atr(tf_bars), [], tf_name)
+                if tf_fib:
+                    htf_fibs.append({
+                        "timeframe": tf_name,
+                        "leg": tf_fib.get("leg"),
+                        "swing_low": tf_fib.get("swing_low"), "swing_high": tf_fib.get("swing_high"),
+                        "leg_size_atr": tf_fib.get("leg_size_atr"),
+                        "nearest": tf_fib.get("nearest"),
+                        "golden_pocket": tf_fib.get("golden_pocket"),
+                        "levels": tf_fib.get("levels"),
+                    })
+            fib_zone["higher_timeframes"] = htf_fibs
+            fib_zone["clusters"] = _fibonacci_clusters(fib_zone, htf_fibs, level_atr)
+            selected_leg = "bullish" if fib_zone.get("leg") == "up" else "bearish"
+            conflicts = [item.get("timeframe") for item in htf_fibs if item.get("leg") and item.get("leg") != fib_zone.get("leg")]
+            nearest = fib_zone.get("nearest") or {}
+            fib_zone["context"] = {
+                "summary": f"{selected_leg} swing retracement; nearest Fib {nearest.get('ratio')} at {nearest.get('level')}",
+                "wait_for": [],
+                "htf_conflicts": conflicts,
+                "cluster_count": len(fib_zone.get("clusters") or []),
+            }
 
         gaps = _fvg(bars)
         zones["fair_value_gaps"] = gaps
@@ -902,6 +1022,10 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         "wait_for": wait_for_labels,
         "blocking_reasons": blocking_reasons,
     }
+    if fib_data.get("context") is not None:
+        fib_data["context"]["wait_for"] = wait_for_labels
+        fib_data["context"]["timing_status"] = trade_timing["status"]
+        fib_data["context"]["location_signals"] = location_signals
     scenario = "bullish continuation" if direction == "BUY" else "bearish continuation" if direction == "SELL" else "wait for directional confirmation"
     stop = None
     if bars and price:

@@ -1292,26 +1292,92 @@ const TradingView: React.FC = () => {
       // 0.65 is the upper edge of the true golden pocket; 0.786 remains a
       // separate deep retracement. 0.236 must be visible when the engine scores it.
       const keyRatios = ['0.236', '0.382', '0.5', '0.618', '0.65', '0.705', '0.786', '0.886'];
+      const nearestRatio = String(fibData.nearest?.ratio || '');
+      const goldenPocketRatios = new Set(['0.618', '0.65']);
       Object.entries(fibData.levels || {})
         .filter(([ratio]) => keyRatios.includes(String(ratio)))
         .filter(([, value]) => !atrDistance || Math.abs(Number(value) - currentPrice) <= atrDistance)
-        .forEach(([ratio, value]) => {
+        .map(([ratio, value]) => {
+          const valueNumber = Number(value);
+          const priority = (confluenceRatios.has(String(ratio)) ? 100 : 0)
+            + (String(ratio) === nearestRatio ? 80 : 0)
+            + (goldenPocketRatios.has(String(ratio)) ? 45 : 0)
+            - Math.abs(valueNumber - currentPrice) / Math.max(Number(cryptoAnalysis.indicators.atr || 1), 1);
+          return { ratio: String(ratio), value: valueNumber, priority };
+        })
+        .sort((a, b) => b.priority - a.priority)
+        .slice(0, 6)
+        .forEach(({ ratio, value }) => {
           levels.push({
-            title: `Fib ${ratio}${confluenceRatios.has(ratio) ? ' ★' : ''}`,
-            value: Number(value),
+            title: `Fib ${ratio}${ratio === nearestRatio ? ' ⟡' : ''}${confluenceRatios.has(ratio) ? ' ★' : ''}`,
+            value,
             color: ratio === '0.618' || ratio === '0.65' ? '#c084fc' : confluenceRatios.has(ratio) ? '#22d3ee' : '#6366f1',
             style: LineStyle.Dotted
+          });
+        });
+      (fibData.clusters || [])
+        .filter((cluster: any) => !atrDistance || Math.abs(Number(cluster.center) - currentPrice) <= atrDistance * 1.25)
+        .slice(0, 2)
+        .forEach((cluster: any) => {
+          levels.push({
+            title: `Fib Cluster ${cluster.timeframes?.join('/') || ''}`,
+            value: Number(cluster.center),
+            color: '#fbbf24',
+            style: LineStyle.Solid
           });
         });
     }
 
     levels.filter((level) => Number.isFinite(level.value)).forEach((level) => {
-      const showAxisLabel = /^[SR]\d/.test(level.title) || /★/.test(level.title) || level.title.startsWith('Fib 0.236') || level.title.startsWith('Fib 0.618') || level.title.startsWith('Fib 0.65');
+      const showAxisLabel = /^[SR]\d/.test(level.title) || /★|⟡|Cluster/.test(level.title) || level.title.startsWith('Fib 0.236') || level.title.startsWith('Fib 0.618') || level.title.startsWith('Fib 0.65');
       const series = chart.addSeries(LineSeries, { color: level.color, lineWidth: 1, lineStyle: level.style, title: level.title, lastValueVisible: showAxisLabel, priceLineVisible: false });
       series.setData([{ time: start, value: level.value }, { time: end, value: level.value }]);
       v2LevelSeriesRefs.current.push(series);
     });
   }, [cryptoAnalysis, showFibonacci, showSupportResistance, chartRevision, currentPrice]);
+
+  // Draw selected Fibonacci swing anchors so users can see why the auto leg was chosen.
+  useEffect(() => {
+    const chart = chartRef.current;
+    const priceSeries = candlestickSeriesRef.current;
+    const container = chartContainerRef.current;
+    if (!chart || !priceSeries || !container) return;
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const removeOverlay = () => container.querySelector('[data-fib-anchor-overlay]')?.remove();
+    const renderOverlay = () => {
+      removeOverlay();
+      const fibData = cryptoAnalysis?.zones?.fibonacci;
+      if (!showFibonacci || !fibData) return;
+      const anchors = [
+        { label: String(fibData.swing_start_type || 'start').toUpperCase(), time: fibData.swing_start_time, price: fibData.swing_start_price },
+        { label: String(fibData.swing_end_type || 'end').toUpperCase(), time: fibData.swing_end_time, price: fibData.swing_end_price },
+      ].filter((anchor) => Number.isFinite(Number(anchor.price)));
+      if (!anchors.length) return;
+      const svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('data-fib-anchor-overlay', 'true');
+      svg.setAttribute('width', String(container.clientWidth));
+      svg.setAttribute('height', String(container.clientHeight));
+      svg.style.position = 'absolute'; svg.style.inset = '0'; svg.style.zIndex = '10'; svg.style.pointerEvents = 'none'; svg.style.overflow = 'visible';
+      anchors.forEach((anchor, index) => {
+        const y = priceSeries.priceToCoordinate(Number(anchor.price));
+        if (y == null) return;
+        const xFromTime = anchor.time ? chart.timeScale().timeToCoordinate(Number(anchor.time) as UTCTimestamp) : null;
+        const x = xFromTime == null ? (index === 0 ? 18 : 86) : Math.max(12, Math.min(container.clientWidth - 92, Number(xFromTime)));
+        const circle = document.createElementNS(SVG_NS, 'circle');
+        circle.setAttribute('cx', String(x)); circle.setAttribute('cy', String(y)); circle.setAttribute('r', '5');
+        circle.setAttribute('fill', '#fbbf24'); circle.setAttribute('stroke', '#080d18'); circle.setAttribute('stroke-width', '3'); svg.appendChild(circle);
+        const text = document.createElementNS(SVG_NS, 'text');
+        text.setAttribute('x', String(x + 8)); text.setAttribute('y', String(Math.max(13, Number(y) - 8)));
+        text.setAttribute('fill', '#fde68a'); text.setAttribute('font-size', '10'); text.setAttribute('font-weight', '900');
+        text.setAttribute('paint-order', 'stroke'); text.setAttribute('stroke', '#080d18'); text.setAttribute('stroke-width', '4');
+        text.textContent = `${anchor.label} ${Number(anchor.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}`; svg.appendChild(text);
+      });
+      container.appendChild(svg);
+    };
+    const deferredRender = () => requestAnimationFrame(renderOverlay);
+    deferredRender(); chart.timeScale().subscribeVisibleTimeRangeChange(deferredRender); window.addEventListener('resize', deferredRender);
+    return () => { chart.timeScale().unsubscribeVisibleTimeRangeChange(deferredRender); window.removeEventListener('resize', deferredRender); removeOverlay(); };
+  }, [cryptoAnalysis, showFibonacci, chartRevision, currentPrice]);
 
   // Deterministic possible-setup overlay. It visualizes the BWTS trade plan,
   // but never turns a blocked or WAIT plan into an actionable signal.
@@ -1613,6 +1679,13 @@ const TradingView: React.FC = () => {
     .filter((zone: any, index: number, zones: any[]) => zones.findIndex((item) => item.direction === zone.direction) === index)
     .slice(0, 2);
   const setupPrice = (value: number | null | undefined) => value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const fibData = cryptoAnalysis?.zones?.fibonacci;
+  const fibNearest = fibData?.nearest;
+  const fibGolden = fibData?.golden_pocket;
+  const fibContext = fibData?.context;
+  const fibTopCluster = Array.isArray(fibData?.clusters) ? fibData.clusters[0] : null;
+  const fibHtfConflicts = Array.isArray(fibContext?.htf_conflicts) ? fibContext.htf_conflicts : [];
+  const fibWaitFor = Array.isArray(fibContext?.wait_for) ? fibContext.wait_for.slice(0, 3).map((item: string) => item.replace(/_/g, ' ')) : [];
 
   return (
     <div ref={workspaceRef} className="relative h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 text-white flex flex-col">
@@ -1950,6 +2023,17 @@ const TradingView: React.FC = () => {
           {(cryptoAnalysis.trade_timing?.status === 'AVOID' ? cryptoAnalysis.trade_timing.avoid_reasons?.[0] : cryptoAnalysis.trade_timing?.wait_for?.[0]) && <span className="normal-case tracking-normal text-slate-500">{cryptoAnalysis.trade_timing.status === 'AVOID' ? 'Avoid: ' : 'Wait: '}{String(cryptoAnalysis.trade_timing.status === 'AVOID' ? cryptoAnalysis.trade_timing.avoid_reasons?.[0] : cryptoAnalysis.trade_timing.wait_for[0]).replace(/_/g, ' ')}</span>}
         </div>
       )}
+
+      {fibData && <div className="flex flex-wrap items-center gap-3 border-b border-amber-500/15 bg-[#171103] px-4 py-2 text-[11px] text-slate-300">
+        <span className="font-black tracking-wider text-amber-300">FIB CONTEXT</span>
+        <span className={fibData.leg === 'up' ? 'text-emerald-300' : 'text-rose-300'}>{fibData.leg === 'up' ? 'Bullish swing' : 'Bearish swing'}</span>
+        {fibNearest && <span>Nearest <b className="text-cyan-300">{String(fibNearest.ratio)}</b> at <b className="text-slate-100">{setupPrice(Number(fibNearest.level))}</b></span>}
+        {fibGolden && <span>Golden pocket <b className="text-violet-300">{setupPrice(Number(fibGolden.low))}–{setupPrice(Number(fibGolden.high))}</b></span>}
+        {fibTopCluster && <span>Cluster <b className="text-amber-200">{setupPrice(Number(fibTopCluster.low))}–{setupPrice(Number(fibTopCluster.high))}</b> <span className="text-slate-500">{fibTopCluster.timeframes?.join('/')}</span></span>}
+        {fibHtfConflicts.length > 0 ? <span className="rounded bg-rose-400/10 px-2 py-1 text-[9px] font-black text-rose-300">HTF CONFLICT {fibHtfConflicts.join('/')}</span> : <span className="rounded bg-emerald-400/10 px-2 py-1 text-[9px] font-black text-emerald-300">HTF ALIGNED</span>}
+        {fibData.selection_reason && <span className="text-slate-500">{String(fibData.selection_reason)}</span>}
+        {fibWaitFor.length > 0 && <span className="ml-auto text-amber-300">Wait: {fibWaitFor.join(' · ')}</span>}
+      </div>}
 
       {cryptoAnalysis?.trade_plan && <div className="flex flex-wrap items-center gap-4 border-b border-emerald-500/15 bg-[#091611] px-4 py-2 text-[11px] text-slate-300">
         <span className="font-black tracking-wider text-emerald-300">POSSIBLE SETUP</span>
