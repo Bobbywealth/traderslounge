@@ -485,6 +485,27 @@ async function get<T>(path: string, query?: Record<string, string | number>): Pr
   return res.json() as Promise<T>;
 }
 
+async function getPublic<T>(path: string, query?: Record<string, string | number>): Promise<T> {
+  const url = new URL(`${BASE}${path}`);
+  if (query) {
+    for (const [k, v] of Object.entries(query)) {
+      url.searchParams.set(k, String(v));
+    }
+  }
+  const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+  if (!res.ok) {
+    let msg = `${res.status} ${res.statusText}`;
+    try {
+      const body = await res.json();
+      msg = body?.error || msg;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+  return res.json() as Promise<T>;
+}
+
 async function getCached<T>(path: string, query?: Record<string, string | number>, ttlMs = 15_000): Promise<T> {
   const params = new URLSearchParams(Object.entries(query || {}).map(([name, value]) => [name, String(value)]));
   const key = `${path}?${params.toString()}`;
@@ -678,6 +699,7 @@ export const bwtsApi = {
   pairs: () => get<{ pairs: string[] }>('/api/pairs'),
   config: () => get<BwtsConfig>('/api/config'),
   dashboardSnapshot: () => get<DashboardSnapshot>('/api/dashboard-snapshot'),
+  publicDashboardSnapshot: () => getPublic<DashboardSnapshot>('/api/public/dashboard-snapshot'),
   signals: (opts?: { pair?: string; tier?: SignalTier; limit?: number }) =>
     getCached<{ signals: BwtsSignal[]; count: number }>('/api/signals', opts as any, 10_000),
   publishedSignals: (opts?: { status?: string; limit?: number }) =>

@@ -157,6 +157,41 @@ _rate_lock = threading.Lock()
 _rate_buckets: dict[str, _TokenBucket] = {}
 
 
+# ---------------------------------------------------------------------------
+# Admin bootstrap
+# ---------------------------------------------------------------------------
+
+def _admin_emails() -> set[str]:
+    """Return the set of emails that should be auto-promoted to ``admin``.
+
+    Read from the ``ADMIN_EMAILS`` env var as a comma-separated list. The
+    comparison is case-insensitive and whitespace is trimmed. If the env
+    var is unset or empty, the set is empty and no automatic promotion
+    happens — the API behaves as before.
+    """
+    raw = os.environ.get("ADMIN_EMAILS", "")
+    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+
+def _maybe_promote_admin(user_repo, user_id: int, email: str) -> None:
+    """If the email is on the admin allow-list, set the role to ``admin``.
+
+    Idempotent: safe to call on every register/login. Failure is logged
+    and ignored — a missing set_role method or a DB error must not block
+    authentication.
+    """
+    if not email or "@" not in email:
+        return
+    if email.strip().lower() not in _admin_emails():
+        return
+    if user_repo is None or not hasattr(user_repo, "set_role"):
+        return
+    try:
+        user_repo.set_role(int(user_id), "admin")
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("admin promotion failed for user %s: %s", user_id, exc)
+
+
 def _client_ip(headers) -> str:
     # Render (and most proxies) supply the real client via X-Forwarded-For.
     forwarded = headers.get("X-Forwarded-For", "")
@@ -398,6 +433,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 return self._public_config()
             if path == "/api/dashboard-snapshot":
                 return self._dashboard_snapshot()
+            if path == "/api/public/dashboard-snapshot":
+                return self._dashboard_snapshot()
             if path == "/api/calendar/events":
                 return self._calendar_events(query)
             if path == "/api/calendar/status":
@@ -569,11 +606,22 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._error(409, "email already registered")
         password_hash = hash_password(password)
         created = user_repo.create(email=email, password_hash=password_hash, name=name)
+        user_id = created.get("id") if isinstance(created, dict) else created.id
+        # ADMIN_EMAILS auto-promotion runs after the row exists so the
+        # user_id is real. If the email is on the allow-list, this upgrades
+        # the role to ``admin`` before we mint the JWT.
+        _maybe_promote_admin(user_repo, user_id, email)
+        refreshed = user_repo.get_by_id(int(user_id)) if hasattr(user_repo, "get_by_id") else None
+        role = (
+            refreshed.get("role")
+            if isinstance(refreshed, dict)
+            else (created.get("role", "user") if isinstance(created, dict) else created.role)
+        )
         user = User(
-            id=created.get("id") if isinstance(created, dict) else created.id,
+            id=user_id,
             email=created.get("email") if isinstance(created, dict) else created.email,
             name=created.get("name") if isinstance(created, dict) else created.name,
-            role=created.get("role", "user") if isinstance(created, dict) else created.role,
+            role=role,
             plan=created.get("plan", "free") if isinstance(created, dict) else created.plan,
             created_at=created.get("created_at", "") if isinstance(created, dict) else created.created_at,
         )
@@ -606,13 +654,18 @@ class _ApiHandler(BaseHTTPRequestHandler):
         stored_hash = user_data.get("password_hash") if isinstance(user_data, dict) else getattr(user_data, "password_hash", "")
         if not verify_password(password, stored_hash):
             return self._error(401, "invalid credentials")
+        # Re-read the user after a possible admin promotion so the
+        # freshly-minted JWT carries the up-to-date role.
+        _maybe_promote_admin(user_repo, user_data.get("id") if isinstance(user_data, dict) else getattr(user_data, "id", 0), email)
+        refreshed_login = user_repo.get_by_email(email) if hasattr(user_repo, "get_by_email") else user_data
+        login_user_data = refreshed_login if isinstance(refreshed_login, dict) else user_data
         user = User(
-            id=user_data.get("id") if isinstance(user_data, dict) else getattr(user_data, "id", 0),
-            email=user_data.get("email") if isinstance(user_data, dict) else getattr(user_data, "email", ""),
-            name=user_data.get("name") if isinstance(user_data, dict) else getattr(user_data, "name", ""),
-            role=user_data.get("role") if isinstance(user_data, dict) else getattr(user_data, "role", "user"),
-            plan=user_data.get("plan") if isinstance(user_data, dict) else getattr(user_data, "plan", "free"),
-            created_at=user_data.get("created_at") if isinstance(user_data, dict) else getattr(user_data, "created_at", ""),
+            id=login_user_data.get("id") if isinstance(login_user_data, dict) else getattr(login_user_data, "id", 0),
+            email=login_user_data.get("email") if isinstance(login_user_data, dict) else getattr(login_user_data, "email", ""),
+            name=login_user_data.get("name") if isinstance(login_user_data, dict) else getattr(login_user_data, "name", ""),
+            role=login_user_data.get("role") if isinstance(login_user_data, dict) else getattr(login_user_data, "role", "user"),
+            plan=login_user_data.get("plan") if isinstance(login_user_data, dict) else getattr(login_user_data, "plan", "free"),
+            created_at=login_user_data.get("created_at") if isinstance(login_user_data, dict) else getattr(login_user_data, "created_at", ""),
         )
         access_token = create_access_token(user)
         refresh_token = create_refresh_token(user)

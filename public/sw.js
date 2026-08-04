@@ -1,4 +1,4 @@
-const CACHE_NAME = 'traderslounge-v1';
+const CACHE_NAME = 'traderslounge-v2-command-center';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -33,19 +33,21 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', copy));
+          return response;
+        })
+        .catch(() => caches.match('/index.html'))
+    );
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request)
-      .then((response) => {
-        // Return cached version or fetch from network
-        if (response) {
-          return response;
-        }
-        return fetch(event.request).catch(() => {
-          // Return a fallback page for navigation requests when offline
-          if (event.request.mode === 'navigate') {
-            return caches.match('/index.html');
-          }
-        });
-      })
+      .then((response) => response || fetch(event.request))
   );
 });

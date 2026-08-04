@@ -71,7 +71,11 @@ const Dashboard: React.FC = () => {
     if (manual) setRefreshing(true);
     setError(null);
     try {
-      const data = await bwtsApi.dashboardSnapshot();
+      const protectedSnapshot = Promise.race([
+        bwtsApi.dashboardSnapshot(),
+        new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Protected snapshot timed out')), 8000)),
+      ]);
+      const data = await protectedSnapshot.catch(() => bwtsApi.publicDashboardSnapshot());
       setSnapshot(data);
       setUpdatedAt(new Date(data.generated_at || Date.now()));
       const top = uniqueMarkets(data.markets).sort((a, b) => heatScore(b.analysis) - heatScore(a.analysis))[0];
