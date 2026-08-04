@@ -72,6 +72,7 @@ const Dashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [tab, setTab] = useState<Tab>('hot');
+  const [timeframe, setTimeframe] = useState<'15m' | '1h' | '4h' | '1d'>('1h');
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const next = params.get('tab');
@@ -286,12 +287,20 @@ const Dashboard: React.FC = () => {
         {tab === 'all' && (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2 cx-text-muted">
+              <div className="flex items-center gap-1 rounded-xl border cx-border cx-bg-input p-1 text-[10px] font-black uppercase tracking-wider">
+                <span className="px-2 cx-text-faint">Timeframe</span>
+                {(['15m', '1h', '4h', '1d'] as const).map((tf) => (
+                  <button key={tf} onClick={() => setTimeframe(tf)} className={`rounded-lg px-2 py-1 transition ${timeframe === tf ? 'bg-cyan-400/15 text-cyan-300' : 'cx-text-muted hover:cx-text-strong'}`}>{tf}</button>
+                ))}
+              </div>
+              <span className="mx-2 h-5 w-px cx-border" />
               <button onClick={() => setDirection('all')} className={`rounded-lg border px-2 py-1 text-[10px] font-black ${direction === 'all' ? 'border-cyan-400/40 bg-cyan-400/10 text-cyan-300' : 'cx-border'}`}>All</button>
               <button onClick={() => setDirection('BUY')} className={`rounded-lg border px-2 py-1 text-[10px] font-black ${direction === 'BUY' ? 'border-emerald-400/40 bg-emerald-400/10 text-emerald-300' : 'cx-border'}`}>Bullish</button>
               <button onClick={() => setDirection('SELL')} className={`rounded-lg border px-2 py-1 text-[10px] font-black ${direction === 'SELL' ? 'border-rose-400/40 bg-rose-400/10 text-rose-300' : 'cx-border'}`}>Bearish</button>
               <button onClick={() => setDirection('NEUTRAL')} className={`rounded-lg border px-2 py-1 text-[10px] font-black ${direction === 'NEUTRAL' ? 'border-slate-400/40 bg-slate-400/10 cx-text' : 'cx-border'}`}>Neutral</button>
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter by symbol…" className="cx-input ml-auto" />
             </div>
+            <div className="text-[10px] cx-text-faint">Showing {filteredMarkets.length} of {hot.length} markets · {timeframe}</div>
             <div className="grid gap-3 lg:grid-cols-2">
               {filteredMarkets.map((row) => <HotMarketCard key={row.signal.pair} row={row} />)}
             </div>

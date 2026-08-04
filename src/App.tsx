@@ -129,7 +129,7 @@ const AppContent: React.FC = () => {
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/dashboard" element={<Navigate to="/" replace />} />
-                <Route path="/scanner" element={<Navigate to="/?tab=all" replace />} />
+                <Route path="/scanner" element={<LiveScanner />} />
                 <Route path="/signals" element={<Navigate to="/?tab=signals" replace />} />
                 <Route path="/analysis" element={<Navigate to="/tradingview?panel=full" replace />} />
                 <Route path="/analysis/:pair" element={({ params }) => <Navigate to={`/tradingview?symbol=${String(params.pair).toUpperCase()}&panel=full`} replace />} />
