@@ -171,6 +171,11 @@ def _admin_emails() -> set[str]:
     happens — the API behaves as before.
     """
     raw = os.environ.get("ADMIN_EMAILS", "")
+    if not raw:
+        # TEMPORARY TEST FALLBACK — Render dashboard not persisting env
+        # vars for this service. Remove after env vars are properly set
+        # in Render. See telegram_bot.py for the matching note.
+        raw = "bobby@wolfpaqmarketing.com"
     return {e.strip().lower() for e in raw.split(",") if e.strip()}
 
 
