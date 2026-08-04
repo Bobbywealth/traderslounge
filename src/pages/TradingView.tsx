@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts';
-import { createVolumePane, createRsiPane, computeVolume, computeRsi } from '../components/chartPanes';
+import { createVolumePane, createRsiPane, computeVolume, computeRsi, detectDivergence, divergenceStyle, type Divergence } from '../components/chartPanes';
 import { V2ScoreBadge, MtfBar, QuickSymbolPills, TradeLevels, TechnicalAnalysisTable, SetupGuideHero, CandlePatternMarkers, detectCandlePatterns } from '../components/ChartUxEnhancements';
 import {
   Settings,
@@ -168,6 +168,8 @@ const TradingView: React.FC = () => {
   const [chartRevision, setChartRevision] = useState(0);
   const [chartUpdatedAt, setChartUpdatedAt] = useState<Date | null>(null);
   const [candlePatterns, setCandlePatterns] = useState<Array<{ type: 'doji' | 'hammer' | 'engulfing' | 'shooting_star' | 'spinning_top'; direction: 'bullish' | 'bearish' | 'neutral'; index: number }>>([]);
+  const [divergences, setDivergences] = useState<Divergence[]>([]);
+  const [divergenceRevision, setDivergenceRevision] = useState(0);
 
   // State management
   const [selectedSymbol, setSelectedSymbol] = useState('BTCUSD');
@@ -284,7 +286,10 @@ const TradingView: React.FC = () => {
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    const redraw = () => setDrawingRevision((value) => value + 1);
+    const redraw = () => {
+      setDrawingRevision((value) => value + 1);
+      setDivergenceRevision((value) => value + 1);
+    };
     chart.timeScale().subscribeVisibleTimeRangeChange(redraw);
     return () => chart.timeScale().unsubscribeVisibleTimeRangeChange(redraw);
   }, [chartRevision]);
@@ -1024,6 +1029,11 @@ const TradingView: React.FC = () => {
     if (rsiSeriesRef.current) {
       const rsi = computeRsi(candles.map((c) => ({ time: c.time, close: c.close })));
       rsiSeriesRef.current.setData(rsi);
+      // Divergence detection needs both series, so we run it here where we
+      // already have a fresh RSI array. The detection engine is pure, so we
+      // just call it and stash the result for the renderer.
+      const detected = detectDivergence(candles, rsi);
+      setDivergences(detected);
     }
     // Detect the most recent candle patterns and surface them to the UI.
     // Pure function - no allocation beyond the result array.
@@ -2436,6 +2446,66 @@ const TradingView: React.FC = () => {
               })()}
             </SetupGuideHero>
           </div>
+        )}
+
+        {divergences.length > 0 && (
+          <svg
+            data-revision={divergenceRevision}
+            className="pointer-events-none absolute inset-0 z-[15] h-full w-full overflow-visible"
+          >
+            {divergences.map((div, idx) => {
+              const series = candlestickSeriesRef.current || mainSeriesRef.current;
+              if (!series) return null;
+              const xA = chartRef.current?.timeScale().timeToCoordinate(div.priceA.time);
+              const xB = chartRef.current?.timeScale().timeToCoordinate(div.priceB.time);
+              const yA = series.priceToCoordinate(div.priceA.value);
+              const yB = series.priceToCoordinate(div.priceB.value);
+              if (xA == null || xB == null || yA == null || yB == null) return null;
+              const style = divergenceStyle(div.type);
+              // The price line connects the two swing points on the price
+              // chart. The label rides near the second (more recent) point
+              // so the eye can read the type at a glance.
+              const labelX = xB + 6;
+              const labelY = yB - 10;
+              return (
+                <g key={`${div.type}-${div.priceA.time}-${div.priceB.time}-${idx}`}>
+                  <line
+                    x1={xA}
+                    y1={yA}
+                    x2={xB}
+                    y2={yB}
+                    stroke={style.color}
+                    strokeWidth={2}
+                    strokeDasharray="4 3"
+                    opacity={0.9}
+                  />
+                  <circle cx={xA} cy={yA} r={4} fill={style.color} opacity={0.9} />
+                  <circle cx={xB} cy={yB} r={4} fill={style.color} opacity={0.9} />
+                  <g transform={`translate(${labelX}, ${labelY})`}>
+                    <rect
+                      x={-2}
+                      y={-10}
+                      width={66}
+                      height={16}
+                      rx={3}
+                      fill={style.color}
+                      opacity={0.18}
+                    />
+                    <text
+                      x={2}
+                      y={2}
+                      fill={style.color}
+                      fontSize={9}
+                      fontWeight={700}
+                      letterSpacing={0.5}
+                    >
+                      {style.icon} {style.label}
+                    </text>
+                  </g>
+                </g>
+              );
+            })}
+          </svg>
         )}
 
         {showManualDrawings && <svg data-revision={drawingRevision} className="absolute inset-0 z-20 h-full w-full" style={{ pointerEvents: drawingTool === 'pan' ? 'none' : 'auto', cursor: drawingTool === 'select' ? 'default' : drawingTool === 'pan' ? 'grab' : 'crosshair' }} onPointerDown={handleDrawingPointerDown} onPointerMove={handleDrawingPointerMove} onPointerUp={handleDrawingPointerUp}>
