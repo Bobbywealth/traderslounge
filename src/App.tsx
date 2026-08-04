@@ -134,7 +134,6 @@ const AppContent: React.FC = () => {
                 <Route path="/analysis" element={<Navigate to="/tradingview?panel=full" replace />} />
                 <Route path="/analysis/:pair" element={({ params }) => <Navigate to={`/tradingview?symbol=${String(params.pair).toUpperCase()}&panel=full`} replace />} />
                 <Route path="/alerts" element={<Alerts />} />
-                <Route path="/signals" element={<Signals />} />
                 <Route path="/positions" element={<Positions />} />
                 <Route path="/journal" element={<Journal />} />
                 <Route path="/backtester" element={<Backtester />} />
