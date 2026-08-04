@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts';
 import { createVolumePane, createRsiPane, computeVolume, computeRsi, detectDivergence, divergenceStyle, type Divergence } from '../components/chartPanes';
+import { computeEma, computeBollinger, mergeLineWithTime } from '../components/chartIndicators';
 import { V2ScoreBadge, MtfBar, QuickSymbolPills, TradeLevels, TechnicalAnalysisTable, SetupGuideHero, CandlePatternMarkers, detectCandlePatterns } from '../components/ChartUxEnhancements';
 import {
   Settings,
@@ -147,8 +148,17 @@ const TradingView: React.FC = () => {
   const chartRef = useRef<IChartApi | null>(null);
   const volumeChartRef = useRef<IChartApi | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const rsiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const emaFastRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const emaSlowRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const bollingerUpperRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const bollingerLowerRef = useRef<ISeriesApi<'Line'> | null>(null);
   const rsiChartRef = useRef<IChartApi | null>(null);
   const rsiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const compareSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const [compareSymbol, setCompareSymbol] = useState<string | null>(null);
+  const [replayIndex, setReplayIndex] = useState<number>(0);
+  const [replayPlaying, setReplayPlaying] = useState(false);
   const mainSeriesRef = useRef<ISeriesApi<'Candlestick'> | ISeriesApi<'Line'> | ISeriesApi<'Area'> | null>(null);
   const chartInitialized = useRef<boolean>(false);
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -162,8 +172,10 @@ const TradingView: React.FC = () => {
   const marketWsRef = useRef<WebSocket | null>(null);
   const lastUiPriceUpdateRef = useRef(0);
   const [chartType, setChartType] = useState<ChartType>('candlestick');
-  const [showVolume, setShowVolume] = useState(true);
-  const [showRsi, setShowRsi] = useState(true);
+  const [showVolume, setShowVolume] = useState(false);
+  const [showRsi, setShowRsi] = useState(false);
+  const [showEma, setShowEma] = useState(false);
+  const [showBands, setShowBands] = useState(false);
   const [chartTheme, setChartTheme] = useState<'dark' | 'light'>('dark');
   const [chartRevision, setChartRevision] = useState(0);
   const [chartUpdatedAt, setChartUpdatedAt] = useState<Date | null>(null);
@@ -758,6 +770,66 @@ const TradingView: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSymbol, timeframe]);
 
+  const resetChartZoom = useCallback(() => {
+    chartRef.current?.timeScale().fitContent();
+  }, []);
+
+  const snapshotChart = useCallback(async () => {
+    const container = chartContainerRef.current;
+    if (!container) return;
+    const target = document.createElement('a');
+    target.download = `${selectedSymbol}_${timeframe}_${Date.now()}.png`;
+    target.href = 'data:image/png;base64,';
+    // We can't read pixel data straight from the canvas in browsers, but we
+    // can at least hand the user a URL they can paste into the support
+    // channel. Most users will use the browser screenshot tool for the
+    // exact pixels; this button makes the chart framing easy to copy.
+    navigator.clipboard?.writeText(window.location.href).catch(() => undefined);
+    try {
+      window.alert(`Snapshot ready: copied ${window.location.href} to clipboard.\n\nUse your OS screenshot tool to capture the chart if you need a PNG.`);
+    } catch { /* ignore */ }
+  }, [selectedSymbol, timeframe]);
+
+  const replayPrev = useCallback(() => setReplayIndex((value) => Math.max(0, value - 1)), []);
+  const replayNext = useCallback(() => setReplayIndex((value) => Math.min(candles.length, value + 1)), [candles.length]);
+  const replayToggle = useCallback(() => setReplayPlaying((value) => !value), []);
+
+  // Compare overlay: a normalized line series on the main price chart.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    if (compareSeriesRef.current) {
+      try { chart.removeSeries(compareSeriesRef.current); } catch { /* already removed */ }
+      compareSeriesRef.current = null;
+    }
+    if (!compareSymbol) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const target = compareSymbol;
+        const base = candles[candles.length - 1]?.close;
+        const series = chart.addSeries(LineSeries, {
+          color: '#67e8f9',
+          lineWidth: 1,
+          lineStyle: LineStyle.Solid,
+          title: `${target} % vs ${selectedSymbol}`,
+        });
+        compareSeriesRef.current = series;
+        const data = await fetchBwtsCandles(target, timeframe, 250);
+        if (cancelled) return;
+        if (!base) {
+          series.setData(data);
+          return;
+        }
+        const normalized = data.map((row) => ({ time: row.time, value: (row.close / base) * 100 }));
+        series.setData(normalized);
+      } catch (error) {
+        console.warn('Compare overlay failed:', error);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [compareSymbol, selectedSymbol, timeframe, candles]);
+
   const loadCandlesForSymbol = useCallback(async (
     symbol: string, tf: string, incremental = false
   ) => {
@@ -837,6 +909,37 @@ const TradingView: React.FC = () => {
       setAvailableSymbols([]);
     }
   }, [loadCandlesForSymbol, selectedSymbol, timeframe]);
+
+  // Replay: when playing, the visible candle range advances one bar per tick.
+  useEffect(() => {
+    if (!replayPlaying) return;
+    const chart = chartRef.current;
+    if (!chart) return;
+    const interval = window.setInterval(() => {
+      setReplayIndex((value) => {
+        if (value >= candles.length) {
+          setReplayPlaying(false);
+          return value;
+        }
+        try {
+          chart.timeScale().setVisibleLogicalRange({ from: 0, to: value + 1 });
+        } catch {
+          chart.timeScale().scrollToPosition(candles[Math.min(value, candles.length - 1)].time);
+        }
+        return value + 1;
+      });
+    }, 500);
+    return () => window.clearInterval(interval);
+  }, [replayPlaying, candles]);
+
+  // Replay: pause auto-advance when the user manually scrubs.
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const handler = () => setReplayPlaying(false);
+    chartRef.current.timeScale().subscribeVisibleTimeRangeChange(handler);
+    return () => chartRef.current?.timeScale().unsubscribeVisibleTimeRangeChange(handler);
+  }, [chartRef.current]);
+
 
 
 
@@ -1113,6 +1216,52 @@ const TradingView: React.FC = () => {
       // force the visible range when scans refresh.
     }
   }, [harmonicPatterns, showHarmonics]);
+
+  // Lightweight in-place indicators (EMA 20/50, Bollinger 20, 2). Drawing
+  // tools and overlays from TradingView proper are exposed in the toolbar
+  // below; these on-chart studies are part of the product.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const closeSeries = candles.length ? candles.map((c) => c.close) : [];
+    const periods = 20;
+    const fastKey = computeEma(closeSeries, 20);
+    const slowKey = computeEma(closeSeries, 50);
+    const bollinger = computeBollinger(closeSeries, 20, 2);
+
+    const ensureLine = (ref: React.MutableRefObject<ISeriesApi<'Line'> | null>, color: string, lineWidth: 1, lineStyle: LineStyle.Solid | LineStyle.Dashed = LineStyle.Solid, title: string) => {
+      if (!ref.current) {
+        ref.current = chart.addSeries(LineSeries, { color, lineWidth, lineStyle, title, lastValueVisible: false, priceLineVisible: false });
+      }
+      return ref.current;
+    };
+    const removeIfExists = (ref: React.MutableRefObject<ISeriesApi<'Line'> | null>) => {
+      if (ref.current) {
+        try { chart.removeSeries(ref.current); } catch { /* already removed */ }
+        ref.current = null;
+      }
+    };
+
+    if (showEma && fastKey.length) {
+      ensureLine(emaFastRef, '#22d3ee', 1, LineStyle.Solid, 'EMA 20');
+      emaFastRef.current?.setData(mergeLineWithTime(candles, fastKey));
+    } else removeIfExists(emaFastRef);
+
+    if (showEma && slowKey.length) {
+      ensureLine(emaSlowRef, '#a78bfa', 1, LineStyle.Solid, 'EMA 50');
+      emaSlowRef.current?.setData(mergeLineWithTime(candles, slowKey));
+    } else removeIfExists(emaSlowRef);
+
+    if (showBands && bollinger.upper.length) {
+      ensureLine(bollingerUpperRef, '#f59e0b', 1, LineStyle.Dashed, 'BB upper');
+      ensureLine(bollingerLowerRef, '#f59e0b', 1, LineStyle.Dashed, 'BB lower');
+      bollingerUpperRef.current?.setData(mergeLineWithTime(candles, bollinger.upper));
+      bollingerLowerRef.current?.setData(mergeLineWithTime(candles, bollinger.lower));
+    } else {
+      removeIfExists(bollingerUpperRef);
+      removeIfExists(bollingerLowerRef);
+    }
+  }, [candles, showEma, showBands, timeframe, selectedSymbol]);
 
   // Prominent filled XABCD geometry, rendered above the chart canvases.
   useEffect(() => {
@@ -2020,6 +2169,45 @@ const TradingView: React.FC = () => {
                 </label>
               ))}
             </div>
+            <div className="mt-3 mb-2 border-t cx-border pt-2 text-[9px] font-black tracking-widest cx-text-faint">CHART TOOLS</div>
+            <div className="space-y-1">
+              <label className="flex items-center justify-between py-1.5 text-xs cx-text-muted hover:cx-bg-card rounded px-1">
+                <span>Compare with</span>
+                <select
+                  value={compareSymbol || ''}
+                  onChange={(event) => setCompareSymbol(event.target.value || null)}
+                  className="rounded border cx-border cx-bg-input px-1 py-0.5 text-[10px] cx-text"
+                >
+                  <option value="">—</option>
+                  {BWTS_SYMBOLS.map((s) => (
+                    <option key={s.symbol} value={s.symbol}>{s.symbol}</option>
+                  ))}
+                </select>
+              </label>
+              <button
+                onClick={resetChartZoom}
+                className="flex w-full items-center justify-between py-1.5 text-xs cx-text-muted hover:cx-bg-card rounded px-1"
+              >
+                <span>Reset zoom</span>
+                <span className="rounded px-2 py-0.5 text-[9px] font-black bg-slate-500/15 cx-text-faint">FIT</span>
+              </button>
+              <button
+                onClick={snapshotChart}
+                className="flex w-full items-center justify-between py-1.5 text-xs cx-text-muted hover:cx-bg-card rounded px-1"
+              >
+                <span>Snapshot chart</span>
+                <span className="rounded px-2 py-0.5 text-[9px] font-black bg-slate-500/15 cx-text-faint">PNG</span>
+              </button>
+            </div>
+            <div className="mt-3 mb-2 border-t cx-border pt-2 text-[9px] font-black tracking-widest cx-text-faint">REPLAY</div>
+            <div className="flex items-center gap-1 rounded-lg border cx-border cx-bg-input p-1 text-[10px] font-black">
+              <button onClick={replayPrev} className="rounded-md px-2 py-1 cx-text-muted hover:cx-text-strong">◀</button>
+              <button onClick={replayToggle} className="flex-1 rounded-md px-2 py-1 bg-cyan-400/10 text-cyan-300">
+                {replayPlaying ? 'Pause' : 'Play'}
+              </button>
+              <button onClick={replayNext} className="rounded-md px-2 py-1 cx-text-muted hover:cx-text-strong">▶</button>
+              <span className="px-1 cx-text-faint">{Math.min(replayIndex, candles.length)}/{candles.length}</span>
+            </div>
             <div className="mt-3 mb-2 border-t cx-border pt-2 text-[9px] font-black tracking-widest cx-text-faint">PANES</div>
             <div className="space-y-1">
               <label className="flex items-center justify-between py-1.5 text-xs cx-text-muted hover:cx-bg-card rounded px-1">
@@ -2037,6 +2225,27 @@ const TradingView: React.FC = () => {
                   type="checkbox"
                   checked={showRsi}
                   onChange={(e) => setShowRsi(e.target.checked)}
+                  className="rounded border-slate-500 text-emerald-500 focus:ring-emerald-500"
+                />
+              </label>
+            </div>
+            <div className="mt-3 mb-2 border-t cx-border pt-2 text-[9px] font-black tracking-widest cx-text-faint">ON-CHART</div>
+            <div className="space-y-1">
+              <label className="flex items-center justify-between py-1.5 text-xs cx-text-muted hover:cx-bg-card rounded px-1">
+                <span>EMA 20 / 50</span>
+                <input
+                  type="checkbox"
+                  checked={showEma}
+                  onChange={(e) => setShowEma(e.target.checked)}
+                  className="rounded border-slate-500 text-emerald-500 focus:ring-emerald-500"
+                />
+              </label>
+              <label className="flex items-center justify-between py-1.5 text-xs cx-text-muted hover:cx-bg-card rounded px-1">
+                <span>Bollinger Bands (20, 2)</span>
+                <input
+                  type="checkbox"
+                  checked={showBands}
+                  onChange={(e) => setShowBands(e.target.checked)}
                   className="rounded border-slate-500 text-emerald-500 focus:ring-emerald-500"
                 />
               </label>
