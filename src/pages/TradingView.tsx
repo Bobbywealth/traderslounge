@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts';
+import { createVolumePane, createRsiPane, computeVolume, computeRsi } from '../components/chartPanes';
+import { V2ScoreBadge, MtfBar, QuickSymbolPills, TradeLevels, TechnicalAnalysisTable, SetupGuideHero, CandlePatternMarkers, detectCandlePatterns } from '../components/ChartUxEnhancements';
 import {
   Settings, 
   Maximize2, 
@@ -15,6 +17,8 @@ import {
   Zap,
   RefreshCw,
   Pencil,
+  Sun,
+  Moon,
   LineChart,
   CandlestickChart,
   BarChart2,
@@ -126,10 +130,13 @@ const TradingView: React.FC = () => {
   const workspaceRef = useRef<HTMLDivElement>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const volumeContainerRef = useRef<HTMLDivElement>(null);
+  const rsiContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const volumeChartRef = useRef<IChartApi | null>(null);
-  const mainSeriesRef = useRef<ISeriesApi<'Candlestick'> | ISeriesApi<'Line'> | ISeriesApi<'Area'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const rsiChartRef = useRef<IChartApi | null>(null);
+  const rsiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const mainSeriesRef = useRef<ISeriesApi<'Candlestick'> | ISeriesApi<'Line'> | ISeriesApi<'Area'> | null>(null);
   const chartInitialized = useRef<boolean>(false);
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const harmonicSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
@@ -143,7 +150,10 @@ const TradingView: React.FC = () => {
   const lastUiPriceUpdateRef = useRef(0);
   const [chartType, setChartType] = useState<ChartType>('candlestick');
   const [showVolume, setShowVolume] = useState(true);
+  const [showRsi, setShowRsi] = useState(true);
+  const [chartTheme, setChartTheme] = useState<'dark' | 'light'>('dark');
   const [chartRevision, setChartRevision] = useState(0);
+  const [candlePatterns, setCandlePatterns] = useState<Array<{ type: 'doji' | 'hammer' | 'engulfing' | 'shooting_star' | 'spinning_top'; direction: 'bullish' | 'bearish' | 'neutral'; index: number }>>([]);
   
   // State management
   const [selectedSymbol, setSelectedSymbol] = useState('BTCUSD');
@@ -202,9 +212,43 @@ const TradingView: React.FC = () => {
     setChartAiAnalysis(null);
     setChartAiConfigured(null);
     setChartAiError(null);
-    bwtsApi.cryptoAnalysis(selectedSymbol, timeframe)
-      .then((analysis) => { if (active) setCryptoAnalysis(analysis); })
-      .catch(() => { if (active) setCryptoAnalysis(null); });
+
+    // Retry the V2 analysis up to 3 times. On slower timeframes (1W, 1M) the
+    // backend occasionally warms up after the timeframe change so a single
+    // call can return an empty payload. Without a retry the UI shows "no V2"
+    // until the user hits the refresh button manually.
+    const fetchWithRetry = (attempt = 0): void => {
+      if (!active) return;
+      const delay = attempt === 0 ? 0 : 1200 * attempt;
+      window.setTimeout(() => {
+        if (!active) return;
+        bwtsApi.cryptoAnalysis(selectedSymbol, timeframe)
+          .then((analysis) => {
+            if (!active) return;
+            const hasContent = analysis && (analysis.total_score != null || analysis.direction);
+            if (hasContent) {
+              setCryptoAnalysis(analysis);
+              return;
+            }
+            if (attempt < 2) {
+              fetchWithRetry(attempt + 1);
+            } else {
+              setCryptoAnalysis(null);
+            }
+          })
+          .catch(() => {
+            if (!active) return;
+            if (attempt < 2) {
+              fetchWithRetry(attempt + 1);
+            } else {
+              setCryptoAnalysis(null);
+            }
+          });
+      }, delay);
+    };
+
+    fetchWithRetry(0);
+
     return () => { active = false; };
   }, [selectedSymbol, timeframe, availableSymbols]);
 
@@ -818,6 +862,83 @@ const TradingView: React.FC = () => {
     }
   }, []);
 
+  // Initialize the volume and RSI panes when, and only when, the chart has
+  // been mounted. The panes share the same time scale as the main chart via
+  // a subscription on the main chart's time range, so panning/zooming on the
+  // main chart keeps the indicators aligned.
+  useEffect(() => {
+    if (!chartInitialized.current) return;
+    if (!volumeContainerRef.current || !rsiContainerRef.current) return;
+    if (volumeChartRef.current || rsiChartRef.current) return;
+
+    const volume = createVolumePane(volumeContainerRef.current, 110);
+    volumeChartRef.current = volume.chart;
+    volumeSeriesRef.current = volume.series;
+
+    const rsi = createRsiPane(rsiContainerRef.current, 110);
+    rsiChartRef.current = rsi.chart;
+    rsiSeriesRef.current = rsi.series;
+
+    // Sync the pane time scales with the main chart so a pan/zoom on the
+    // candles mirrors onto the indicators.
+    const mainChart = chartRef.current;
+    const syncTimeFromMain = () => {
+      if (!mainChart || !volumeChartRef.current || !rsiChartRef.current) return;
+      const range = mainChart.timeScale().getVisibleLogicalRange();
+      if (!range) return;
+      try {
+        volumeChartRef.current.timeScale().setVisibleLogicalRange(range);
+        rsiChartRef.current.timeScale().setVisibleLogicalRange(range);
+      } catch (error) {
+        // logical range sync is best-effort; ignore invalidation errors
+      }
+    };
+    const mainTimeHandler = mainChart?.timeScale().subscribeVisibleTimeRangeChange(() => {
+      syncTimeFromMain();
+    }) as unknown as (() => void) | undefined;
+    const mainLogicalHandler = mainChart?.timeScale().subscribeVisibleLogicalRangeChange(() => {
+      syncTimeFromMain();
+    }) as unknown as (() => void) | undefined;
+
+    return () => {
+      if (typeof mainTimeHandler === 'function') {
+        try { mainTimeHandler(); } catch { /* ignore */ }
+      }
+      if (typeof mainLogicalHandler === 'function') {
+        try { mainLogicalHandler(); } catch { /* ignore */ }
+      }
+      if (volumeChartRef.current) {
+        try { volumeChartRef.current.remove(); } catch { /* ignore */ }
+        volumeChartRef.current = null;
+      }
+      if (rsiChartRef.current) {
+        try { rsiChartRef.current.remove(); } catch { /* ignore */ }
+        rsiChartRef.current = null;
+      }
+      volumeSeriesRef.current = null;
+      rsiSeriesRef.current = null;
+    };
+  }, [chartInitialized.current]);
+
+  // Push live candle data into the volume and RSI panes whenever the cache
+  // for the current symbol/timeframe changes.
+  useEffect(() => {
+    const key = `${selectedSymbol}:${timeframe}`;
+    const candles = candleCacheRef.current[key];
+    if (!candles || candles.length === 0) return;
+    if (volumeSeriesRef.current) {
+      volumeSeriesRef.current.setData(computeVolume(candles));
+    }
+    if (rsiSeriesRef.current) {
+      const rsi = computeRsi(candles.map((c) => ({ time: c.time, close: c.close })));
+      rsiSeriesRef.current.setData(rsi);
+    }
+    // Detect the most recent candle patterns and surface them to the UI.
+    // Pure function — no allocation beyond the result array.
+    const detected = detectCandlePatterns(candles);
+    setCandlePatterns(detected);
+  }, [chartRevision, selectedSymbol, timeframe]);
+
   // ADR changes slowly, so refresh once per minute rather than on every
   // candle poll.
   useEffect(() => {
@@ -1430,10 +1551,25 @@ const TradingView: React.FC = () => {
   const symbolDatabase = availableSymbols.length > 0 ? availableSymbols : BWTS_SYMBOLS;
 
   const currentSymbolInfo = getSymbolInfo(selectedSymbol);
+  const [fullscreenFallback, setFullscreenFallback] = useState(false);
+
   const toggleFullscreen = async () => {
-    if (!document.fullscreenElement) await workspaceRef.current?.requestFullscreen();
-    else await document.exitFullscreen();
-    setIsFullscreen(Boolean(document.fullscreenElement));
+    try {
+      if (!document.fullscreenElement) {
+        await workspaceRef.current?.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+      setIsFullscreen(Boolean(document.fullscreenElement));
+      setFullscreenFallback(false);
+    } catch (error) {
+      // The browser blocked Fullscreen API (common in iframes or untrusted
+      // gestures). Fall back to a CSS-only fullscreen that hides the rest of
+      // the page chrome so the chart still gets the entire viewport.
+      console.warn('Fullscreen API blocked, falling back to CSS layout', error);
+      setFullscreenFallback((prev) => !prev);
+      setIsFullscreen((prev) => !prev);
+    }
   };
 
   const analyzeChartWithAi = useCallback(async () => {
@@ -1488,14 +1624,21 @@ const TradingView: React.FC = () => {
   const setupPrice = (value: number | null | undefined) => value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
   return (
-    <div ref={workspaceRef} className="relative h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 text-white flex flex-col">
+    <div ref={workspaceRef} className={`relative h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 text-white flex flex-col ${fullscreenFallback ? 'fixed inset-0 z-[100]' : ''}`}>
       {/* Enhanced Top Controls */}
       <div className="relative bg-gray-800 border-b border-gray-700 px-4 py-3">
         <div className="flex items-center justify-between">
           {/* Left Section - Logo & Symbol Search */}
           <div className="flex items-center space-x-4">
             <ConfluenceXLogo size="sm" />
-            
+
+            {/* Quick symbol pills - lets users hop between pairs without typing */}
+            <QuickSymbolPills
+              symbols={availableSymbols.length > 0 ? availableSymbols : BWTS_SYMBOLS}
+              activeSymbol={selectedSymbol}
+              onSelect={(symbol) => handleSymbolChange(symbol)}
+            />
+
             {/* Symbol Search */}
             <div className="relative">
               <div className="flex items-center space-x-2 bg-gray-700 rounded-lg px-3 py-2">
@@ -1505,7 +1648,7 @@ const TradingView: React.FC = () => {
                   value={searchTerm}
                   onChange={(e) => handleSymbolSearch(e.target.value)}
                   onFocus={() => updateSymbolSuggestions(searchTerm)}
-                  placeholder="Search symbols..."
+                  placeholder={`Search… (current: ${selectedSymbol})`}
                   className="bg-transparent text-white placeholder-gray-400 outline-none w-48"
                 />
               </div>
@@ -1556,6 +1699,17 @@ const TradingView: React.FC = () => {
                   <div className="text-xs text-emerald-400">+0.0012 (+0.12%)</div>
                 </div>
               </div>
+            )}
+            {/* Hero V2 badge — the conviction signal the trader checks first */}
+            {cryptoAnalysis && (
+              <V2ScoreBadge
+                score={cryptoAnalysis.total_score}
+                direction={cryptoAnalysis.direction}
+                lifecycle={cryptoAnalysis.direction_stability?.lifecycle}
+                timingStatus={setupTimingStatus}
+                calendarStatus={setupCalendarStatus}
+                size="lg"
+              />
             )}
           </div>
 
@@ -1614,7 +1768,7 @@ const TradingView: React.FC = () => {
               </span>
             </div>
 
-            <button 
+            <button
               onClick={() => loadSymbolData(selectedSymbol)}
               className="p-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
               title="Refresh Data"
@@ -1622,15 +1776,23 @@ const TradingView: React.FC = () => {
               <RefreshCw className="w-4 h-4" />
             </button>
 
-            <button 
+            <button
               onClick={() => setShowSettings(!showSettings)}
-              className="p-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
-              title="Settings"
+              className={`p-2 rounded transition-colors ${showSettings ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-700 hover:bg-gray-600'}`}
+              title="Chart settings & overlays"
             >
               <Settings className="w-4 h-4" />
             </button>
-            
-            <button 
+
+            <button
+              onClick={() => setChartTheme(chartTheme === 'dark' ? 'light' : 'dark')}
+              className="p-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
+              title={`Switch to ${chartTheme === 'dark' ? 'light' : 'dark'} theme`}
+            >
+              {chartTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+
+            <button
               onClick={toggleFullscreen}
               className="p-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
               title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
@@ -1639,7 +1801,74 @@ const TradingView: React.FC = () => {
             </button>
           </div>
         </div>
-        {showSettings && <div className="absolute right-4 top-14 z-50 w-56 rounded-xl border border-white/10 bg-[#0b1020] p-3 shadow-2xl"><div className="mb-2 text-[9px] font-black tracking-widest text-slate-500">OVERLAYS</div>{[[showHarmonics,setShowHarmonics,'Harmonics'],[showSupportResistance,setShowSupportResistance,'Support / resistance'],[showFibonacci,setShowFibonacci,'Fibonacci'],[showSetups,setShowSetups,'Possible setups'],[showSetupGuide,setShowSetupGuide,'Setup guide'],[showManualDrawings,setShowManualDrawings,'Manual drawings']].map(([checked,setChecked,label]) => <label key={String(label)} className="flex items-center justify-between py-1.5 text-xs text-slate-300"><span>{String(label)}</span><input type="checkbox" checked={Boolean(checked)} onChange={(event) => (setChecked as React.Dispatch<React.SetStateAction<boolean>>)(event.target.checked)}/></label>)}</div>}
+        {showSettings && (
+          <div className="absolute right-4 top-14 z-50 w-72 rounded-xl border border-white/10 bg-[#0b1020] p-3 shadow-2xl">
+            <div className="mb-2 text-[9px] font-black tracking-widest text-slate-500">OVERLAYS</div>
+            <div className="space-y-1">
+              {[
+                [showHarmonics, setShowHarmonics, 'Harmonic Patterns'],
+                [showTrendLines, setShowTrendLines, 'Trend Lines'],
+                [showSupportResistance, setShowSupportResistance, 'Support / Resistance'],
+                [showFibonacci, setShowFibonacci, 'Fibonacci Levels'],
+                [showSetups, setShowSetups, 'Possible setups'],
+                [showSetupGuide, setShowSetupGuide, 'Setup guide'],
+                [showManualDrawings, setShowManualDrawings, 'Manual drawings'],
+              ].map(([checked, setChecked, label]) => (
+                <label key={String(label)} className="flex items-center justify-between py-1.5 text-xs text-slate-300 hover:bg-white/[0.04] rounded px-1">
+                  <span>{String(label)}</span>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(checked)}
+                    onChange={(event) => (setChecked as React.Dispatch<React.SetStateAction<boolean>>)(event.target.checked)}
+                    className="rounded border-slate-500 text-emerald-500 focus:ring-emerald-500"
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="mt-3 mb-2 border-t border-white/[0.06] pt-2 text-[9px] font-black tracking-widest text-slate-500">PANES</div>
+            <div className="space-y-1">
+              <label className="flex items-center justify-between py-1.5 text-xs text-slate-300 hover:bg-white/[0.04] rounded px-1">
+                <span>Volume</span>
+                <input
+                  type="checkbox"
+                  checked={showVolume}
+                  onChange={(e) => setShowVolume(e.target.checked)}
+                  className="rounded border-slate-500 text-emerald-500 focus:ring-emerald-500"
+                />
+              </label>
+              <label className="flex items-center justify-between py-1.5 text-xs text-slate-300 hover:bg-white/[0.04] rounded px-1">
+                <span>RSI (14)</span>
+                <input
+                  type="checkbox"
+                  checked={showRsi}
+                  onChange={(e) => setShowRsi(e.target.checked)}
+                  className="rounded border-slate-500 text-emerald-500 focus:ring-emerald-500"
+                />
+              </label>
+            </div>
+            <div className="mt-3 mb-2 border-t border-white/[0.06] pt-2 text-[9px] font-black tracking-widest text-slate-500">DRAWINGS</div>
+            <div className="space-y-1">
+              <button
+                onClick={() => setMagnetDrawing((v) => !v)}
+                className="flex w-full items-center justify-between py-1.5 text-xs text-slate-300 hover:bg-white/[0.04] rounded px-1"
+              >
+                <span>Magnet to OHLC</span>
+                <span className={`rounded px-2 py-0.5 text-[9px] font-black ${magnetDrawing ? 'bg-cyan-400/15 text-cyan-300' : 'bg-slate-500/15 text-slate-500'}`}>
+                  {magnetDrawing ? 'ON' : 'OFF'}
+                </span>
+              </button>
+              <button
+                onClick={() => setShowManualDrawings((v) => !v)}
+                className="flex w-full items-center justify-between py-1.5 text-xs text-slate-300 hover:bg-white/[0.04] rounded px-1"
+              >
+                <span>Show / hide drawings</span>
+                <span className={`rounded px-2 py-0.5 text-[9px] font-black ${showManualDrawings ? 'bg-cyan-400/15 text-cyan-300' : 'bg-slate-500/15 text-slate-500'}`}>
+                  {showManualDrawings ? 'ON' : 'OFF'}
+                </span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Manual drawing toolbar. Drawings persist independently per symbol and timeframe. */}
@@ -1679,7 +1908,27 @@ const TradingView: React.FC = () => {
         <span className="text-cyan-300">MARKET CONTEXT</span>
         {harmonicPatterns.length > 0 && <span className="rounded bg-emerald-400/10 px-2 py-1 text-emerald-300">{harmonicPatterns.length} harmonic</span>}
         {adrData && <span className={`rounded px-2 py-1 ${adrData.exhausted ? 'bg-rose-400/10 text-rose-300' : 'bg-sky-400/10 text-sky-300'}`}>ADR {adrData.percent_used.toFixed(0)}%</span>}
-        {cryptoAnalysis && <><span className="rounded bg-violet-400/10 px-2 py-1 text-violet-300">V2 {cryptoAnalysis.total_score}/100</span><span className={cryptoAnalysis.direction === 'BUY' ? 'text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.direction}</span><span>{timeframe}</span><span className="text-slate-400">{cryptoAnalysis.trade_timing?.status || 'WAIT'}</span>{cryptoAnalysis.trade_plan && <span className={`rounded px-2 py-1 ${cryptoAnalysis.trade_plan.direction === 'BUY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.trade_plan.direction === 'SELL' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 text-slate-400'}`}>{cryptoAnalysis.trade_plan.direction === 'NEUTRAL' ? 'NO ACTIVE SETUP' : `${cryptoAnalysis.trade_plan.direction} SETUP ${cryptoAnalysis.trade_plan.eligible ? 'ELIGIBLE' : 'WAIT'}`}</span>}</>}
+        {cryptoAnalysis && (
+          <V2ScoreBadge
+            score={cryptoAnalysis.total_score}
+            direction={cryptoAnalysis.direction}
+            lifecycle={cryptoAnalysis.direction_stability?.lifecycle}
+            timingStatus={setupTimingStatus}
+            calendarStatus={setupCalendarStatus}
+          />
+        )}
+        {cryptoAnalysis?.market_context && (
+          <MtfBar
+            timeframes={{
+              month: cryptoAnalysis.market_context.timeframes.mn1?.trend,
+              week: cryptoAnalysis.market_context.timeframes.w1?.trend,
+              day: cryptoAnalysis.market_context.timeframes.d1?.trend,
+              selected: cryptoAnalysis.market_context.timeframes.selected?.trend,
+            }}
+            alignmentScore={cryptoAnalysis.market_context.alignment_score}
+            selectedLabel={timeframe}
+          />
+        )}
         <button onClick={() => setShowTechnicalControls((value) => !value)} className="ml-auto rounded bg-white/[0.06] px-2.5 py-1 text-[9px] text-slate-300 hover:bg-white/[0.1]">{showTechnicalControls ? 'Hide tools' : 'Analysis tools'}</button>
         <button onClick={() => setShowChartContext((value) => !value)} className="rounded bg-cyan-400/10 px-2.5 py-1 text-[9px] text-cyan-300 hover:bg-cyan-400/20">{showChartContext ? 'Hide details' : 'Details'}</button>
         {!showSetupGuide && <button onClick={() => setShowSetupGuide(true)} className="rounded bg-emerald-400/10 px-2.5 py-1 text-[9px] text-emerald-300 hover:bg-emerald-400/20">Guide</button>}
@@ -1869,65 +2118,93 @@ const TradingView: React.FC = () => {
 
       {/* Chart Area */}
       <div className="flex-1 min-w-0 min-h-0 overflow-hidden relative bg-gray-900">
-        <div
-          ref={chartContainerRef}
-          className="w-full h-full min-w-0 min-h-0 overflow-hidden"
-        />
-        {showSetupGuide && setupPlan && <div className="absolute right-4 top-4 z-30 w-[min(350px,calc(100%-2rem))] rounded-xl border border-white/10 bg-[#0b1020]/95 p-3 text-xs text-slate-300 shadow-2xl backdrop-blur">
-          <div className="flex items-center justify-between gap-3">
-            <span className="font-black tracking-widest text-cyan-300">SETUP GUIDE</span>
-            <div className="flex items-center gap-2">
-              <span className={`rounded px-2 py-1 text-[9px] font-black ${setupReady ? 'bg-emerald-400/15 text-emerald-300' : setupHardBlocked ? 'bg-rose-400/15 text-rose-300' : 'bg-amber-400/15 text-amber-300'}`}>{setupReady ? `${setupPlan.direction} READY` : setupHardBlocked ? 'BLOCKED' : 'WAIT'}</span>
-              <button onClick={() => setShowSetupGuide(false)} className="rounded px-1.5 py-0.5 text-slate-500 hover:bg-white/[0.08] hover:text-slate-200" aria-label="Hide setup guide">×</button>
-            </div>
-          </div>
-          {setupPlan.direction !== 'NEUTRAL' && setupPlan.entry != null ? <div className="mt-3 space-y-2">
-            <div className="flex justify-between gap-3"><span className="text-slate-500">Possible {setupPlan.direction.toLowerCase()} area</span><b className={setupPlan.direction === 'BUY' ? 'text-emerald-300' : 'text-rose-300'}>{setupPrice(setupPlan.entry)}</b></div>
-            <div className="flex justify-between gap-3"><span className="text-slate-500">Invalid if price reaches</span><b className="text-rose-300">{setupPrice(setupPlan.stop ?? setupPlan.invalidation)}</b></div>
-            <div className="flex justify-between gap-3"><span className="text-slate-500">Targets</span><b className="text-cyan-300">{setupPlan.targets?.slice(0, 3).map((target) => setupPrice(target.price)).join(' · ') || 'Waiting'}</b></div>
-          </div> : (() => {
-            const v2Score = Number(cryptoAnalysis?.total_score || 0);
-            const belowThreshold = v2Score < 60;
-            const calendarBlocked = setupHardBlocked;
-            const timingWait = setupTimingStatus !== 'READY';
-            // Only show zones that the backend marked as actionable. When none
-            // qualify, the panel truthfully shows "no reference areas".
-            const displayZones = setupReady
-              ? setupZones.filter((z: any) => z.actionable !== false)
-              : [];
-            const isReferenceMode = displayZones.length > 0 && !setupReady;
-            return (
-              <div className="mt-3 space-y-2">
-                <p className="font-semibold text-slate-200">NO ACTIVE SETUP</p>
-                {belowThreshold && <p className="text-[10px] leading-relaxed text-rose-300">V2 score is {v2Score}/100 — below the 60 threshold. Zones are not actionable until score clears.</p>}
-                {calendarBlocked && <p className="text-[10px] leading-relaxed text-rose-300">Economic calendar gate is BLOCKED. No new entries until the gate clears.</p>}
-                {timingWait && !belowThreshold && !calendarBlocked && <p className="text-[10px] leading-relaxed text-amber-300">Timing is WAIT — waiting on a confirming candle, volume, ADR, and V2 direction.</p>}
-                {displayZones.length === 0 && !belowThreshold && !calendarBlocked && !timingWait && <p className="text-[10px] leading-relaxed text-slate-500">No qualifying zones on this timeframe yet.</p>}
-                {displayZones.map((zone: any) => {
-                  const actionable = zone.actionable !== false;
-                  const conflicting = zone.conflicting_with_harmonic === true;
-                  const scoreLabel = actionable && zone.score != null ? <small className="text-slate-500"> {zone.score}/100</small> : null;
-                  const labelClass = actionable
-                    ? (zone.direction === 'BUY' ? 'text-emerald-300' : 'text-rose-300')
-                    : 'text-slate-500';
-                  const prefix = actionable
-                    ? `${zone.direction} only if price returns here`
-                    : (conflicting ? 'Harmonic conflict — wait for confirmation' : 'Reference area — not actionable');
-                  return (
-                    <div key={`${zone.direction}-${zone.center}`} className="flex justify-between gap-3">
-                      <span className={labelClass}>{prefix}{scoreLabel}</span>
-                      <b className={actionable ? 'text-slate-200' : 'text-slate-500'}>{setupPrice(zone.low)} – {setupPrice(zone.high)}</b>
-                    </div>
-                  );
-                })}
-                {displayZones[0]?.reasons?.length > 0 && <p className="text-[10px] leading-relaxed text-slate-500">Why: {displayZones[0].reasons.slice(0, 3).join(' · ')}</p>}
-                {!isReferenceMode && (belowThreshold || calendarBlocked || timingWait) && <p className="text-[10px] leading-relaxed text-slate-500">Then wait for a confirming candle, volume, ADR, and V2 direction.</p>}
+        <div className="flex h-full min-h-0 flex-col">
+          <div
+            ref={chartContainerRef}
+            className="w-full min-w-0 min-h-0 overflow-hidden"
+            style={{ flex: '1 1 60%' }}
+          />
+          {showVolume && (
+            <div className="relative border-t border-white/[0.06]">
+              <div className="absolute left-2 top-1 z-10 rounded bg-black/40 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-slate-400">
+                VOLUME
               </div>
-            );
-          })()}
-
-          <p className="mt-3 border-t border-white/[0.08] pt-2 text-[10px] leading-relaxed text-slate-500">{setupReady ? 'Deterministic gates are clear. Confirm the trigger before acting.' : setupHardBlocked ? 'Calendar gate is blocking this setup.' : `Wait for ${(cryptoAnalysis?.trade_timing?.wait_for || ['confirmation']).slice(0, 2).join(' and ').replace(/_/g, ' ')}.`}</p>
-        </div>}
+              <div
+                ref={volumeContainerRef}
+                className="w-full min-w-0 overflow-hidden"
+                style={{ height: 110 }}
+              />
+            </div>
+          )}
+          {showRsi && (
+            <div className="relative border-t border-white/[0.06]">
+              <div className="absolute left-2 top-1 z-10 rounded bg-black/40 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-violet-300">
+                RSI(14)
+              </div>
+              <div
+                ref={rsiContainerRef}
+                className="w-full min-w-0 overflow-hidden"
+                style={{ height: 110 }}
+              />
+            </div>
+          )}
+        </div>
+        {showSetupGuide && cryptoAnalysis && (
+          <div className="absolute right-4 top-4 z-30 w-[min(360px,calc(100%-2rem))] space-y-2">
+            <SetupGuideHero
+              setupReady={setupReady}
+              setupHardBlocked={setupHardBlocked}
+              setupTimingStatus={setupTimingStatus}
+              v2Score={Number(cryptoAnalysis.total_score || 0)}
+              direction={setupPlan?.direction || 'NEUTRAL'}
+              calendarStatus={setupCalendarStatus}
+              onClose={() => setShowSetupGuide(false)}
+            >
+              {setupPlan && setupPlan.direction !== 'NEUTRAL' && setupPlan.entry != null && (
+                <TradeLevels
+                  direction={setupPlan.direction}
+                  entry={setupPlan.entry}
+                  stop={setupPlan.stop ?? setupPlan.invalidation}
+                  targets={setupPlan.targets?.slice(0, 3) || []}
+                  currentPrice={currentPrice}
+                  formatPrice={setupPrice}
+                />
+              )}
+              {setupPlan && setupPlan.direction === 'NEUTRAL' && (() => {
+                const v2Score = Number(cryptoAnalysis?.total_score || 0);
+                const belowThreshold = v2Score < 60;
+                const calendarBlocked = setupHardBlocked;
+                const timingWait = setupTimingStatus !== 'READY';
+                const displayZones = setupReady
+                  ? setupZones.filter((z: any) => z.actionable !== false)
+                  : [];
+                return (
+                  <div className="mt-2 space-y-1.5 border-t border-white/[0.06] pt-2">
+                    {displayZones.length === 0 && !belowThreshold && !calendarBlocked && !timingWait && (
+                      <p className="text-[10px] leading-relaxed text-slate-500">No qualifying zones on this timeframe yet.</p>
+                    )}
+                    {displayZones.map((zone: any) => {
+                      const actionable = zone.actionable !== false;
+                      const conflicting = zone.conflicting_with_harmonic === true;
+                      const labelClass = actionable
+                        ? (zone.direction === 'BUY' ? 'text-emerald-300' : 'text-rose-300')
+                        : 'text-slate-500';
+                      const prefix = actionable
+                        ? `${zone.direction} only if price returns here`
+                        : (conflicting ? 'Harmonic conflict — wait for confirmation' : 'Reference area — not actionable');
+                      return (
+                        <div key={`${zone.direction}-${zone.center}`} className="flex justify-between gap-3 text-[10px]">
+                          <span className={labelClass}>{prefix}</span>
+                          <b className={actionable ? 'text-slate-200' : 'text-slate-500'}>{setupPrice(zone.low)} – {setupPrice(zone.high)}</b>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </SetupGuideHero>
+          </div>
+        )}
         {showManualDrawings && <svg data-revision={drawingRevision} className="absolute inset-0 z-20 h-full w-full" style={{ pointerEvents: drawingTool === 'pan' ? 'none' : 'auto', cursor: drawingTool === 'select' ? 'default' : drawingTool === 'pan' ? 'grab' : 'crosshair' }} onPointerDown={handleDrawingPointerDown} onPointerMove={handleDrawingPointerMove} onPointerUp={handleDrawingPointerUp}>
           {[...drawings, ...(draftDrawing ? [draftDrawing] : [])].map((drawing) => {
             const points = drawingCoordinates(drawing); if (!points.length || points.some((point) => point.x == null || point.y == null)) return null;
@@ -1945,44 +2222,36 @@ const TradingView: React.FC = () => {
         </svg>}
         
         {/* Pattern Info Overlay */}
-        {(harmonicPatterns.length > 0 || trendLines.length > 0) && (
-          <div className="absolute top-4 left-4 bg-gray-800 bg-opacity-90 rounded-lg p-4 max-w-sm">
-            <h4 className="text-white font-semibold mb-2 flex items-center">
-              <BarChart3 className="w-4 h-4 mr-2" />
-              Technical Analysis
+        {(harmonicPatterns.length > 0 || trendLines.length > 0 || fibonacciLevels.length > 0) && (
+          <div className="absolute bottom-4 left-4 max-w-sm rounded-xl border border-white/10 bg-[#0b1020]/95 p-3 text-xs text-slate-300 shadow-2xl backdrop-blur">
+            <h4 className="mb-2 flex items-center text-white">
+              <BarChart3 className="mr-2 h-4 w-4 text-cyan-300" />
+              <span className="font-black tracking-widest text-cyan-300">TECHNICAL ANALYSIS</span>
             </h4>
-            
-            {harmonicPatterns.map((pattern, index) => (
-              <div key={pattern.id} className="mb-2 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className={`font-medium ${
-                    pattern.direction === 'bullish' ? 'text-emerald-400' : 'text-red-400'
-                  }`}>
-                    {pattern.type} Pattern
-                  </span>
-                  <span className="text-gray-400">{pattern.confidence.toFixed(0)}%</span>
-                </div>
-                <div className="text-gray-400 text-xs">
-                  PRZ: {pattern.prz.min.toFixed(5)} - {pattern.prz.max.toFixed(5)}
-                </div>
-              </div>
-            ))}
+            <TechnicalAnalysisTable
+              patterns={harmonicPatterns.map((p) => ({
+                type: p.type,
+                direction: p.direction,
+                confidence: p.confidence,
+                prz: { min: p.prz.min, max: p.prz.max },
+              }))}
+              fibLevels={fibonacciLevels.map((f) => ({
+                level: f.level,
+                price: f.price,
+                type: f.type,
+                strength: f.strength,
+              }))}
+              trendLines={trendLines}
+              currentPrice={currentPrice}
+              formatPrice={(value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: getDecimalPlaces(selectedSymbol) })}
+            />
+          </div>
+        )}
 
-            {trendLines.map((line, index) => (
-              <div key={line.id} className="mb-2 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className={`font-medium ${
-                    line.type === 'support' ? 'text-blue-400' : 'text-orange-400'
-                  }`}>
-                    {line.type} Line
-                  </span>
-                  <span className="text-gray-400">{line.strength}%</span>
-                </div>
-                <div className="text-gray-400 text-xs">
-                  {line.touches} touches • {(line.distance * 10000).toFixed(1)} pips away
-                </div>
-              </div>
-            ))}
+        {/* Candle pattern markers — quick read of the most recent formation */}
+        {candlePatterns.length > 0 && (
+          <div className="absolute right-4 bottom-4 z-20">
+            <CandlePatternMarkers candlePatterns={candlePatterns} />
           </div>
         )}
       </div>
