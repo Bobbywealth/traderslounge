@@ -53,7 +53,10 @@ const LiveScanner: React.FC = () => {
         pairList.map(async (pair): Promise<void> => {
           let nextRow: Row;
           try {
-            const analysis = await bwtsApi.cryptoAnalysis(pair);
+            const analysis = await Promise.race([
+              bwtsApi.cryptoAnalysis(pair),
+              new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error(`${pair} analysis timed out`)), 10000)),
+            ]);
             if (!analysis || typeof analysis !== 'object') throw new Error('Incomplete V2 analysis');
             let calendar: CalendarGateStatus | null = null;
             try {
