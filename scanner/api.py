@@ -1593,7 +1593,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
 
         health = self._get_health_data()
         config = self._get_config_data()
-        signals = _STATE.repository.recent(limit=50)
+        recent_signals = _STATE.repository.recent(limit=max(200, len(_STATE.config.pairs) * 10))
 
         client = _STATE.market_client
         market_data_timestamp = None
@@ -1608,22 +1608,29 @@ class _ApiHandler(BaseHTTPRequestHandler):
         else:
             market_data_timestamp = generated_at
 
-        # Many recent signals share a pair, so compute each unique analysis
-        # once (also benefits from the analysis result cache) and reuse it.
-        analysis_by_pair: dict = {}
+        # Dashboard should represent the current market universe, not the last
+        # N historical signal rows. Collapse stored signals to one latest row per
+        # configured pair, compute fresh analysis once, and synthesize a clean
+        # read-only signal shell when the repository has no useful row.
+        latest_signal_by_pair: dict = {}
+        for sig in recent_signals:
+            pair = str(sig.get("pair") or "").upper()
+            if pair and pair not in latest_signal_by_pair:
+                latest_signal_by_pair[pair] = self._sanitize_dashboard_signal(sig)
+
         snapshots = []
-        for sig in signals:
-            pair = sig.get("pair", "")
+        for pair in list(_STATE.config.pairs):
+            pair = str(pair).upper()
             if not pair:
                 continue
-            if pair not in analysis_by_pair:
-                analysis_by_pair[pair] = self._compute_analysis(pair)
+            analysis = self._compute_analysis(pair)
+            signal = latest_signal_by_pair.get(pair) or self._signal_from_analysis(pair, analysis, generated_at)
             snapshots.append({
-                "signal": sig,
-                "analysis": analysis_by_pair[pair],
+                "signal": signal,
+                "analysis": analysis,
                 "market_info": self._get_market_info(pair),
-                "lifecycle_state": self._get_lifecycle_state(analysis_by_pair[pair]),
-                "recent_transitions": self._get_recent_transitions(analysis_by_pair[pair]),
+                "lifecycle_state": self._get_lifecycle_state(analysis),
+                "recent_transitions": self._get_recent_transitions(analysis),
                 "score_history": self._get_score_history(pair),
             })
 
@@ -1638,6 +1645,45 @@ class _ApiHandler(BaseHTTPRequestHandler):
             "markets": snapshots,
             "performance_summary": self._get_performance_summary(),
             "model_version": "v2.1.0",
+        }
+
+    def _sanitize_dashboard_signal(self, sig: dict) -> dict:
+        clean = dict(sig or {})
+        for key in ("entry", "stop_loss", "tp1", "tp2", "tp3"):
+            try:
+                value = float(clean.get(key) or 0)
+            except (TypeError, ValueError):
+                value = 0.0
+            if not value:
+                clean[key] = None
+        clean["pair"] = str(clean.get("pair") or "").upper()
+        return clean
+
+    def _signal_from_analysis(self, pair: str, analysis: dict, generated_at: str) -> dict:
+        plan = analysis.get("trade_plan") or {}
+        direction = analysis.get("direction") or "NEUTRAL"
+        score = int(analysis.get("total_score") or 0)
+        status = plan.get("status") or "WAIT"
+        tier = "STRONG" if status in ("STRONG", "VALID") else "WATCHLIST" if score >= 50 else "NO_TRADE"
+        targets = plan.get("targets") or []
+        return {
+            "id": 0,
+            "created_at": generated_at,
+            "pair": pair,
+            "direction": direction,
+            "tier": tier,
+            "confidence_score": score,
+            "entry": plan.get("entry"),
+            "stop_loss": plan.get("stop") or plan.get("invalidation"),
+            "tp1": (targets[0] or {}).get("price") if len(targets) > 0 else plan.get("tp1"),
+            "tp2": (targets[1] or {}).get("price") if len(targets) > 1 else plan.get("tp2"),
+            "tp3": (targets[2] or {}).get("price") if len(targets) > 2 else plan.get("tp3"),
+            "risk_level": "High" if plan.get("eligible") is not True else "Managed",
+            "session": ((plan.get("timing") or {}).get("session") or {}).get("name") or "Current",
+            "adr_status": "available" if (plan.get("daily_range") or {}) else "unknown",
+            "htf_bias": (analysis.get("market_context") or {}).get("macro_bias") or "neutral",
+            "pattern": (analysis.get("scenarios") or {}).get("primary") or "forming",
+            "reasons": [r.get("message") for r in (plan.get("reasons") or []) if isinstance(r, dict) and r.get("message")][:3],
         }
 
     def _get_health_data(self) -> dict:
