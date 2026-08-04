@@ -463,7 +463,7 @@ def _build_setup_zones(*, price, atr_value, zones, indicators, direction, market
 
         setup_zones.append({
             "direction": item["direction"], "low": round(item["low"], 8), "high": round(item["high"], 8), "center": round(item["center"], 8),
-            "score": score if actionable else None,
+            "score": score,
             "tier": "A" if score >= 80 else "B" if score >= 65 else "C" if score >= 50 else "WATCH",
             "actionable": actionable,
             "conflicting_with_harmonic": conflicting_with_harmonic,
