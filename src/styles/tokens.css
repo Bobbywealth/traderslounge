@@ -49,21 +49,21 @@
   --cx-border-light-strong: #cbd5e1;
 
   /* Status surfaces */
-  --cx-status-success-bg: rgba(16, 185, 129, 0.14);
-  --cx-status-success-fg: #34d399;
-  --cx-status-success-border: rgba(16, 185, 129, 0.35);
+  --cx-status-success-bg: rgba(16, 185, 129, 0.18);
+  --cx-status-success-fg: #6ee7b7;
+  --cx-status-success-border: rgba(16, 185, 129, 0.45);
 
-  --cx-status-warning-bg: rgba(245, 158, 11, 0.14);
-  --cx-status-warning-fg: #fbbf24;
-  --cx-status-warning-border: rgba(245, 158, 11, 0.35);
+  --cx-status-warning-bg: rgba(245, 158, 11, 0.22);
+  --cx-status-warning-fg: #fcd34d;
+  --cx-status-warning-border: rgba(245, 158, 11, 0.55);
 
-  --cx-status-danger-bg: rgba(239, 68, 68, 0.14);
-  --cx-status-danger-fg: #fb7185;
-  --cx-status-danger-border: rgba(239, 68, 68, 0.4);
+  --cx-status-danger-bg: rgba(239, 68, 68, 0.22);
+  --cx-status-danger-fg: #fda4af;
+  --cx-status-danger-border: rgba(239, 68, 68, 0.55);
 
-  --cx-status-info-bg: rgba(34, 211, 238, 0.14);
-  --cx-status-info-fg: #22d3ee;
-  --cx-status-info-border: rgba(34, 211, 238, 0.35);
+  --cx-status-info-bg: rgba(34, 211, 238, 0.22);
+  --cx-status-info-fg: #67e8f9;
+  --cx-status-info-border: rgba(34, 211, 238, 0.55);
 
   --cx-light-success-bg: #ecfdf5;
   --cx-light-success-fg: #047857;
