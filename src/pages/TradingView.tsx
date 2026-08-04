@@ -78,6 +78,19 @@ interface TradeLockerHistoryCandle {
 type ChartType = 'candlestick' | 'line' | 'area';
 type DrawingTool = 'pan' | 'select' | 'trend' | 'horizontal' | 'sr' | 'rectangle' | 'fib' | 'text';
 type DrawingPoint = { time: number; price: number };
+
+const CRYPTO_OR_METAL_PATTERN = /(BTC|ETH|SOL|XRP|ADA|DOGE|LTC|BNB|DOT|AVAX|LINK|XAU|XAG)/i;
+
+function formatTrendDistance(distance: number, symbol: string): string {
+  const value = Number(distance);
+  if (!Number.isFinite(value)) return 'distance unavailable';
+  const upper = String(symbol || '').toUpperCase();
+  if (CRYPTO_OR_METAL_PATTERN.test(upper)) {
+    return `${value.toFixed(value >= 100 ? 0 : 2)} points away`;
+  }
+  const pipMultiplier = upper.includes('JPY') ? 100 : 10000;
+  return `${(value * pipMultiplier).toFixed(1)} pips away`;
+}
 type ManualDrawing = { id: string; type: Exclude<DrawingTool, 'select' | 'pan'>; points: DrawingPoint[]; text?: string; color?: string; locked?: boolean; lineStyle?: 'solid' | 'dashed'; showPrice?: boolean };
 
 interface SymbolInfo {
@@ -1275,10 +1288,10 @@ const TradingView: React.FC = () => {
       const confluenceRatios = new Set((fibData.sr_confluence || []).map((item: any) => String(item.ratio)));
       const atrDistance = Number(cryptoAnalysis.indicators.atr || 0) * 4; // Tighter filter than before
 
-      // Only show KEY fibonacci levels: standard 0.382, 0.5, 0.618, 0.786.
-      // 0.65 was a non-standard pseudo-golden level that conflicted with the
-      // canonical 0.618 and was removed.
-      const keyRatios = ['0.382', '0.5', '0.618', '0.786'];
+      // Show every Fibonacci level that can influence scoring or user action.
+      // 0.65 is the upper edge of the true golden pocket; 0.786 remains a
+      // separate deep retracement. 0.236 must be visible when the engine scores it.
+      const keyRatios = ['0.236', '0.382', '0.5', '0.618', '0.65', '0.705', '0.786', '0.886'];
       Object.entries(fibData.levels || {})
         .filter(([ratio]) => keyRatios.includes(String(ratio)))
         .filter(([, value]) => !atrDistance || Math.abs(Number(value) - currentPrice) <= atrDistance)
@@ -1286,14 +1299,14 @@ const TradingView: React.FC = () => {
           levels.push({
             title: `Fib ${ratio}${confluenceRatios.has(ratio) ? ' ★' : ''}`,
             value: Number(value),
-            color: ratio === '0.618' ? '#c084fc' : confluenceRatios.has(ratio) ? '#22d3ee' : '#6366f1',
+            color: ratio === '0.618' || ratio === '0.65' ? '#c084fc' : confluenceRatios.has(ratio) ? '#22d3ee' : '#6366f1',
             style: LineStyle.Dotted
           });
         });
     }
 
     levels.filter((level) => Number.isFinite(level.value)).forEach((level) => {
-      const showAxisLabel = /^[SR]\d/.test(level.title) || level.title.startsWith('Fib 0.618');
+      const showAxisLabel = /^[SR]\d/.test(level.title) || /★/.test(level.title) || level.title.startsWith('Fib 0.236') || level.title.startsWith('Fib 0.618') || level.title.startsWith('Fib 0.65');
       const series = chart.addSeries(LineSeries, { color: level.color, lineWidth: 1, lineStyle: level.style, title: level.title, lastValueVisible: showAxisLabel, priceLineVisible: false });
       series.setData([{ time: start, value: level.value }, { time: end, value: level.value }]);
       v2LevelSeriesRefs.current.push(series);
@@ -2095,7 +2108,7 @@ const TradingView: React.FC = () => {
                   <span className="text-gray-400">{line.strength}%</span>
                 </div>
                 <div className="text-gray-400 text-xs">
-                  {line.touches} touches • {(line.distance * 10000).toFixed(1)} pips away
+                  {line.touches} touches • {formatTrendDistance(line.distance, selectedSymbol)}
                 </div>
               </div>
             ))}

@@ -95,6 +95,27 @@ def _num(value, default=0.0):
         return default
 
 
+def _timeframe_seconds(name):
+    tf = str(name or "").lower()
+    return {
+        "m1": 60, "1m": 60,
+        "m5": 300, "5m": 300,
+        "m15": 900, "15m": 900,
+        "h1": 3600, "1h": 3600,
+        "h4": 14400, "4h": 14400,
+        "d1": 86400, "1d": 86400,
+        "w1": 604800, "1w": 604800,
+        "mn1": 2592000, "1mth": 2592000, "1mo": 2592000,
+    }.get(tf, 3600)
+
+
+def _freshness_threshold_seconds(name):
+    # A response-cache entry can be fresh while the market candles inside it are
+    # stale. Use the timeframe itself to judge candle freshness instead of a
+    # fixed one-hour cutoff.
+    return max(300, int(_timeframe_seconds(name) * 1.5 + 60))
+
+
 def _candles(values):
     """Discard malformed bars and return bars in supplied chronological order."""
     valid = []
@@ -428,7 +449,7 @@ def _build_setup_zones(*, price, atr_value, zones, indicators, direction, market
 
         setup_zones.append({
             "direction": item["direction"], "low": round(item["low"], 8), "high": round(item["high"], 8), "center": round(item["center"], 8),
-            "score": score if actionable else None,
+            "score": score,
             "tier": "A" if score >= 80 else "B" if score >= 65 else "C" if score >= 50 else "WATCH",
             "actionable": actionable,
             "conflicting_with_harmonic": conflicting_with_harmonic,
@@ -507,11 +528,16 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         frames["selected"] = selected
         primary_name = str(primary_timeframe or "selected").lower()
         bars = selected
+        reference_candle = selected_source[-1] if selected_source else selected[-1]
     else:
         primary_name = next((x for x in ("m15", "m5", "h1", "m1", "h4", "d1") if frames[x]), "m15")
         bars = frames[primary_name]
+        source_for_reference = _candles(getattr(snapshot, primary_name, []))
+        reference_candle = source_for_reference[-1] if source_for_reference else (bars[-1] if bars else None)
     closes = [_num(c.close) for c in bars]
-    price = closes[-1] if closes else None
+    reference_price = _num(getattr(reference_candle, "close", None), float("nan")) if reference_candle else float("nan")
+    price = reference_price if math.isfinite(reference_price) else (closes[-1] if closes else None)
+    reference_time = getattr(reference_candle, "time", None) if reference_candle else None
     issues = []
     # Structural issues mean the candles themselves are unusable. Volume being
     # absent is reported but tracked separately: spot FX and metals feeds carry
@@ -639,10 +665,10 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
             low, high, leg_dir = leg
             retrace = retracement_pct(price, low, high, leg_dir)
             span = high - low
-            # Standard Fibonacci retracement ladder. 0.65 was a non-standard
-            # pseudo-golden level that conflicted with the canonical Fib 0.618
-            # and misled users (e.g. labeling a 0.65 band as a "golden pocket").
-            retracement_ratios = (.236, .382, .5, .618, .786)
+            # Standard retracement ladder plus the levels ConfluenceX scores
+            # against. Keep 0.65 as the upper edge of the true golden pocket;
+            # 0.786 is a separate deep-retracement level, not the pocket edge.
+            retracement_ratios = (0.0, .236, .382, .5, .618, .65, .705, .786, .886, 1.0)
             extension_ratios = (1.272, 1.618, 2.0, 2.618)
             fibs = {
                 f"{ratio:g}": high - span*ratio if leg_dir == "up" else low + span*ratio
@@ -658,8 +684,8 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
                 matched = [zone for zone in sr_zones if abs(zone["level"]-fib_level) <= fib_tolerance]
                 if matched:
                     confluence.append({"ratio": ratio, "level": fib_level, "sr_level": matched[0]["level"], "sr_strength": matched[0]["strength"], "distance": abs(matched[0]["level"]-fib_level)})
-            # Golden pocket is the canonical 0.618–0.786 band.
-            golden_low, golden_high = sorted((fibs["0.618"], fibs["0.786"]))
+            # Golden pocket is the canonical 0.618–0.65 band.
+            golden_low, golden_high = sorted((fibs["0.618"], fibs["0.65"]))
             in_golden_pocket = golden_low <= price <= golden_high
             nearest_ratio, nearest_level = min(fibs.items(), key=lambda item: abs(item[1]-price))
             zones["fibonacci"] = {
@@ -722,7 +748,7 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
 
     scores = {key: int(_clamp(_num(value), 0, CAPS[key])) for key, value in scores.items()}
     total = sum(scores.values())
-    quality = {"primary_timeframe": primary_name, "bars": len(bars), "closed_bar_time": getattr(bars[-1], "time", None) if bars else None, "timeframes_available": [x for x, v in frames.items() if v], "issues": issues, "status": "good" if not issues else "limited" if bars else "insufficient",
+    quality = {"primary_timeframe": primary_name, "bars": len(bars), "closed_bar_time": getattr(bars[-1], "time", None) if bars else None, "reference_price": price, "reference_price_time": reference_time, "timeframes_available": [x for x, v in frames.items() if v], "issues": issues, "status": "good" if not issues else "limited" if bars else "insufficient",
                # True when the candles support a decision — i.e. nothing
                # structural is wrong. Missing volume alone does not clear this.
                "structurally_sound": not structural_issues,
@@ -733,7 +759,8 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
     stale_categories = []
     now_ts = time.time() if bars else 0
     bars_ts = bars[-1].time if bars else 0
-    freshness_threshold = 3600
+    reference_ts = reference_time or bars_ts
+    freshness_threshold = _freshness_threshold_seconds(primary_name)
     if bars:
         for cat in CAPS:
             if scores.get(cat, 0) > 0:
@@ -759,7 +786,7 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
                     missing_categories.append(cat)
                 else:
                     missing_categories.append(cat)
-            if bars_ts and now_ts and (now_ts - bars_ts) > freshness_threshold:
+            if reference_ts and now_ts and (now_ts - reference_ts) > freshness_threshold:
                 if cat in available_categories:
                     stale_categories.append(cat)
     else:
@@ -768,7 +795,9 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
 
     coverage = len(available_categories) / 9
     confidence_tier = "high" if coverage >= 0.9 else "qualified" if coverage >= 0.75 else "developing" if coverage >= 0.5 else "watch"
-    data_freshness_seconds = int(now_ts - bars_ts) if bars_ts and bars_ts > 0 else 0
+    data_freshness_seconds = int(now_ts - reference_ts) if reference_ts and reference_ts > 0 else 0
+    quality["freshness_threshold_seconds"] = freshness_threshold
+    quality["data_stale"] = bool(data_freshness_seconds and data_freshness_seconds > freshness_threshold)
     bias = {name: trends.get(name, {"trend": "neutral", "labels": []}) for name in ("mn1", "w1", "d1", "h4", "h1")}
     bias["selected"] = trends.get("selected" if selected else primary_name, {"trend": "neutral", "labels": []})
     weights = {"mn1": 3, "w1": 2, "d1": 1, "h4": 1}

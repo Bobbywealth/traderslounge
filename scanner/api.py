@@ -805,7 +805,12 @@ class _ApiHandler(BaseHTTPRequestHandler):
         cache_key = f"analysis:{pair}:{tf_raw or 'default'}"
         cached = self._cache_get(cache_key)
         if cached is not None:
-            return self._json(200, cached)
+            body = dict(cached)
+            cache_meta = dict(body.get("cache") or {})
+            if (body.get("data_quality") or {}).get("data_stale"):
+                cache_meta.update({"stale": True, "reason": "underlying market candles are stale"})
+            body["cache"] = cache_meta or {"stale": False}
+            return self._json(200, body)
         selected_timeframe = _timeframe_alias(tf_raw) if tf_raw else None
         if tf_raw and selected_timeframe is None:
             return self._error(400, f"unsupported timeframe: {tf_raw}")
@@ -903,7 +908,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 stale["cache"] = {"stale": True, "reason": str(exc)}
                 return self._json(200, stale)
             return self._error(502, f"analysis unavailable: {exc}")
-        analysis["cache"] = {"stale": False, "ttl_seconds": 20}
+        data_stale = bool((analysis.get("data_quality") or {}).get("data_stale"))
+        analysis["cache"] = {"stale": data_stale, "ttl_seconds": 20, **({"reason": "underlying market candles are stale"} if data_stale else {})}
         self._cache_set(cache_key, analysis)
         self._json(200, analysis)
 
@@ -1682,7 +1688,12 @@ class _ApiHandler(BaseHTTPRequestHandler):
         cache_key = f"analysis:{pair}:H1"
         cached = self._cache_get(cache_key)
         if cached is not None:
-            return cached
+            body = dict(cached)
+            cache_meta = dict(body.get("cache") or {})
+            if (body.get("data_quality") or {}).get("data_stale"):
+                cache_meta.update({"stale": True, "reason": "underlying market candles are stale"})
+            body["cache"] = cache_meta or {"stale": False}
+            return body
         try:
             snapshot_key = f"snapshot:{pair}"
             snapshot = self._cache_get(snapshot_key)
@@ -1743,6 +1754,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
             self._attach_institutional_block(analysis, snapshot, "H1")
             analysis = attach_decision_quality(analysis, calendar=calendar)
             self._publish_actionable_analysis(analysis)
+            data_stale = bool((analysis.get("data_quality") or {}).get("data_stale"))
+            analysis["cache"] = {"stale": data_stale, "ttl_seconds": 20, **({"reason": "underlying market candles are stale"} if data_stale else {})}
             self._cache_set(cache_key, analysis, ttl=20, stale_ttl=120)
             return analysis
         except Exception as exc:
