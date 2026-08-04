@@ -4,7 +4,7 @@ import ConfluenceXLogo from './ConfluenceXLogo';
 import {
   Activity, BarChart3, BookOpen, ChevronLeft, ChevronRight, X,
   FlaskConical, LayoutDashboard, LineChart, Newspaper, Settings as SettingsIcon, Zap, Search,
-  Briefcase, History,
+  Briefcase, History, ArrowLeftRight,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -43,15 +43,12 @@ const groups: NavGroup[] = [
     label: 'Find trades',
     items: [
       { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-      { name: 'Hot Scanner', href: '/scanner', icon: Activity },
-      { name: 'Signals', href: '/signals', icon: Zap },
       { name: 'Chart', href: '/tradingview', icon: BarChart3 },
     ],
   },
   {
     label: 'Research',
     items: [
-      { name: 'Market Analysis', href: '/analysis', icon: Search },
       { name: 'Economic News', href: '/calendar', icon: Newspaper },
       { name: 'Backtest & Accuracy', href: '/backtester', icon: FlaskConical },
     ],
@@ -77,6 +74,18 @@ const groups: NavGroup[] = [
 export const botNavigationItems: NavItem[] = [
   { name: 'Positions', href: '/positions', icon: Briefcase },
   { name: 'Trade History', href: '/trades', icon: History },
+];
+
+/**
+ * Pages that previously had their own top-level route but are now surfaced
+ * inside the Dashboard or Chart pages. The route files are still in the repo
+ * for the bot strategy, but the nav no longer exposes them.
+ */
+export const foldedNavigationItems: NavItem[] = [
+  { name: 'Hot Scanner', href: '/scanner', icon: Activity },
+  { name: 'Signals', href: '/signals', icon: Zap },
+  { name: 'Market Analysis', href: '/analysis', icon: Search },
+  { name: 'Full Analysis', href: '/tradingview?symbol=BTCUSD&panel=full', icon: ArrowLeftRight },
 ];
 
 

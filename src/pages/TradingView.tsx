@@ -195,6 +195,8 @@ const TradingView: React.FC = () => {
   const [showSupportResistance, setShowSupportResistance] = useState(true);
   const [showSetups, setShowSetups] = useState(true);
   const [showSetupGuide, setShowSetupGuide] = useState(true);
+  const initialPanel = (() => { try { return new URLSearchParams(window.location.search).get('panel') || ''; } catch { return ''; } })();
+  const [showFullAnalysis, setShowFullAnalysis] = useState(initialPanel === 'full');
   const [cryptoAnalysis, setCryptoAnalysis] = useState<CryptoAnalysis | null>(null);
   const [chartAiAnalysis, setChartAiAnalysis] = useState<ChartAiAnalysis | null>(null);
   const [chartAiConfigured, setChartAiConfigured] = useState<boolean | null>(null);
@@ -2391,6 +2393,30 @@ const TradingView: React.FC = () => {
           </div>
         )}
 
+        {showFullAnalysis && cryptoAnalysis && (
+          <div className="absolute right-4 top-4 z-30 w-[min(420px,calc(100%-2rem))] max-h-[calc(100%-2rem)] overflow-y-auto rounded-2xl border border-cyan-400/25 cx-bg-elev/95 p-4 cx-text shadow-2xl backdrop-blur">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <span className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-1 text-[9px] font-black tracking-[0.18em] text-cyan-300">FULL ANALYSIS</span>
+              <button onClick={() => { setShowFullAnalysis(false); const url = new URL(window.location.href); url.searchParams.delete('panel'); window.history.replaceState(null, '', url.toString()); }} className="rounded px-2 py-1 text-[10px] cx-text-muted hover:cx-text">Close</button>
+            </div>
+            <div className="grid gap-3 text-sm">
+              <Row label="Direction" value={String(cryptoAnalysis.direction || 'NEUTRAL')} />
+              <Row label="Total score" value={`${Number(cryptoAnalysis.total_score || 0)}/100`} />
+              <Row label="Timing" value={String(cryptoAnalysis.trade_timing?.status || 'WAIT')} />
+              <Row label="Calendar" value={String(cryptoAnalysis.economic_calendar?.status || 'unknown')} />
+              <Row label="Nearest Fib" value={String(cryptoAnalysis.zones?.fibonacci?.nearest?.ratio || '—')} />
+              <Row label="Golden pocket" value={cryptoAnalysis.zones?.fibonacci?.golden_pocket ? `contains ${cryptoAnalysis.zones.fibonacci.golden_pocket.contains_price}` : 'n/a'} />
+              <Row label="Macro bias" value={String(cryptoAnalysis.market_context?.macro_bias || 'neutral')} />
+              <Row label="Confluence" value={`${Number(cryptoAnalysis.confluence_score || 0)}/100`} />
+              <Row label="Confidence" value={String(cryptoAnalysis.confidence_tier || 'developing')} />
+              <Row label="HTF conflicts" value={(cryptoAnalysis.zones?.fibonacci?.context?.htf_conflicts || []).join(', ') || 'aligned'} />
+              <Row label="Cluster count" value={String(cryptoAnalysis.zones?.fibonacci?.clusters?.length || 0)} />
+              <Row label="Wait reasons" value={(cryptoAnalysis.trade_timing?.wait_for || []).slice(0, 3).map((w) => w.replace(/_/g, ' ')).join(' · ') || 'none'} />
+              <Row label="Missing conditions" value={(cryptoAnalysis.trade_timing?.avoid_reasons || []).map((r) => r.replace(/_/g, ' ')).concat((cryptoAnalysis.trade_plan?.blocking_reasons || []).map((b) => b.message || b.code)).slice(0, 3).join(' · ') || 'none'} />
+            </div>
+          </div>
+        )}
+
         {showSetupGuide && cryptoAnalysis && (
           <div className="absolute right-4 top-4 z-30 w-[min(360px,calc(100%-2rem))] space-y-2">
             <SetupGuideHero
@@ -2640,5 +2666,9 @@ const TradingView: React.FC = () => {
     </div>
   );
 };
+
+const Row: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div className="flex items-center justify-between gap-4 rounded-lg border cx-border cx-bg-card px-2.5 py-1.5"><span className="text-[10px] font-black uppercase tracking-widest cx-text-faint">{label}</span><b className="cx-text">{value}</b></div>
+);
 
 export default TradingView;

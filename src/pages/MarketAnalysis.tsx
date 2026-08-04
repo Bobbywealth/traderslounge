@@ -702,8 +702,6 @@ const MarketAnalysis: React.FC = () => {
 
       <PrimarySetup analysis={analysis} />
 
-      <MissingConditions analysis={analysis} />
-
       <section className="flex flex-wrap items-center gap-3">
         <AlertButton symbol={symbol} />
         {analysis?.trade_plan?.triggers?.slice(0, 2).map((trigger, i) => (
