@@ -2061,6 +2061,23 @@ const TradingView: React.FC = () => {
           className="w-full h-full min-w-0 min-h-0 overflow-hidden"
         />
 
+        {showFibonacci && fibData && (
+          <div className="pointer-events-none absolute left-4 top-4 z-30 w-[min(460px,calc(100%-2rem))] rounded-xl border border-amber-400/20 bg-[#0b1020]/92 p-3 text-[11px] text-slate-300 shadow-2xl backdrop-blur">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="font-black tracking-widest text-amber-300">FIB CONTEXT</span>
+              <span className={fibData.leg === 'up' ? 'text-emerald-300' : 'text-rose-300'}>{fibData.leg === 'up' ? 'Bullish swing' : 'Bearish swing'}</span>
+              {fibHtfConflicts.length > 0 ? <span className="rounded bg-rose-400/10 px-2 py-0.5 text-[9px] font-black text-rose-300">HTF CONFLICT {fibHtfConflicts.join('/')}</span> : <span className="rounded bg-emerald-400/10 px-2 py-0.5 text-[9px] font-black text-emerald-300">HTF ALIGNED</span>}
+            </div>
+            <div className="grid gap-1">
+              {fibNearest && <div className="flex justify-between gap-3"><span className="text-slate-500">Nearest Fib</span><b className="text-cyan-300">{String(fibNearest.ratio)} · {setupPrice(Number(fibNearest.level))}</b></div>}
+              {fibGolden && <div className="flex justify-between gap-3"><span className="text-slate-500">Golden pocket</span><b className="text-violet-300">{setupPrice(Number(fibGolden.low))}–{setupPrice(Number(fibGolden.high))}</b></div>}
+              {fibTopCluster && <div className="flex justify-between gap-3"><span className="text-slate-500">Best cluster</span><b className="text-amber-200">{setupPrice(Number(fibTopCluster.low))}–{setupPrice(Number(fibTopCluster.high))}</b></div>}
+              {fibWaitFor.length > 0 && <div className="text-[10px] leading-relaxed text-amber-300">Wait: {fibWaitFor.join(' · ')}</div>}
+              {fibData.selection_reason && <div className="text-[10px] leading-relaxed text-slate-500">Auto leg: {String(fibData.selection_reason)}</div>}
+            </div>
+          </div>
+        )}
+
         {/* Switching symbols used to freeze on the previous chart with no
             feedback, which reads as a hang rather than a fetch. */}
         {candlesLoading && !chartError && (
