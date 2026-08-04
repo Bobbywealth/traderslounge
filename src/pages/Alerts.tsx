@@ -66,10 +66,10 @@ interface ToggleRowProps {
 }
 
 const ToggleRow: React.FC<ToggleRowProps> = ({ label, description, checked, onChange, testId }) => (
-  <label className="flex items-start justify-between gap-4 rounded-xl border border-white/[0.06] bg-white/[0.025] p-3 transition hover:bg-white/[0.05]">
+  <label className="flex items-start justify-between gap-4 rounded-xl border cx-border cx-bg-card p-3 transition hover:cx-bg-card-hover">
     <div className="min-w-0">
-      <div className="text-sm font-bold text-white">{label}</div>
-      {description && <p className="mt-1 text-xs leading-relaxed text-slate-400">{description}</p>}
+      <div className="text-sm font-bold cx-text-strong">{label}</div>
+      {description && <p className="mt-1 text-xs leading-relaxed cx-text-muted">{description}</p>}
     </div>
     <button
       type="button"
@@ -80,7 +80,7 @@ const ToggleRow: React.FC<ToggleRowProps> = ({ label, description, checked, onCh
       className={`relative h-6 w-11 flex-none rounded-full border transition ${
         checked
           ? 'border-cyan-400/40 bg-cyan-400/30'
-          : 'border-white/[0.08] bg-white/[0.04]'
+          : 'cx-border cx-bg-card'
       }`}
     >
       <span
@@ -103,10 +103,10 @@ interface NumberRowProps {
 }
 
 const NumberRow: React.FC<NumberRowProps> = ({ label, value, min, max, step, suffix, onChange }) => (
-  <div className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-3">
-    <div className="flex items-center justify-between text-xs text-slate-400">
+  <div className="rounded-xl border cx-border cx-bg-card p-3">
+    <div className="flex items-center justify-between text-xs cx-text-muted">
       <span>{label}</span>
-      <span className="font-mono text-sm font-black text-white">
+      <span className="font-mono text-sm font-black cx-text-strong">
         {value}
         {suffix ?? ''}
       </span>
@@ -216,15 +216,15 @@ const Alerts: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5 pb-10 text-slate-100" data-testid="alerts-page">
-      <header className="rounded-[24px] border border-violet-400/15 bg-[#090d18] bg-gradient-to-br from-violet-500/10 to-cyan-500/[0.04] p-6">
+    <div className="space-y-5 pb-10 cx-text" data-testid="alerts-page">
+      <header className="rounded-[24px] border border-violet-400/15 cx-bg-card bg-gradient-to-br from-violet-500/10 to-cyan-500/[0.04] p-6">
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-[10px] font-black tracking-[0.22em] text-cyan-300">ALERTS & PERSONALIZATION</div>
-            <h1 className="mt-2 flex items-center gap-3 text-3xl font-black text-white">
+            <h1 className="mt-2 flex items-center gap-3 text-3xl font-black cx-text-strong">
               <Bell className="h-7 w-7 text-cyan-300" /> Your alerts
             </h1>
-            <p className="mt-2 text-sm text-slate-400">
+            <p className="mt-2 text-sm cx-text-muted">
               Tell ConfluenceX what you trade, when you trade, and what should reach you. The engine
               stops sending noise the moment you set the bar.
             </p>
@@ -241,7 +241,7 @@ const Alerts: React.FC = () => {
       )}
 
       {status === 'loading' && !prefs && (
-        <div className="flex items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.025] p-6 text-sm text-slate-400">
+        <div className="flex items-center gap-2 rounded-xl border cx-border cx-bg-card p-6 text-sm cx-text-muted">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading preferences…
         </div>
       )}
@@ -249,9 +249,9 @@ const Alerts: React.FC = () => {
       {prefs && (
         <>
           {/* Watchlist */}
-          <section className="rounded-2xl border border-white/[0.06] bg-white/[0.025] p-5">
-            <h2 className="text-sm font-black text-white">Watchlist</h2>
-            <p className="mt-1 text-xs leading-relaxed text-slate-400">
+          <section className="rounded-2xl border cx-border cx-bg-card p-5">
+            <h2 className="text-sm font-black cx-text-strong">Watchlist</h2>
+            <p className="mt-1 text-xs leading-relaxed cx-text-muted">
               Pairs the engine considers. Leave blank to receive alerts on every scanner pair.
             </p>
             <input
@@ -259,16 +259,16 @@ const Alerts: React.FC = () => {
               value={watchlistInput}
               onChange={(e) => updateWatchlist(e.target.value)}
               placeholder="BTCUSD, ETHUSD, EURUSD…"
-              className="mt-3 w-full rounded-md border border-white/[0.06] bg-black/20 px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:border-cyan-400/30 focus:outline-none"
+              className="mt-3 w-full rounded-md border cx-border cx-bg-elev px-3 py-2 text-sm cx-text-strong placeholder:cx-text-faint focus:border-cyan-400/30 focus:outline-none"
               data-testid="watchlist-input"
             />
           </section>
 
           {/* Timeframes + Sessions */}
           <section className="grid gap-5 lg:grid-cols-2">
-            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.025] p-5">
-              <h2 className="text-sm font-black text-white">Timeframes</h2>
-              <p className="mt-1 text-xs leading-relaxed text-slate-400">
+            <div className="rounded-2xl border cx-border cx-bg-card p-5">
+              <h2 className="text-sm font-black cx-text-strong">Timeframes</h2>
+              <p className="mt-1 text-xs leading-relaxed cx-text-muted">
                 Switch off the timeframes you don\'t trade. Higher-timeframe alerts default on;
                 tick / scalp timeframes default off.
               </p>
@@ -285,9 +285,9 @@ const Alerts: React.FC = () => {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.025] p-5">
-              <h2 className="text-sm font-black text-white">Trading sessions</h2>
-              <p className="mt-1 text-xs leading-relaxed text-slate-400">
+            <div className="rounded-2xl border cx-border cx-bg-card p-5">
+              <h2 className="text-sm font-black cx-text-strong">Trading sessions</h2>
+              <p className="mt-1 text-xs leading-relaxed cx-text-muted">
                 Limit alerts to the sessions you actually sit at the screen.
               </p>
               <div className="mt-3 space-y-2">
@@ -336,9 +336,9 @@ const Alerts: React.FC = () => {
           </section>
 
           {/* Alert types */}
-          <section className="rounded-2xl border border-white/[0.06] bg-white/[0.025] p-5">
-            <h2 className="text-sm font-black text-white">Alert types</h2>
-            <p className="mt-1 text-xs leading-relaxed text-slate-400">
+          <section className="rounded-2xl border cx-border cx-bg-card p-5">
+            <h2 className="text-sm font-black cx-text-strong">Alert types</h2>
+            <p className="mt-1 text-xs leading-relaxed cx-text-muted">
               Each one is independent. Switching any of these off stops that category across every
               delivery channel.
             </p>
@@ -358,9 +358,9 @@ const Alerts: React.FC = () => {
 
           {/* Delivery channels + briefings */}
           <section className="grid gap-5 lg:grid-cols-2">
-            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.025] p-5">
-              <h2 className="text-sm font-black text-white">Delivery channels</h2>
-              <p className="mt-1 text-xs leading-relaxed text-slate-400">
+            <div className="rounded-2xl border cx-border cx-bg-card p-5">
+              <h2 className="text-sm font-black cx-text-strong">Delivery channels</h2>
+              <p className="mt-1 text-xs leading-relaxed cx-text-muted">
                 In-app feed is on by default. Telegram and email are optional.
               </p>
               <div className="mt-3 space-y-2">
@@ -386,9 +386,9 @@ const Alerts: React.FC = () => {
               )}
             </div>
 
-            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.025] p-5">
-              <h2 className="text-sm font-black text-white">Briefings</h2>
-              <p className="mt-1 text-xs leading-relaxed text-slate-400">
+            <div className="rounded-2xl border cx-border cx-bg-card p-5">
+              <h2 className="text-sm font-black cx-text-strong">Briefings</h2>
+              <p className="mt-1 text-xs leading-relaxed cx-text-muted">
                 Daily and weekly briefings summarize what the engine saw, what worked, and what to
                 watch — written so you can read them in under a minute.
               </p>
@@ -412,8 +412,8 @@ const Alerts: React.FC = () => {
           </section>
 
           {/* Save bar */}
-          <div className="sticky bottom-3 z-30 flex items-center justify-between gap-3 rounded-2xl border border-white/[0.08] bg-[#080d18]/90 p-3 backdrop-blur">
-            <div className="flex items-center gap-2 text-xs text-slate-400">
+          <div className="sticky bottom-3 z-30 flex items-center justify-between gap-3 rounded-2xl border cx-border bg-[#080d18]/90 p-3 backdrop-blur">
+            <div className="flex items-center gap-2 text-xs cx-text-muted">
               {status === 'saved' && (
                 <span className="inline-flex items-center gap-1 text-emerald-300">
                   <Check className="h-3.5 w-3.5" /> Saved
@@ -440,15 +440,15 @@ const Alerts: React.FC = () => {
           </div>
 
           {/* Recent feed */}
-          <section className="rounded-2xl border border-white/[0.06] bg-white/[0.025] p-5">
-            <h2 className="text-sm font-black text-white">Recent alerts</h2>
-            <p className="mt-1 text-xs leading-relaxed text-slate-400">
+          <section className="rounded-2xl border cx-border cx-bg-card p-5">
+            <h2 className="text-sm font-black cx-text-strong">Recent alerts</h2>
+            <p className="mt-1 text-xs leading-relaxed cx-text-muted">
               The last 50 alerts the engine fired for you across every channel. In-app feed is the
               source of truth — Telegram and email mirror it.
             </p>
             <div className="mt-3 space-y-2">
               {feed.length === 0 && (
-                <div className="rounded-xl border border-dashed border-white/10 py-10 text-center text-xs text-slate-500">
+                <div className="rounded-xl border border-dashed cx-border-strong py-10 text-center text-xs cx-text-faint">
                   No alerts yet. Once the engine finds a setup that clears your thresholds, you\'ll
                   see it here.
                 </div>
@@ -458,27 +458,27 @@ const Alerts: React.FC = () => {
                 const Icon = tone.icon;
                 const typeLabel = ALERT_TYPE_LABELS[event.alert_type] || event.alert_type;
                 return (
-                  <div key={`${event.created_at}-${idx}`} className="flex items-start gap-3 rounded-xl border border-white/[0.06] bg-black/20 p-3">
+                  <div key={`${event.created_at}-${idx}`} className="flex items-start gap-3 rounded-xl border cx-border cx-bg-elev p-3">
                     <span className={`mt-0.5 inline-flex h-7 w-7 flex-none items-center justify-center rounded-lg border ${tone.chip}`}>
                       <Icon className="h-3.5 w-3.5" />
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <div className="text-sm font-bold text-white">{event.title}</div>
-                        <div className="text-[10px] uppercase tracking-wider text-slate-500">
+                        <div className="text-sm font-bold cx-text-strong">{event.title}</div>
+                        <div className="text-[10px] uppercase tracking-wider cx-text-faint">
                           {new Date(event.created_at).toLocaleString()}
                         </div>
                       </div>
-                      <p className="mt-1 text-xs leading-relaxed text-slate-400">{event.body}</p>
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wider text-slate-500">
+                      <p className="mt-1 text-xs leading-relaxed cx-text-muted">{event.body}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wider cx-text-faint">
                         <span className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 ${tone.chip}`}>
                           {typeLabel}
                         </span>
-                        <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-1.5 py-0.5 text-slate-300">
+                        <span className="rounded-md border cx-border cx-bg-card px-1.5 py-0.5 cx-text-muted">
                           {event.pair}
                         </span>
                         {event.timeframe && (
-                          <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-1.5 py-0.5 text-slate-300">
+                          <span className="rounded-md border cx-border cx-bg-card px-1.5 py-0.5 cx-text-muted">
                             {event.timeframe}
                           </span>
                         )}
@@ -610,12 +610,12 @@ const TelegramConnect: React.FC<TelegramConnectProps> = ({ status, chatId, onLin
   }
 
   return (
-    <div className="mt-3 rounded-md border border-white/[0.06] bg-black/20 p-3">
+    <div className="mt-3 rounded-md border cx-border cx-bg-elev p-3">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 text-xs leading-relaxed text-slate-300">
+        <div className="min-w-0 text-xs leading-relaxed cx-text-muted">
           Link <code className="font-mono">{botHandle}</code> to receive alerts in Telegram.
           <br />
-          <span className="text-slate-500">
+          <span className="cx-text-faint">
             You'll be asked to tap <b>Start</b> in Telegram. We'll detect the link automatically.
           </span>
           {error && <div className="mt-1 text-rose-300">{error}</div>}
@@ -641,7 +641,7 @@ const TelegramConnect: React.FC<TelegramConnectProps> = ({ status, chatId, onLin
         </button>
       </div>
       {deepLink && linkState === 'awaiting' && (
-        <div className="mt-2 break-all text-[11px] text-slate-500">
+        <div className="mt-2 break-all text-[11px] cx-text-faint">
           If Telegram didn't open:{' '}
           <a className="text-cyan-300 underline" href={deepLink} target="_blank" rel="noopener noreferrer">
             {deepLink}

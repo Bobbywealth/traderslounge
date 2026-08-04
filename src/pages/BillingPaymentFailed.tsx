@@ -31,11 +31,11 @@ const BillingPaymentFailed: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#05070d] px-5 py-24 text-white">
+    <div className="min-h-screen bg-[#05070d] px-5 py-24 cx-text-strong">
       <div className="mx-auto max-w-2xl rounded-3xl border border-amber-400/30 bg-amber-500/[0.05] p-8 text-center">
         <AlertTriangle className="mx-auto h-12 w-12 text-amber-300" />
         <h1 className="mt-4 text-3xl font-black tracking-tight">Payment failed</h1>
-        <p className="mt-3 text-slate-300">
+        <p className="mt-3 cx-text-muted">
           Your most recent invoice couldn't be charged. We'll keep your access active until the
           end of the current billing period so you can update your payment method.
         </p>
@@ -52,7 +52,7 @@ const BillingPaymentFailed: React.FC = () => {
         ) : (
           <Link
             to="/"
-            className="mt-8 inline-flex items-center gap-2 rounded-2xl border border-white/10 px-6 py-3 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.06]"
+            className="mt-8 inline-flex items-center gap-2 rounded-2xl border cx-border-strong px-6 py-3 text-sm font-semibold cx-text transition hover:cx-bg-card-hover"
           >
             Sign in to update payment method
           </Link>
@@ -64,7 +64,7 @@ const BillingPaymentFailed: React.FC = () => {
           </p>
         )}
 
-        <p className="mt-6 text-xs text-slate-500">
+        <p className="mt-6 text-xs cx-text-faint">
           If you didn't intend to subscribe, you can cancel from the billing portal as well.
         </p>
       </div>

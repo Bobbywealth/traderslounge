@@ -246,7 +246,7 @@ const AdminDashboard: React.FC = () => {
       case 'suspended':
         return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300';
       default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300';
+        return 'bg-gray-100 cx-text dark:bg-gray-900/30 dark:text-gray-300';
     }
   };
 
@@ -257,9 +257,9 @@ const AdminDashboard: React.FC = () => {
       case 'pro':
         return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300';
       case 'free':
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300';
+        return 'bg-gray-100 cx-text dark:bg-gray-900/30 dark:text-gray-300';
       default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300';
+        return 'bg-gray-100 cx-text dark:bg-gray-900/30 dark:text-gray-300';
     }
   };
 
@@ -365,10 +365,10 @@ const AdminDashboard: React.FC = () => {
             </div>
             <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">+12.5%</span>
           </div>
-          <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
+          <h3 className="text-2xl font-bold cx-text-strong dark:cx-text-strong mb-1">
             {stats.totalUsers.toLocaleString()}
           </h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400">Total Users</p>
+          <p className="text-sm text-gray-600 dark:cx-text-faint">Total Users</p>
         </div>
 
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
@@ -378,10 +378,10 @@ const AdminDashboard: React.FC = () => {
             </div>
             <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">+8.2%</span>
           </div>
-          <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
+          <h3 className="text-2xl font-bold cx-text-strong dark:cx-text-strong mb-1">
             {stats.activeUsers.toLocaleString()}
           </h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400">Active Users</p>
+          <p className="text-sm text-gray-600 dark:cx-text-faint">Active Users</p>
         </div>
 
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
@@ -391,10 +391,10 @@ const AdminDashboard: React.FC = () => {
             </div>
             <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">+15.3%</span>
           </div>
-          <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
+          <h3 className="text-2xl font-bold cx-text-strong dark:cx-text-strong mb-1">
             ${stats.totalRevenue.toLocaleString()}
           </h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400">Total Revenue</p>
+          <p className="text-sm text-gray-600 dark:cx-text-faint">Total Revenue</p>
         </div>
 
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
@@ -404,10 +404,10 @@ const AdminDashboard: React.FC = () => {
             </div>
             <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">+{stats.conversionRate}%</span>
           </div>
-          <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
+          <h3 className="text-2xl font-bold cx-text-strong dark:cx-text-strong mb-1">
             {stats.conversionRate}%
           </h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400">Conversion Rate</p>
+          <p className="text-sm text-gray-600 dark:cx-text-faint">Conversion Rate</p>
         </div>
       </div>
 
@@ -415,45 +415,45 @@ const AdminDashboard: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between mb-4">
-            <h4 className="font-semibold text-gray-900 dark:text-white">Monthly Revenue</h4>
+            <h4 className="font-semibold cx-text-strong dark:cx-text-strong">Monthly Revenue</h4>
             <TrendingUp className="w-5 h-5 text-emerald-500" />
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">${stats.monthlyRevenue.toLocaleString()}</p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">This month</p>
+          <p className="text-3xl font-bold cx-text-strong dark:cx-text-strong">${stats.monthlyRevenue.toLocaleString()}</p>
+          <p className="text-sm text-gray-600 dark:cx-text-faint mt-2">This month</p>
         </div>
 
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between mb-4">
-            <h4 className="font-semibold text-gray-900 dark:text-white">Churn Rate</h4>
+            <h4 className="font-semibold cx-text-strong dark:cx-text-strong">Churn Rate</h4>
             <AlertTriangle className="w-5 h-5 text-orange-500" />
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.churnRate}%</p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">Monthly churn</p>
+          <p className="text-3xl font-bold cx-text-strong dark:cx-text-strong">{stats.churnRate}%</p>
+          <p className="text-sm text-gray-600 dark:cx-text-faint mt-2">Monthly churn</p>
         </div>
 
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between mb-4">
-            <h4 className="font-semibold text-gray-900 dark:text-white">ARPU</h4>
+            <h4 className="font-semibold cx-text-strong dark:cx-text-strong">ARPU</h4>
             <DollarSign className="w-5 h-5 text-blue-500" />
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">${stats.avgRevenuePerUser}</p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">Avg revenue per user</p>
+          <p className="text-3xl font-bold cx-text-strong dark:cx-text-strong">${stats.avgRevenuePerUser}</p>
+          <p className="text-sm text-gray-600 dark:cx-text-faint mt-2">Avg revenue per user</p>
         </div>
       </div>
 
       {/* Recent Activity */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Recent Activity</h3>
+        <h3 className="text-lg font-semibold cx-text-strong dark:cx-text-strong mb-4">Recent Activity</h3>
         <div className="space-y-4">
           {users.slice(0, 5).map((user) => (
             <div key={user.id} className="flex items-center justify-between py-2">
               <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-emerald-500 rounded-full flex items-center justify-center text-white text-sm font-semibold">
+                <div className="w-8 h-8 bg-emerald-500 rounded-full flex items-center justify-center cx-text-strong text-sm font-semibold">
                   {user.name.charAt(0)}
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">{user.name}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Last active: {user.lastActivity}</p>
+                  <p className="text-sm font-medium cx-text-strong dark:cx-text-strong">{user.name}</p>
+                  <p className="text-xs cx-text-faint dark:cx-text-faint">Last active: {user.lastActivity}</p>
                 </div>
               </div>
               <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getPlanColor(user.plan)}`}>
@@ -473,20 +473,20 @@ const AdminDashboard: React.FC = () => {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0 md:space-x-4">
           <div className="flex items-center space-x-4">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 cx-text-faint" />
               <input
                 type="text"
                 placeholder="Search users..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 cx-text-strong dark:cx-text-strong focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
               />
             </div>
             
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 cx-text-strong dark:cx-text-strong focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
             >
               <option value="all">All Status</option>
               <option value="active">Active</option>
@@ -497,7 +497,7 @@ const AdminDashboard: React.FC = () => {
             <select
               value={planFilter}
               onChange={(e) => setPlanFilter(e.target.value as any)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 cx-text-strong dark:cx-text-strong focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
             >
               <option value="all">All Plans</option>
               <option value="free">Free</option>
@@ -511,14 +511,14 @@ const AdminDashboard: React.FC = () => {
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => handleBulkAction('email')}
-                  className="flex items-center space-x-2 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200"
+                  className="flex items-center space-x-2 px-3 py-2 bg-blue-500 cx-text-strong rounded-lg hover:bg-blue-600 transition-colors duration-200"
                 >
                   <Mail className="w-4 h-4" />
                   <span>Email ({selectedUsers.length})</span>
                 </button>
                 <button
                   onClick={() => handleBulkAction('suspend')}
-                  className="flex items-center space-x-2 px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors duration-200"
+                  className="flex items-center space-x-2 px-3 py-2 bg-red-500 cx-text-strong rounded-lg hover:bg-red-600 transition-colors duration-200"
                 >
                   <UserX className="w-4 h-4" />
                   <span>Suspend</span>
@@ -527,14 +527,14 @@ const AdminDashboard: React.FC = () => {
             )}
             <button 
               onClick={handleAddUser}
-              className="flex items-center space-x-2 px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors duration-200"
+              className="flex items-center space-x-2 px-4 py-2 bg-emerald-500 cx-text-strong rounded-lg hover:bg-emerald-600 transition-colors duration-200"
             >
               <Plus className="w-4 h-4" />
               <span>Add User</span>
             </button>
             <button 
               onClick={handleExport}
-              className="flex items-center space-x-2 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors duration-200"
+              className="flex items-center space-x-2 px-4 py-2 bg-gray-500 cx-text-strong rounded-lg hover:bg-gray-600 transition-colors duration-200"
             >
               <Download className="w-4 h-4" />
               <span>Export</span>
@@ -546,7 +546,7 @@ const AdminDashboard: React.FC = () => {
       {/* Users Table */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+          <h3 className="text-lg font-semibold cx-text-strong dark:cx-text-strong">
             User Management ({filteredUsers.length} users)
           </h3>
         </div>
@@ -568,25 +568,25 @@ const AdminDashboard: React.FC = () => {
                     className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
                   />
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium cx-text-faint dark:cx-text-faint uppercase tracking-wider">
                   User
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium cx-text-faint dark:cx-text-faint uppercase tracking-wider">
                   Plan
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium cx-text-faint dark:cx-text-faint uppercase tracking-wider">
                   Status
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium cx-text-faint dark:cx-text-faint uppercase tracking-wider">
                   Revenue
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium cx-text-faint dark:cx-text-faint uppercase tracking-wider">
                   Trades
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium cx-text-faint dark:cx-text-faint uppercase tracking-wider">
                   Last Login
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium cx-text-faint dark:cx-text-faint uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
@@ -610,7 +610,7 @@ const AdminDashboard: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
-                      <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center text-white font-semibold mr-4">
+                      <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center cx-text-strong font-semibold mr-4">
                         {user.avatar ? (
                           <img src={user.avatar} alt={user.name} className="w-10 h-10 rounded-full" />
                         ) : (
@@ -618,13 +618,13 @@ const AdminDashboard: React.FC = () => {
                         )}
                       </div>
                       <div>
-                        <div className="text-sm font-medium text-gray-900 dark:text-white">
+                        <div className="text-sm font-medium cx-text-strong dark:cx-text-strong">
                           {user.name}
                         </div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400">
+                        <div className="text-sm cx-text-faint dark:cx-text-faint">
                           {user.email}
                         </div>
-                        <div className="flex items-center text-xs text-gray-400 mt-1">
+                        <div className="flex items-center text-xs cx-text-faint mt-1">
                           <MapPin className="w-3 h-3 mr-1" />
                           {user.country}
                         </div>
@@ -645,13 +645,13 @@ const AdminDashboard: React.FC = () => {
                       {user.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium cx-text-strong dark:cx-text-strong">
                     ${user.revenue.toLocaleString()}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm cx-text-faint dark:cx-text-faint">
                     {user.trades.toLocaleString()}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm cx-text-faint dark:cx-text-faint">
                     {format(user.lastLogin, 'MMM d, yyyy HH:mm')}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -695,24 +695,24 @@ const AdminDashboard: React.FC = () => {
         {/* Pagination */}
         <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between">
-            <div className="text-sm text-gray-700 dark:text-gray-300">
+            <div className="text-sm cx-text-muted dark:text-gray-300">
               Showing {((currentPage - 1) * usersPerPage) + 1} to {Math.min(currentPage * usersPerPage, filteredUsers.length)} of {filteredUsers.length} results
             </div>
             <div className="flex items-center space-x-2">
               <button
                 onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                 disabled={currentPage === 1}
-                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium cx-text-muted dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Previous
               </button>
-              <span className="px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+              <span className="px-3 py-2 text-sm font-medium cx-text-muted dark:text-gray-300">
                 Page {currentPage} of {totalPages}
               </span>
               <button
                 onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                 disabled={currentPage === totalPages}
-                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium cx-text-muted dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Next
               </button>
@@ -730,15 +730,15 @@ const AdminDashboard: React.FC = () => {
       case 'users':
         return renderUsers();
       case 'revenue':
-        return <div className="text-center py-12 text-gray-500">Revenue analytics coming soon...</div>;
+        return <div className="text-center py-12 cx-text-faint">Revenue analytics coming soon...</div>;
       case 'analytics':
-        return <div className="text-center py-12 text-gray-500">Advanced analytics coming soon...</div>;
+        return <div className="text-center py-12 cx-text-faint">Advanced analytics coming soon...</div>;
       case 'subscriptions':
-        return <div className="text-center py-12 text-gray-500">Subscription management coming soon...</div>;
+        return <div className="text-center py-12 cx-text-faint">Subscription management coming soon...</div>;
       case 'support':
-        return <div className="text-center py-12 text-gray-500">Support tickets coming soon...</div>;
+        return <div className="text-center py-12 cx-text-faint">Support tickets coming soon...</div>;
       case 'settings':
-        return <div className="text-center py-12 text-gray-500">Admin settings coming soon...</div>;
+        return <div className="text-center py-12 cx-text-faint">Admin settings coming soon...</div>;
       default:
         return renderOverview();
     }
@@ -752,12 +752,12 @@ const AdminDashboard: React.FC = () => {
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
-              <TrendingUp className="w-5 h-5 text-white" />
+              <TrendingUp className="w-5 h-5 cx-text-strong" />
             </div>
             {sidebarOpen && (
               <div>
-                <h1 className="text-lg font-bold text-gray-900 dark:text-white">ConfluenceX</h1>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Admin Panel</p>
+                <h1 className="text-lg font-bold cx-text-strong dark:cx-text-strong">ConfluenceX</h1>
+                <p className="text-xs cx-text-faint dark:cx-text-faint">Admin Panel</p>
               </div>
             )}
           </div>
@@ -774,8 +774,8 @@ const AdminDashboard: React.FC = () => {
                   onClick={() => setActiveTab(item.id)}
                   className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
                     activeTab === item.id
-                      ? 'bg-emerald-500 text-white'
-                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                      ? 'bg-emerald-500 cx-text-strong'
+                      : 'cx-text-muted dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
                 >
                   <Icon className="w-5 h-5" />
@@ -789,13 +789,13 @@ const AdminDashboard: React.FC = () => {
         {/* User Profile */}
         <div className="p-4 border-t border-gray-200 dark:border-gray-700">
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+            <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center cx-text-strong font-semibold text-sm">
               {user?.name?.charAt(0) || 'A'}
             </div>
             {sidebarOpen && (
               <div className="flex-1">
-                <p className="text-sm font-medium text-gray-900 dark:text-white">{user?.name || 'Admin'}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Administrator</p>
+                <p className="text-sm font-medium cx-text-strong dark:cx-text-strong">{user?.name || 'Admin'}</p>
+                <p className="text-xs cx-text-faint dark:cx-text-faint">Administrator</p>
               </div>
             )}
           </div>
@@ -812,13 +812,13 @@ const AdminDashboard: React.FC = () => {
                 onClick={() => setSidebarOpen(!sidebarOpen)}
                 className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200"
               >
-                <Menu className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                <Menu className="w-5 h-5 cx-text-faint dark:cx-text-faint" />
               </button>
               <div>
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white capitalize">
+                <h2 className="text-xl font-semibold cx-text-strong dark:cx-text-strong capitalize">
                   {activeTab}
                 </h2>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
+                <p className="text-sm text-gray-600 dark:cx-text-faint">
                   Manage your trading platform
                 </p>
               </div>
@@ -829,7 +829,7 @@ const AdminDashboard: React.FC = () => {
                 onClick={handleRefresh}
                 className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200"
               >
-                <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                <RefreshCw className="w-5 h-5 cx-text-faint dark:cx-text-faint" />
               </button>
               
               <button
@@ -837,22 +837,22 @@ const AdminDashboard: React.FC = () => {
                 className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200"
               >
                 {isDark ? (
-                  <Sun className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                  <Sun className="w-5 h-5 cx-text-faint dark:cx-text-faint" />
                 ) : (
-                  <Moon className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                  <Moon className="w-5 h-5 cx-text-faint dark:cx-text-faint" />
                 )}
               </button>
 
               <div className="relative">
                 <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200">
-                  <Bell className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                  <Bell className="w-5 h-5 cx-text-faint dark:cx-text-faint" />
                 </button>
                 <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"></div>
               </div>
 
               <button
                 onClick={logout}
-                className="flex items-center space-x-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors duration-200"
+                className="flex items-center space-x-2 px-4 py-2 bg-red-500 cx-text-strong rounded-lg hover:bg-red-600 transition-colors duration-200"
               >
                 <LogOut className="w-4 h-4" />
                 <span>Logout</span>

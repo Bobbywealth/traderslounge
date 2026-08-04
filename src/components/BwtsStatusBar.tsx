@@ -56,12 +56,12 @@ const BwtsStatusBar: React.FC = () => {
             {health?.status === 'ok' ? (
               <CheckCircle2 className="w-5 h-5 text-emerald-400" />
             ) : (
-              <Activity className="w-5 h-5 text-gray-400" />
+              <Activity className="w-5 h-5 cx-text-faint" />
             )}
           </div>
           <div>
-            <p className="text-xs uppercase tracking-wide text-gray-500">BWTS Scanner</p>
-            <p className="text-sm font-medium text-white">
+            <p className="text-xs uppercase tracking-wide cx-text-faint">BWTS Scanner</p>
+            <p className="text-sm font-medium cx-text-strong">
               {health ? `${health.status.toUpperCase()} · ${health.pairs.length} pairs tracked` : 'Loading…'}
             </p>
           </div>
@@ -96,8 +96,8 @@ const BwtsStatusBar: React.FC = () => {
 
 const Stat: React.FC<{ label: string; value: number; color?: string }> = ({ label, value, color }) => (
   <div className="text-center">
-    <p className={`text-lg font-bold ${color || 'text-white'}`}>{value}</p>
-    <p className="text-xs text-gray-500">{label}</p>
+    <p className={`text-lg font-bold ${color || 'cx-text-strong'}`}>{value}</p>
+    <p className="text-xs cx-text-faint">{label}</p>
   </div>
 );
 

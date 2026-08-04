@@ -29,11 +29,11 @@ const ConfluenceXLogo: React.FC<ConfluenceXLogoProps> = ({
       />
       {!compact && (
         <div className="min-w-0">
-          <div className={`${scale.name} font-black tracking-[-0.045em] leading-none text-white whitespace-nowrap`}>
+          <div className={`${scale.name} font-black tracking-[-0.045em] leading-none cx-text-strong whitespace-nowrap`}>
             Confluence<span className="bg-gradient-to-r from-violet-400 to-cyan-300 bg-clip-text text-transparent">X</span>
           </div>
           {showTagline && (
-            <div className="mt-1 text-[9px] font-semibold tracking-[0.19em] text-slate-500 whitespace-nowrap">
+            <div className="mt-1 text-[9px] font-semibold tracking-[0.19em] cx-text-faint whitespace-nowrap">
               SEE THE SETUP. CONFIRM THE EDGE.
             </div>
           )}

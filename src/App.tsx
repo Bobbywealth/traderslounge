@@ -81,7 +81,7 @@ const AppContent: React.FC = () => {
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center flex flex-col items-center">
           <ConfluenceXLogo size="lg" showTagline className="animate-pulse mb-5" />
-          <p className="text-gray-600 dark:text-gray-400">Loading market intelligence...</p>
+          <p className="text-gray-600 dark:cx-text-faint">Loading market intelligence...</p>
         </div>
       </div>
     );

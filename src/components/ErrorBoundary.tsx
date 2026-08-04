@@ -31,15 +31,15 @@ class ErrorBoundary extends Component<Props, State> {
             <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
               <AlertTriangle className="w-8 h-8 text-red-600 dark:text-red-400" />
             </div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+            <h2 className="text-xl font-semibold cx-text-strong dark:cx-text-strong mb-2">
               Something went wrong
             </h2>
-            <p className="text-gray-600 dark:text-gray-400 mb-6">
+            <p className="text-gray-600 dark:cx-text-faint mb-6">
               We encountered an unexpected error. Please try refreshing the page.
             </p>
             <button
               onClick={() => window.location.reload()}
-              className="flex items-center space-x-2 bg-emerald-500 text-white px-6 py-3 rounded-lg hover:bg-emerald-600 transition-colors duration-200 mx-auto"
+              className="flex items-center space-x-2 bg-emerald-500 cx-text-strong px-6 py-3 rounded-lg hover:bg-emerald-600 transition-colors duration-200 mx-auto"
             >
               <RefreshCw className="w-4 h-4" />
               <span>Refresh Page</span>

@@ -41,7 +41,7 @@ const QuickActions: React.FC = () => {
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
-      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
+      <h3 className="text-lg font-semibold cx-text-strong dark:cx-text-strong mb-6">
         Quick Actions
       </h3>
       <div className="grid grid-cols-2 gap-3">
@@ -60,7 +60,7 @@ const QuickActions: React.FC = () => {
             <button
               key={index}
               onClick={() => handleAction(action.name)}
-              className={`p-4 rounded-lg text-white text-sm font-medium transition-colors duration-200 ${
+              className={`p-4 rounded-lg cx-text-strong text-sm font-medium transition-colors duration-200 ${
                 colorClasses[action.color as keyof typeof colorClasses]
               }`}
             >

@@ -35,7 +35,7 @@ const TriggerDisplay: React.FC<TriggerDisplayProps> = ({ triggers, blockingReaso
     <div className="space-y-4">
       {triggers.length > 0 && (
         <div>
-          <div className="text-[10px] font-black tracking-widest text-slate-500 uppercase mb-2">
+          <div className="text-[10px] font-black tracking-widest cx-text-faint uppercase mb-2">
             Trigger Conditions
           </div>
           <div className="space-y-2">
@@ -47,15 +47,15 @@ const TriggerDisplay: React.FC<TriggerDisplayProps> = ({ triggers, blockingReaso
                     {trigger.completed ? (
                       <CheckCircle className="h-4 w-4 text-emerald-400" />
                     ) : (
-                      <Circle className="h-4 w-4 text-slate-600" />
+                      <Circle className="h-4 w-4 cx-text-faint" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className={`text-xs ${trigger.completed ? 'text-slate-400 line-through' : 'text-slate-300'}`}>
+                    <div className={`text-xs ${trigger.completed ? 'cx-text-muted line-through' : 'cx-text-muted'}`}>
                       {trigger.humanReadable}
                     </div>
                     {!trigger.completed && progress > 0 && (
-                      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/[0.06]">
+                      <div className="mt-1.5 h-1 overflow-hidden rounded-full cx-bg-card-hover">
                         <div
                           className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-violet-500 transition-all duration-500"
                           style={{ width: `${progress}%` }}
@@ -81,7 +81,7 @@ const TriggerDisplay: React.FC<TriggerDisplayProps> = ({ triggers, blockingReaso
                 <div className="mt-0.5">
                   <AlertTriangle className={`h-4 w-4 ${
                     reason.severity === 'high' ? 'text-rose-400' :
-                    reason.severity === 'medium' ? 'text-amber-400' : 'text-slate-400'
+                    reason.severity === 'medium' ? 'text-amber-400' : 'cx-text-muted'
                   }`} />
                 </div>
                 <div className="flex-1 min-w-0">

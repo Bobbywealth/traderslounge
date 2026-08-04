@@ -18,7 +18,7 @@ const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({ size = 'md', text = 'Lo
       <div className={`${sizeClasses[size]} text-emerald-500 animate-spin mb-4`}>
         <TrendingUp className="w-full h-full" />
       </div>
-      <p className="text-gray-600 dark:text-gray-400 text-sm">{text}</p>
+      <p className="text-gray-600 dark:cx-text-faint text-sm">{text}</p>
     </div>
   );
 };

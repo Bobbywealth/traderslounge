@@ -94,7 +94,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
       <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full p-8 relative">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-200"
+          className="absolute top-4 right-4 p-2 cx-text-faint hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-200"
         >
           <X className="w-5 h-5" />
         </button>
@@ -103,10 +103,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
           <div className="flex justify-center mb-4">
             <ConfluenceXLogo size="lg" showTagline />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+          <h2 className="text-2xl font-bold cx-text-strong dark:cx-text-strong mb-2">
             {mode === 'login' ? 'Welcome Back' : 'Join ConfluenceX'}
           </h2>
-          <p className="text-gray-600 dark:text-gray-400">
+          <p className="text-gray-600 dark:cx-text-faint">
             {mode === 'login' 
               ? 'Sign in to access your trading dashboard' 
               : 'Create your account and start trading like a pro'
@@ -126,16 +126,16 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         <form onSubmit={handleSubmit} className="space-y-6">
           {mode === 'signup' && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label className="block text-sm font-medium cx-text-muted dark:text-gray-300 mb-2">
                 Full Name
               </label>
               <div className="relative">
-                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 cx-text-faint" />
                 <input
                   type="text"
                   value={formData.name}
                   onChange={(e) => handleInputChange('name', e.target.value)}
-                  className={`w-full pl-10 pr-4 py-3 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-colors duration-200 ${
+                  className={`w-full pl-10 pr-4 py-3 border rounded-lg bg-white dark:bg-gray-700 cx-text-strong dark:cx-text-strong focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-colors duration-200 ${
                     errors.name ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
                   }`}
                   placeholder="Enter your full name"
@@ -151,16 +151,16 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label className="block text-sm font-medium cx-text-muted dark:text-gray-300 mb-2">
               Email Address
             </label>
             <div className="relative">
-              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 cx-text-faint" />
               <input
                 type="email"
                 value={formData.email}
                 onChange={(e) => handleInputChange('email', e.target.value)}
-                className={`w-full pl-10 pr-4 py-3 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-colors duration-200 ${
+                className={`w-full pl-10 pr-4 py-3 border rounded-lg bg-white dark:bg-gray-700 cx-text-strong dark:cx-text-strong focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-colors duration-200 ${
                   errors.email ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
                 }`}
                 placeholder="Enter your email"
@@ -175,16 +175,16 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label className="block text-sm font-medium cx-text-muted dark:text-gray-300 mb-2">
               Password
             </label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 cx-text-faint" />
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={formData.password}
                 onChange={(e) => handleInputChange('password', e.target.value)}
-                className={`w-full pl-10 pr-12 py-3 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-colors duration-200 ${
+                className={`w-full pl-10 pr-12 py-3 border rounded-lg bg-white dark:bg-gray-700 cx-text-strong dark:cx-text-strong focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-colors duration-200 ${
                   errors.password ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
                 }`}
                 placeholder="Enter your password"
@@ -192,7 +192,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 cx-text-faint hover:text-gray-600 dark:hover:text-gray-300"
               >
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
@@ -207,16 +207,16 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
 
           {mode === 'signup' && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label className="block text-sm font-medium cx-text-muted dark:text-gray-300 mb-2">
                 Confirm Password
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 cx-text-faint" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={formData.confirmPassword}
                   onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
-                  className={`w-full pl-10 pr-4 py-3 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-colors duration-200 ${
+                  className={`w-full pl-10 pr-4 py-3 border rounded-lg bg-white dark:bg-gray-700 cx-text-strong dark:cx-text-strong focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-colors duration-200 ${
                     errors.confirmPassword ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
                   }`}
                   placeholder="Confirm your password"
@@ -243,7 +243,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full bg-emerald-500 text-white py-3 px-4 rounded-lg font-medium hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 flex items-center justify-center"
+            className="w-full bg-emerald-500 cx-text-strong py-3 px-4 rounded-lg font-medium hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 flex items-center justify-center"
           >
             {isSubmitting ? (
               <>
@@ -260,7 +260,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         </form>
 
         <div className="mt-6 text-center">
-          <p className="text-gray-600 dark:text-gray-400">
+          <p className="text-gray-600 dark:cx-text-faint">
             {mode === 'login' ? "Don't have an account?" : 'Already have an account?'}
             <button
               onClick={() => {

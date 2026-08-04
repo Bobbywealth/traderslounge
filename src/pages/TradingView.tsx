@@ -1824,7 +1824,7 @@ const TradingView: React.FC = () => {
   const fibWaitFor = Array.isArray(fibContext?.wait_for) ? fibContext.wait_for.slice(0, 3).map((item: string) => item.replace(/_/g, ' ')) : [];
 
   return (
-    <div ref={workspaceRef} className={`relative h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 text-white flex flex-col ${fullscreenFallback ? 'fixed inset-0 z-[100]' : ''}`}>
+    <div ref={workspaceRef} className={`relative h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 cx-text-strong flex flex-col ${fullscreenFallback ? 'fixed inset-0 z-[100]' : ''}`}>
       {/* Enhanced Top Controls */}
       <div className="relative bg-gray-800 border-b border-gray-700 px-4 py-3">
         <div className="flex items-center justify-between">
@@ -1842,14 +1842,14 @@ const TradingView: React.FC = () => {
             {/* Symbol Search */}
             <div className="relative">
               <div className="flex items-center space-x-2 bg-gray-700 rounded-lg px-3 py-2">
-                <Search className="w-4 h-4 text-gray-400" />
+                <Search className="w-4 h-4 cx-text-faint" />
                 <input
                   type="text"
                   value={searchTerm}
                   onChange={(e) => handleSymbolSearch(e.target.value)}
                   onFocus={() => updateSymbolSuggestions(searchTerm)}
                   placeholder={`Search... (current: ${selectedSymbol})`}
-                  className="bg-transparent text-white placeholder-gray-400 outline-none w-48"
+                  className="bg-transparent cx-text-strong placeholder-gray-400 outline-none w-48"
                 />
               </div>
 
@@ -1864,11 +1864,11 @@ const TradingView: React.FC = () => {
                     >
                       <div className="flex items-center justify-between">
                         <div>
-                          <div className="font-semibold text-white">{symbol.symbol}</div>
-                          <div className="text-sm text-gray-400">{symbol.name}</div>
+                          <div className="font-semibold cx-text-strong">{symbol.symbol}</div>
+                          <div className="text-sm cx-text-faint">{symbol.name}</div>
                         </div>
                         <div className="text-right">
-                          <div className="text-xs text-gray-500">{symbol.exchange}</div>
+                          <div className="text-xs cx-text-faint">{symbol.exchange}</div>
                           <div className={`text-xs px-2 py-1 rounded-full ${
                             symbol.type === 'forex' ? 'bg-blue-900 text-blue-300' :
                             symbol.type === 'stock' ? 'bg-green-900 text-green-300' :
@@ -1889,14 +1889,14 @@ const TradingView: React.FC = () => {
             {currentSymbolInfo && (
               <div className="flex items-center space-x-3 bg-gray-700 rounded-lg px-4 py-2">
                 <div>
-                  <div className="font-semibold text-white">{currentSymbolInfo.symbol}</div>
-                  <div className="text-xs text-gray-400">{currentSymbolInfo.exchange}</div>
+                  <div className="font-semibold cx-text-strong">{currentSymbolInfo.symbol}</div>
+                  <div className="text-xs cx-text-faint">{currentSymbolInfo.exchange}</div>
                 </div>
                 <div className="text-right">
-                  <div className={`font-mono text-lg ${currentPrice > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                  <div className={`font-mono text-lg ${currentPrice > 0 ? 'text-emerald-400' : 'cx-text-faint'}`}>
                     {currentPrice > 0 ? currentPrice.toFixed(getDecimalPlaces(selectedSymbol)) : '-'}
                   </div>
-                  <div className="text-xs text-slate-500">{currentPrice > 0 ? 'Latest completed candle / live tick' : 'Waiting for market data'}</div>
+                  <div className="text-xs cx-text-faint">{currentPrice > 0 ? 'Latest completed candle / live tick' : 'Waiting for market data'}</div>
                 </div>
               </div>
             )}
@@ -1921,7 +1921,7 @@ const TradingView: React.FC = () => {
                 onClick={() => setTimeframe(tf.value)}
                 className={`px-3 py-1 text-sm rounded transition-colors ${
                   timeframe === tf.value
-                    ? 'bg-emerald-500 text-white'
+                    ? 'bg-emerald-500 cx-text-strong'
                     : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                 }`}
               >
@@ -1942,7 +1942,7 @@ const TradingView: React.FC = () => {
                 <WifiOff className="w-5 h-5 text-red-500" />
               )}
               <div className={`w-3 h-3 rounded-full ${isStreaming && isLive ? 'bg-emerald-500 animate-pulse' : isConnected ? 'bg-sky-500' : 'bg-gray-400'}`}></div>
-              <span className="text-sm text-gray-400">
+              <span className="text-sm cx-text-faint">
                 {isStreaming ? 'Streaming' : isConnected ? 'Connected' : 'Connecting...'}
               </span>
             </div>
@@ -1995,8 +1995,8 @@ const TradingView: React.FC = () => {
           </div>
         </div>
         {showSettings && (
-          <div className="absolute right-4 top-14 z-50 w-72 rounded-xl border border-white/10 bg-[#0b1020] p-3 shadow-2xl">
-            <div className="mb-2 text-[9px] font-black tracking-widest text-slate-500">OVERLAYS</div>
+          <div className="absolute right-4 top-14 z-50 w-72 rounded-xl border cx-border-strong cx-bg-elev p-3 shadow-2xl">
+            <div className="mb-2 text-[9px] font-black tracking-widest cx-text-faint">OVERLAYS</div>
             <div className="space-y-1">
               {[
                 [showHarmonics, setShowHarmonics, 'Harmonic Patterns'],
@@ -2007,7 +2007,7 @@ const TradingView: React.FC = () => {
                 [showSetupGuide, setShowSetupGuide, 'Setup guide'],
                 [showManualDrawings, setShowManualDrawings, 'Manual drawings'],
               ].map(([checked, setChecked, label]) => (
-                <label key={String(label)} className="flex items-center justify-between py-1.5 text-xs text-slate-300 hover:bg-white/[0.04] rounded px-1">
+                <label key={String(label)} className="flex items-center justify-between py-1.5 text-xs cx-text-muted hover:cx-bg-card rounded px-1">
                   <span>{String(label)}</span>
                   <input
                     type="checkbox"
@@ -2018,9 +2018,9 @@ const TradingView: React.FC = () => {
                 </label>
               ))}
             </div>
-            <div className="mt-3 mb-2 border-t border-white/[0.06] pt-2 text-[9px] font-black tracking-widest text-slate-500">PANES</div>
+            <div className="mt-3 mb-2 border-t cx-border pt-2 text-[9px] font-black tracking-widest cx-text-faint">PANES</div>
             <div className="space-y-1">
-              <label className="flex items-center justify-between py-1.5 text-xs text-slate-300 hover:bg-white/[0.04] rounded px-1">
+              <label className="flex items-center justify-between py-1.5 text-xs cx-text-muted hover:cx-bg-card rounded px-1">
                 <span>Volume</span>
                 <input
                   type="checkbox"
@@ -2029,7 +2029,7 @@ const TradingView: React.FC = () => {
                   className="rounded border-slate-500 text-emerald-500 focus:ring-emerald-500"
                 />
               </label>
-              <label className="flex items-center justify-between py-1.5 text-xs text-slate-300 hover:bg-white/[0.04] rounded px-1">
+              <label className="flex items-center justify-between py-1.5 text-xs cx-text-muted hover:cx-bg-card rounded px-1">
                 <span>RSI (14)</span>
                 <input
                   type="checkbox"
@@ -2039,23 +2039,23 @@ const TradingView: React.FC = () => {
                 />
               </label>
             </div>
-            <div className="mt-3 mb-2 border-t border-white/[0.06] pt-2 text-[9px] font-black tracking-widest text-slate-500">DRAWINGS</div>
+            <div className="mt-3 mb-2 border-t cx-border pt-2 text-[9px] font-black tracking-widest cx-text-faint">DRAWINGS</div>
             <div className="space-y-1">
               <button
                 onClick={() => setMagnetDrawing((v) => !v)}
-                className="flex w-full items-center justify-between py-1.5 text-xs text-slate-300 hover:bg-white/[0.04] rounded px-1"
+                className="flex w-full items-center justify-between py-1.5 text-xs cx-text-muted hover:cx-bg-card rounded px-1"
               >
                 <span>Magnet to OHLC</span>
-                <span className={`rounded px-2 py-0.5 text-[9px] font-black ${magnetDrawing ? 'bg-cyan-400/15 text-cyan-300' : 'bg-slate-500/15 text-slate-500'}`}>
+                <span className={`rounded px-2 py-0.5 text-[9px] font-black ${magnetDrawing ? 'bg-cyan-400/15 text-cyan-300' : 'bg-slate-500/15 cx-text-faint'}`}>
                   {magnetDrawing ? 'ON' : 'OFF'}
                 </span>
               </button>
               <button
                 onClick={() => setShowManualDrawings((v) => !v)}
-                className="flex w-full items-center justify-between py-1.5 text-xs text-slate-300 hover:bg-white/[0.04] rounded px-1"
+                className="flex w-full items-center justify-between py-1.5 text-xs cx-text-muted hover:cx-bg-card rounded px-1"
               >
                 <span>Show / hide drawings</span>
-                <span className={`rounded px-2 py-0.5 text-[9px] font-black ${showManualDrawings ? 'bg-cyan-400/15 text-cyan-300' : 'bg-slate-500/15 text-slate-500'}`}>
+                <span className={`rounded px-2 py-0.5 text-[9px] font-black ${showManualDrawings ? 'bg-cyan-400/15 text-cyan-300' : 'bg-slate-500/15 cx-text-faint'}`}>
                   {showManualDrawings ? 'ON' : 'OFF'}
                 </span>
               </button>
@@ -2065,39 +2065,39 @@ const TradingView: React.FC = () => {
       </div>
 
       {/* Manual drawing toolbar. Drawings persist independently per symbol and timeframe. */}
-      <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-white/[0.08] bg-[#080d18] px-4 py-1.5">
+      <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b cx-border bg-[#080d18] px-4 py-1.5">
         <button
           onClick={() => setDrawingRailCollapsed((c) => !c)}
           title={drawingRailCollapsed ? 'Expand drawing rail' : 'Collapse drawing rail'}
-          className="mr-2 flex items-center gap-1 rounded-md bg-white/[0.04] px-2 py-1 text-[9px] font-black tracking-widest text-cyan-300 hover:bg-white/[0.08]"
+          className="mr-2 flex items-center gap-1 rounded-md cx-bg-card px-2 py-1 text-[9px] font-black tracking-widest text-cyan-300 hover:bg-white/[0.08]"
         >
           <Pencil className="h-3 w-3" />
           {drawingRailCollapsed ? 'DRAW' : 'HIDE DRAW'}
         </button>
         {!drawingRailCollapsed && (
           <>
-        <span className="mr-2 text-[9px] font-black tracking-widest text-slate-600">DRAW</span>
+        <span className="mr-2 text-[9px] font-black tracking-widest cx-text-faint">DRAW</span>
         {([
           ['pan', Hand, 'Pan chart'], ['select', MousePointer2, 'Select drawing'], ['trend', LineChart, 'Trend line'], ['horizontal', Minus, 'Horizontal line'],
           ['sr', Target, 'S/R level'], ['rectangle', Square, 'Rectangle / zone'], ['fib', Percent, 'Fibonacci retracement'], ['text', Type, 'Text annotation'],
-        ] as const).map(([tool, Icon, label]) => <button key={tool} onClick={() => setDrawingTool(tool)} title={label} className={`rounded-md p-2 transition ${drawingTool === tool ? 'bg-cyan-400/15 text-cyan-300' : 'text-slate-500 hover:bg-white/[0.06] hover:text-slate-200'}`}><Icon className="h-4 w-4"/></button>)}
+        ] as const).map(([tool, Icon, label]) => <button key={tool} onClick={() => setDrawingTool(tool)} title={label} className={`rounded-md p-2 transition ${drawingTool === tool ? 'bg-cyan-400/15 text-cyan-300' : 'cx-text-faint hover:cx-bg-card-hover hover:cx-text'}`}><Icon className="h-4 w-4"/></button>)}
         <div className="mx-2 h-5 w-px bg-white/10"/>
         <input type="color" value={selectedDrawing?.color || drawingColor} onChange={(event) => { setDrawingColor(event.target.value); if (selectedDrawing) updateSelectedDrawing({color:event.target.value}); }} title="Drawing color" className="h-7 w-7 cursor-pointer rounded border-0 bg-transparent p-0"/>
-        <button onClick={() => selectedDrawing && updateSelectedDrawing({locked:!selectedDrawing.locked})} disabled={!selectedDrawing} title={selectedDrawing?.locked ? 'Unlock drawing' : 'Lock drawing'} className={`rounded-md p-2 disabled:opacity-25 ${selectedDrawing?.locked ? 'bg-amber-400/10 text-amber-300' : 'text-slate-500 hover:text-slate-200'}`}>{selectedDrawing?.locked ? <Lock className="h-4 w-4"/> : <Unlock className="h-4 w-4"/>}</button>
-        <button onClick={duplicateSelectedDrawing} disabled={!selectedDrawing} title="Duplicate drawing" className="rounded-md p-2 text-slate-500 hover:text-slate-200 disabled:opacity-25"><Copy className="h-4 w-4"/></button>
-        <button onClick={() => selectedDrawing && updateSelectedDrawing({lineStyle:selectedDrawing.lineStyle === 'dashed' ? 'solid' : 'dashed'})} disabled={!selectedDrawing || selectedDrawing.type === 'text'} title="Toggle solid / dashed" className="rounded-md px-2 py-1.5 text-[10px] font-black text-slate-500 hover:text-slate-200 disabled:opacity-25">{selectedDrawing?.lineStyle === 'dashed' ? 'DASH' : 'SOLID'}</button>
-        <button onClick={() => selectedDrawing && updateSelectedDrawing({showPrice:!selectedDrawing.showPrice})} disabled={!selectedDrawing || selectedDrawing.type === 'text'} title="Toggle price labels" className={`rounded-md p-2 disabled:opacity-25 ${selectedDrawing?.showPrice ? 'text-cyan-300' : 'text-slate-500'}`}><Tag className="h-4 w-4"/></button>
-        <button onClick={() => setMagnetDrawing((value)=>!value)} title="Magnet to candle OHLC" className={`rounded-md p-2 ${magnetDrawing ? 'bg-cyan-400/10 text-cyan-300' : 'text-slate-500'}`}><Magnet className="h-4 w-4"/></button>
-        <button onClick={deleteSelectedDrawing} disabled={!selectedDrawingId || selectedDrawing?.locked} title="Delete selected" className="rounded-md p-2 text-slate-500 hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25"><Trash2 className="h-4 w-4"/></button>
-        <button onClick={undoDrawing} disabled={!drawingUndoRef.current.length} title="Undo" className="rounded-md p-2 text-slate-500 hover:bg-white/[0.06] hover:text-slate-200 disabled:opacity-25"><Undo2 className="h-4 w-4"/></button>
-        <button onClick={clearDrawings} disabled={!drawings.length} title="Clear drawings" className="rounded-md px-2 py-1.5 text-[10px] font-black text-slate-500 hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25">CLEAR</button>
-        <button onClick={() => setShowManualDrawings((visible) => !visible)} title="Show / hide drawings" className="ml-auto rounded-md p-2 text-slate-500 hover:bg-white/[0.06] hover:text-slate-200">{showManualDrawings ? <Eye className="h-4 w-4"/> : <EyeOff className="h-4 w-4"/>}</button>
-        <span className="text-[9px] font-bold text-slate-600">{drawings.length} · {selectedSymbol} {timeframe}</span>
+        <button onClick={() => selectedDrawing && updateSelectedDrawing({locked:!selectedDrawing.locked})} disabled={!selectedDrawing} title={selectedDrawing?.locked ? 'Unlock drawing' : 'Lock drawing'} className={`rounded-md p-2 disabled:opacity-25 ${selectedDrawing?.locked ? 'bg-amber-400/10 text-amber-300' : 'cx-text-faint hover:cx-text'}`}>{selectedDrawing?.locked ? <Lock className="h-4 w-4"/> : <Unlock className="h-4 w-4"/>}</button>
+        <button onClick={duplicateSelectedDrawing} disabled={!selectedDrawing} title="Duplicate drawing" className="rounded-md p-2 cx-text-faint hover:cx-text disabled:opacity-25"><Copy className="h-4 w-4"/></button>
+        <button onClick={() => selectedDrawing && updateSelectedDrawing({lineStyle:selectedDrawing.lineStyle === 'dashed' ? 'solid' : 'dashed'})} disabled={!selectedDrawing || selectedDrawing.type === 'text'} title="Toggle solid / dashed" className="rounded-md px-2 py-1.5 text-[10px] font-black cx-text-faint hover:cx-text disabled:opacity-25">{selectedDrawing?.lineStyle === 'dashed' ? 'DASH' : 'SOLID'}</button>
+        <button onClick={() => selectedDrawing && updateSelectedDrawing({showPrice:!selectedDrawing.showPrice})} disabled={!selectedDrawing || selectedDrawing.type === 'text'} title="Toggle price labels" className={`rounded-md p-2 disabled:opacity-25 ${selectedDrawing?.showPrice ? 'text-cyan-300' : 'cx-text-faint'}`}><Tag className="h-4 w-4"/></button>
+        <button onClick={() => setMagnetDrawing((value)=>!value)} title="Magnet to candle OHLC" className={`rounded-md p-2 ${magnetDrawing ? 'bg-cyan-400/10 text-cyan-300' : 'cx-text-faint'}`}><Magnet className="h-4 w-4"/></button>
+        <button onClick={deleteSelectedDrawing} disabled={!selectedDrawingId || selectedDrawing?.locked} title="Delete selected" className="rounded-md p-2 cx-text-faint hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25"><Trash2 className="h-4 w-4"/></button>
+        <button onClick={undoDrawing} disabled={!drawingUndoRef.current.length} title="Undo" className="rounded-md p-2 cx-text-faint hover:cx-bg-card-hover hover:cx-text disabled:opacity-25"><Undo2 className="h-4 w-4"/></button>
+        <button onClick={clearDrawings} disabled={!drawings.length} title="Clear drawings" className="rounded-md px-2 py-1.5 text-[10px] font-black cx-text-faint hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25">CLEAR</button>
+        <button onClick={() => setShowManualDrawings((visible) => !visible)} title="Show / hide drawings" className="ml-auto rounded-md p-2 cx-text-faint hover:cx-bg-card-hover hover:cx-text">{showManualDrawings ? <Eye className="h-4 w-4"/> : <EyeOff className="h-4 w-4"/>}</button>
+        <span className="text-[9px] font-bold cx-text-faint">{drawings.length} · {selectedSymbol} {timeframe}</span>
           </>
         )}
       </div>
 
-      <div className="flex shrink-0 items-center gap-3 overflow-x-auto border-b border-white/[0.08] bg-[#080d18] px-4 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-500">
+      <div className="flex shrink-0 items-center gap-3 overflow-x-auto border-b cx-border bg-[#080d18] px-4 py-1.5 text-[10px] font-black uppercase tracking-wider cx-text-faint">
         <span className="text-cyan-300">MARKET CONTEXT</span>
         <DataAttribution
           provider="Multi-source"
@@ -2129,7 +2129,7 @@ const TradingView: React.FC = () => {
             selectedLabel={timeframe}
           />
         )}
-        <button onClick={() => setShowTechnicalControls((value) => !value)} className="ml-auto rounded bg-white/[0.06] px-2.5 py-1 text-[9px] text-slate-300 hover:bg-white/[0.1]">{showTechnicalControls ? 'Hide tools' : 'Analysis tools'}</button>
+        <button onClick={() => setShowTechnicalControls((value) => !value)} className="ml-auto rounded cx-bg-card-hover px-2.5 py-1 text-[9px] cx-text-muted hover:bg-white/[0.1]">{showTechnicalControls ? 'Hide tools' : 'Analysis tools'}</button>
         <button onClick={() => setShowChartContext((value) => !value)} className="rounded bg-cyan-400/10 px-2.5 py-1 text-[9px] text-cyan-300 hover:bg-cyan-400/20">{showChartContext ? 'Hide details' : 'Details'}</button>
         {!showSetupGuide && <button onClick={() => setShowSetupGuide(true)} className="rounded bg-emerald-400/10 px-2.5 py-1 text-[9px] text-emerald-300 hover:bg-emerald-400/20">Guide</button>}
       </div>
@@ -2137,7 +2137,7 @@ const TradingView: React.FC = () => {
       {showTechnicalControls && <div className="shrink-0 overflow-x-auto bg-gray-800 border-b border-gray-700 px-4 py-2">
         <div className="flex min-w-max items-center justify-between gap-6">
           <div className="flex items-center space-x-4">
-            <span className="text-sm text-gray-400">Technical Analysis:</span>
+            <span className="text-sm cx-text-faint">Technical Analysis:</span>
 
             <label className="flex items-center space-x-2">
               <input
@@ -2146,9 +2146,9 @@ const TradingView: React.FC = () => {
                 onChange={(e) => setShowHarmonics(e.target.checked)}
                 className="rounded border-gray-600 text-emerald-500 focus:ring-emerald-500"
               />
-              <span className="text-sm text-white">Harmonic Patterns</span>
+              <span className="text-sm cx-text-strong">Harmonic Patterns</span>
               {harmonicPatterns.length > 0 && (
-                <span className="bg-emerald-600 text-white text-xs px-2 py-1 rounded-full">
+                <span className="bg-emerald-600 cx-text-strong text-xs px-2 py-1 rounded-full">
                   {harmonicPatterns.length}
                 </span>
               )}
@@ -2161,9 +2161,9 @@ const TradingView: React.FC = () => {
                 onChange={(e) => setShowTrendLines(e.target.checked)}
                 className="rounded border-gray-600 text-blue-500 focus:ring-blue-500"
               />
-              <span className="text-sm text-white">Trend Lines</span>
+              <span className="text-sm cx-text-strong">Trend Lines</span>
               {trendLines.length > 0 && (
-                <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-full">
+                <span className="bg-blue-600 cx-text-strong text-xs px-2 py-1 rounded-full">
                   {trendLines.length}
                 </span>
               )}
@@ -2176,7 +2176,7 @@ const TradingView: React.FC = () => {
                 onChange={(e) => setShowSupportResistance(e.target.checked)}
                 className="rounded border-gray-600 text-cyan-500 focus:ring-cyan-500"
               />
-              <span className="text-sm text-white">Support / Resistance</span>
+              <span className="text-sm cx-text-strong">Support / Resistance</span>
             </label>
 
             <label className="flex items-center space-x-2">
@@ -2186,9 +2186,9 @@ const TradingView: React.FC = () => {
                 onChange={(e) => setShowFibonacci(e.target.checked)}
                 className="rounded border-gray-600 text-purple-500 focus:ring-purple-500"
               />
-              <span className="text-sm text-white">Fibonacci Levels</span>
+              <span className="text-sm cx-text-strong">Fibonacci Levels</span>
               {fibonacciLevels.length > 0 && (
-                <span className="bg-purple-600 text-white text-xs px-2 py-1 rounded-full">
+                <span className="bg-purple-600 cx-text-strong text-xs px-2 py-1 rounded-full">
                   {fibonacciLevels.length}
                 </span>
               )}
@@ -2222,7 +2222,7 @@ const TradingView: React.FC = () => {
         <div className={`px-4 py-2 border-b text-sm ${
           harmonicPatterns.length > 0
             ? 'bg-emerald-950 border-emerald-800 text-emerald-200'
-            : 'bg-gray-900 border-gray-700 text-gray-400'
+            : 'bg-gray-900 border-gray-700 cx-text-faint'
         }`}>
           {harmonicPatterns.length > 0 ? (
             harmonicPatterns.map((pattern) => (
@@ -2253,51 +2253,51 @@ const TradingView: React.FC = () => {
       )}
 
       {cryptoAnalysis && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-violet-500/20 bg-[#0d1020] px-4 py-2 text-xs text-slate-400">
+        <div className="flex flex-wrap items-center gap-2 border-b border-violet-500/20 bg-[#0d1020] px-4 py-2 text-xs cx-text-muted">
           <span className="rounded-md border border-violet-400/20 bg-violet-400/10 px-2 py-1 font-black tracking-wider text-violet-300">V2</span>
           <span className="rounded-md border border-cyan-400/20 bg-cyan-400/10 px-2 py-1 text-sm font-black text-cyan-300">{cryptoAnalysis.total_score}<span className="text-[10px] text-cyan-500">/100</span></span>
-          <span className={`rounded-md border px-2 py-1 text-[9px] font-black ${cryptoAnalysis.direction === 'BUY' ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'border-rose-400/20 bg-rose-400/10 text-rose-300' : 'border-slate-400/20 bg-slate-400/10 text-slate-400'}`}>{cryptoAnalysis.direction}</span>
+          <span className={`rounded-md border px-2 py-1 text-[9px] font-black ${cryptoAnalysis.direction === 'BUY' ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'border-rose-400/20 bg-rose-400/10 text-rose-300' : 'border-slate-400/20 bg-slate-400/10 cx-text-muted'}`}>{cryptoAnalysis.direction}</span>
           {cryptoAnalysis.direction_stability && <span title={cryptoAnalysis.direction_stability.reason} className={`rounded-md border px-2 py-1 text-[9px] font-black ${cryptoAnalysis.direction_stability.lifecycle === 'READY' || cryptoAnalysis.direction_stability.lifecycle === 'CONFIRMED' ? 'border-cyan-400/20 bg-cyan-400/10 text-cyan-300' : cryptoAnalysis.direction_stability.lifecycle === 'INVALIDATED' ? 'border-rose-400/20 bg-rose-400/10 text-rose-300' : 'border-amber-400/20 bg-amber-400/10 text-amber-300'}`}>{cryptoAnalysis.direction_stability.lifecycle}{cryptoAnalysis.direction_stability.raw_direction !== cryptoAnalysis.direction_stability.confirmed_direction ? ` · RAW ${cryptoAnalysis.direction_stability.raw_direction}` : ''}</span>}
           {cryptoAnalysis.decision_quality && <>
             <span className="rounded-md border border-cyan-400/15 bg-cyan-400/[0.06] px-2 py-1 text-[9px] font-black text-cyan-200">BIAS {cryptoAnalysis.decision_quality.market_bias_confidence}%</span>
             <span className="rounded-md border border-violet-400/15 bg-violet-400/[0.06] px-2 py-1 text-[9px] font-black text-violet-200">SETUP {cryptoAnalysis.decision_quality.setup_quality}%</span>
             <span className="rounded-md border border-amber-400/15 bg-amber-400/[0.06] px-2 py-1 text-[9px] font-black text-amber-200">TIMING {cryptoAnalysis.decision_quality.execution_readiness}%</span>
           </>}
-          <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[10px] font-black text-slate-300">STR {cryptoAnalysis.category_breakdown.structure}/20</span>
-          <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[10px] font-black text-slate-300">VOL {cryptoAnalysis.category_breakdown.volume}/10</span>
-          <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[10px] font-black text-slate-300">MOM {cryptoAnalysis.category_breakdown.momentum}/10</span>
-          <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[10px] font-black text-slate-300">LIQ {cryptoAnalysis.category_breakdown.liquidity}/15</span>
+          <span className="rounded-md border cx-border cx-bg-card px-2 py-1 text-[10px] font-black cx-text-muted">STR {cryptoAnalysis.category_breakdown.structure}/20</span>
+          <span className="rounded-md border cx-border cx-bg-card px-2 py-1 text-[10px] font-black cx-text-muted">VOL {cryptoAnalysis.category_breakdown.volume}/10</span>
+          <span className="rounded-md border cx-border cx-bg-card px-2 py-1 text-[10px] font-black cx-text-muted">MOM {cryptoAnalysis.category_breakdown.momentum}/10</span>
+          <span className="rounded-md border cx-border cx-bg-card px-2 py-1 text-[10px] font-black cx-text-muted">LIQ {cryptoAnalysis.category_breakdown.liquidity}/15</span>
           <span className="ml-auto rounded-md border border-cyan-400/20 bg-cyan-400/10 px-2 py-1 font-semibold uppercase text-cyan-300">{cryptoAnalysis.data_quality.primary_timeframe}</span>
-          <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2 py-1 font-semibold uppercase text-slate-300">{cryptoAnalysis.data_quality.status} data</span>
+          <span className="rounded-md border cx-border cx-bg-card px-2 py-1 font-semibold uppercase cx-text-muted">{cryptoAnalysis.data_quality.status} data</span>
         </div>
       )}
 
       {cryptoAnalysis?.market_context && (
-        <div className="flex items-center gap-5 border-b border-cyan-500/15 bg-[#09131b] px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+        <div className="flex items-center gap-5 border-b border-cyan-500/15 cx-bg-card px-4 py-2 text-[10px] font-bold uppercase tracking-wider cx-text-faint">
           <span className="text-cyan-300">MARKET DIRECTION</span>
-          <span>Month <b className={cryptoAnalysis.market_context.timeframes.mn1?.trend === 'bullish' ? 'text-emerald-300' : cryptoAnalysis.market_context.timeframes.mn1?.trend === 'bearish' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.market_context.timeframes.mn1?.trend || 'neutral'}</b></span>
-          <span>Week <b className={cryptoAnalysis.market_context.timeframes.w1?.trend === 'bullish' ? 'text-emerald-300' : cryptoAnalysis.market_context.timeframes.w1?.trend === 'bearish' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.market_context.timeframes.w1?.trend || 'neutral'}</b></span>
-          <span>{timeframe} <b className={cryptoAnalysis.market_context.timeframes.selected?.trend === 'bullish' ? 'text-emerald-300' : cryptoAnalysis.market_context.timeframes.selected?.trend === 'bearish' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.market_context.timeframes.selected?.trend || 'neutral'}</b></span>
-          <span>Alignment <b className="text-slate-200">{cryptoAnalysis.market_context.alignment_score}%</b></span>
+          <span>Month <b className={cryptoAnalysis.market_context.timeframes.mn1?.trend === 'bullish' ? 'text-emerald-300' : cryptoAnalysis.market_context.timeframes.mn1?.trend === 'bearish' ? 'text-rose-300' : 'cx-text-muted'}>{cryptoAnalysis.market_context.timeframes.mn1?.trend || 'neutral'}</b></span>
+          <span>Week <b className={cryptoAnalysis.market_context.timeframes.w1?.trend === 'bullish' ? 'text-emerald-300' : cryptoAnalysis.market_context.timeframes.w1?.trend === 'bearish' ? 'text-rose-300' : 'cx-text-muted'}>{cryptoAnalysis.market_context.timeframes.w1?.trend || 'neutral'}</b></span>
+          <span>{timeframe} <b className={cryptoAnalysis.market_context.timeframes.selected?.trend === 'bullish' ? 'text-emerald-300' : cryptoAnalysis.market_context.timeframes.selected?.trend === 'bearish' ? 'text-rose-300' : 'cx-text-muted'}>{cryptoAnalysis.market_context.timeframes.selected?.trend || 'neutral'}</b></span>
+          <span>Alignment <b className="cx-text">{cryptoAnalysis.market_context.alignment_score}%</b></span>
           <span className={`ml-auto rounded px-2 py-1 ${cryptoAnalysis.trade_timing?.status === 'READY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.trade_timing?.status === 'AVOID' ? 'bg-rose-400/10 text-rose-300' : 'bg-amber-400/10 text-amber-300'}`}>TIMING {cryptoAnalysis.trade_timing?.status || 'WAIT'}</span>
-          {(cryptoAnalysis.trade_timing?.status === 'AVOID' ? cryptoAnalysis.trade_timing.avoid_reasons?.[0] : cryptoAnalysis.trade_timing?.wait_for?.[0]) && <span className="normal-case tracking-normal text-slate-500">{cryptoAnalysis.trade_timing.status === 'AVOID' ? 'Avoid: ' : 'Wait: '}{String(cryptoAnalysis.trade_timing.status === 'AVOID' ? cryptoAnalysis.trade_timing.avoid_reasons?.[0] : cryptoAnalysis.trade_timing.wait_for[0]).replace(/_/g, ' ')}</span>}
+          {(cryptoAnalysis.trade_timing?.status === 'AVOID' ? cryptoAnalysis.trade_timing.avoid_reasons?.[0] : cryptoAnalysis.trade_timing?.wait_for?.[0]) && <span className="normal-case tracking-normal cx-text-faint">{cryptoAnalysis.trade_timing.status === 'AVOID' ? 'Avoid: ' : 'Wait: '}{String(cryptoAnalysis.trade_timing.status === 'AVOID' ? cryptoAnalysis.trade_timing.avoid_reasons?.[0] : cryptoAnalysis.trade_timing.wait_for[0]).replace(/_/g, ' ')}</span>}
         </div>
       )}
 
-      {fibData && <div className="flex flex-wrap items-center gap-3 border-b border-amber-500/15 bg-[#171103] px-4 py-2 text-[11px] text-slate-300">
+      {fibData && <div className="flex flex-wrap items-center gap-3 border-b border-amber-500/15 cx-bg-card px-4 py-2 text-[11px] cx-text-muted">
         <span className="font-black tracking-wider text-amber-300">FIB CONTEXT</span>
         <span className={fibData.leg === 'up' ? 'text-emerald-300' : 'text-rose-300'}>{fibData.leg === 'up' ? 'Bullish swing' : 'Bearish swing'}</span>
-        {fibNearest && <span>Nearest <b className="text-cyan-300">{String(fibNearest.ratio)}</b> at <b className="text-slate-100">{setupPrice(Number(fibNearest.level))}</b></span>}
+        {fibNearest && <span>Nearest <b className="text-cyan-300">{String(fibNearest.ratio)}</b> at <b className="cx-text">{setupPrice(Number(fibNearest.level))}</b></span>}
         {fibGolden && <span>Golden pocket <b className="text-violet-300">{setupPrice(Number(fibGolden.low))}-{setupPrice(Number(fibGolden.high))}</b></span>}
-        {fibTopCluster && <span>Cluster <b className="text-amber-200">{setupPrice(Number(fibTopCluster.low))}-{setupPrice(Number(fibTopCluster.high))}</b> <span className="text-slate-500">{fibTopCluster.timeframes?.join('/')}</span></span>}
+        {fibTopCluster && <span>Cluster <b className="text-amber-200">{setupPrice(Number(fibTopCluster.low))}-{setupPrice(Number(fibTopCluster.high))}</b> <span className="cx-text-faint">{fibTopCluster.timeframes?.join('/')}</span></span>}
         {fibHtfConflicts.length > 0 ? <span className="rounded bg-rose-400/10 px-2 py-1 text-[9px] font-black text-rose-300">HTF CONFLICT {fibHtfConflicts.join('/')}</span> : <span className="rounded bg-emerald-400/10 px-2 py-1 text-[9px] font-black text-emerald-300">HTF ALIGNED</span>}
-        {fibData.selection_reason && <span className="text-slate-500">{String(fibData.selection_reason)}</span>}
+        {fibData.selection_reason && <span className="cx-text-faint">{String(fibData.selection_reason)}</span>}
         {fibWaitFor.length > 0 && <span className="ml-auto text-amber-300">Wait: {fibWaitFor.join(' · ')}</span>}
       </div>}
 
-      {cryptoAnalysis?.trade_plan && <div className="flex flex-wrap items-center gap-4 border-b border-emerald-500/15 bg-[#091611] px-4 py-2 text-[11px] text-slate-300">
+      {cryptoAnalysis?.trade_plan && <div className="flex flex-wrap items-center gap-4 border-b border-emerald-500/15 cx-bg-card px-4 py-2 text-[11px] cx-text-muted">
         <span className="font-black tracking-wider text-emerald-300">POSSIBLE SETUP</span>
-        <span className={cryptoAnalysis.trade_plan.direction === 'BUY' ? 'text-emerald-300' : cryptoAnalysis.trade_plan.direction === 'SELL' ? 'text-rose-300' : 'text-slate-400'}>{cryptoAnalysis.trade_plan.direction}</span>
+        <span className={cryptoAnalysis.trade_plan.direction === 'BUY' ? 'text-emerald-300' : cryptoAnalysis.trade_plan.direction === 'SELL' ? 'text-rose-300' : 'cx-text-muted'}>{cryptoAnalysis.trade_plan.direction}</span>
         {cryptoAnalysis.trade_plan.entry != null && <span>Entry {Number(cryptoAnalysis.trade_plan.entry).toLocaleString()}</span>}
         {cryptoAnalysis.trade_plan.stop != null && <span className="text-rose-300">Invalidation {Number(cryptoAnalysis.trade_plan.stop).toLocaleString()}</span>}
         {cryptoAnalysis.trade_plan.targets?.slice(0, 3).map((target) => <span key={target.label} className="text-cyan-300">{target.label} {Number(target.price).toLocaleString()}</span>)}
@@ -2323,8 +2323,8 @@ const TradingView: React.FC = () => {
             style={{ flex: '1 1 60%' }}
           />
           {showVolume && (
-            <div className="relative border-t border-white/[0.06]">
-              <div className="absolute left-2 top-1 z-10 rounded bg-black/40 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-slate-400">
+            <div className="relative border-t cx-border">
+              <div className="absolute left-2 top-1 z-10 rounded bg-black/40 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest cx-text-muted">
                 VOLUME
               </div>
               <div
@@ -2335,7 +2335,7 @@ const TradingView: React.FC = () => {
             </div>
           )}
           {showRsi && (
-            <div className="relative border-t border-white/[0.06]">
+            <div className="relative border-t cx-border">
               <div className="absolute left-2 top-1 z-10 rounded bg-black/40 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-violet-300">
                 RSI(14)
               </div>
@@ -2349,18 +2349,18 @@ const TradingView: React.FC = () => {
         </div>
 
         {showFibonacci && fibData && (
-          <div className="pointer-events-none absolute left-4 top-4 z-30 w-[min(460px,calc(100%-2rem))] rounded-xl border border-amber-400/20 bg-[#0b1020]/92 p-3 text-[11px] text-slate-300 shadow-2xl backdrop-blur">
+          <div className="pointer-events-none absolute left-4 top-4 z-30 w-[min(460px,calc(100%-2rem))] rounded-xl border border-amber-400/20 cx-bg-elev/92 p-3 text-[11px] cx-text-muted shadow-2xl backdrop-blur">
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className="font-black tracking-widest text-amber-300">FIB CONTEXT</span>
               <span className={fibData.leg === 'up' ? 'text-emerald-300' : 'text-rose-300'}>{fibData.leg === 'up' ? 'Bullish swing' : 'Bearish swing'}</span>
               {fibHtfConflicts.length > 0 ? <span className="rounded bg-rose-400/10 px-2 py-0.5 text-[9px] font-black text-rose-300">HTF CONFLICT {fibHtfConflicts.join('/')}</span> : <span className="rounded bg-emerald-400/10 px-2 py-0.5 text-[9px] font-black text-emerald-300">HTF ALIGNED</span>}
             </div>
             <div className="grid gap-1">
-              {fibNearest && <div className="flex justify-between gap-3"><span className="text-slate-500">Nearest Fib</span><b className="text-cyan-300">{String(fibNearest.ratio)} · {setupPrice(Number(fibNearest.level))}</b></div>}
-              {fibGolden && <div className="flex justify-between gap-3"><span className="text-slate-500">Golden pocket</span><b className="text-violet-300">{setupPrice(Number(fibGolden.low))}-{setupPrice(Number(fibGolden.high))}</b></div>}
-              {fibTopCluster && <div className="flex justify-between gap-3"><span className="text-slate-500">Best cluster</span><b className="text-amber-200">{setupPrice(Number(fibTopCluster.low))}-{setupPrice(Number(fibTopCluster.high))}</b></div>}
+              {fibNearest && <div className="flex justify-between gap-3"><span className="cx-text-faint">Nearest Fib</span><b className="text-cyan-300">{String(fibNearest.ratio)} · {setupPrice(Number(fibNearest.level))}</b></div>}
+              {fibGolden && <div className="flex justify-between gap-3"><span className="cx-text-faint">Golden pocket</span><b className="text-violet-300">{setupPrice(Number(fibGolden.low))}-{setupPrice(Number(fibGolden.high))}</b></div>}
+              {fibTopCluster && <div className="flex justify-between gap-3"><span className="cx-text-faint">Best cluster</span><b className="text-amber-200">{setupPrice(Number(fibTopCluster.low))}-{setupPrice(Number(fibTopCluster.high))}</b></div>}
               {fibWaitFor.length > 0 && <div className="text-[10px] leading-relaxed text-amber-300">Wait: {fibWaitFor.join(' · ')}</div>}
-              {fibData.selection_reason && <div className="text-[10px] leading-relaxed text-slate-500">Auto leg: {String(fibData.selection_reason)}</div>}
+              {fibData.selection_reason && <div className="text-[10px] leading-relaxed cx-text-faint">Auto leg: {String(fibData.selection_reason)}</div>}
             </div>
           </div>
         )}
@@ -2368,7 +2368,7 @@ const TradingView: React.FC = () => {
         {/* Switching symbols used to freeze on the previous chart with no
             feedback, which reads as a hang rather than a fetch. */}
         {candlesLoading && !chartError && (
-          <div className="pointer-events-none absolute left-1/2 top-4 z-40 -translate-x-1/2 rounded-full border border-cyan-400/20 bg-[#0b1020]/95 px-4 py-1.5 text-[11px] font-bold text-cyan-200 shadow-lg backdrop-blur">
+          <div className="pointer-events-none absolute left-1/2 top-4 z-40 -translate-x-1/2 rounded-full border border-cyan-400/20 cx-bg-elev/95 px-4 py-1.5 text-[11px] font-bold text-cyan-200 shadow-lg backdrop-blur">
             <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-cyan-300/30 border-t-cyan-300 align-middle" />
             <span className="ml-2 align-middle">Loading {selectedSymbol} · {timeframe}</span>
           </div>
@@ -2377,7 +2377,7 @@ const TradingView: React.FC = () => {
         {/* A failed createChart previously left this panel permanently blank
             with the reason only in the console. */}
         {chartError && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#070a12]/95 p-6">
+          <div className="absolute inset-0 z-50 flex items-center justify-center cx-bg-elev/95 p-6">
             <div className="max-w-sm rounded-2xl border border-rose-500/25 bg-rose-500/10 p-5 text-center">
               <h3 className="text-sm font-black text-rose-200">Chart failed to load</h3>
               <p className="mt-2 break-words text-xs text-rose-200/70">{chartError}</p>
@@ -2421,23 +2421,23 @@ const TradingView: React.FC = () => {
                   ? setupZones.filter((z: any) => z.actionable !== false)
                   : [];
                 return (
-                  <div className="mt-2 space-y-1.5 border-t border-white/[0.06] pt-2">
+                  <div className="mt-2 space-y-1.5 border-t cx-border pt-2">
                     {displayZones.length === 0 && !belowThreshold && !calendarBlocked && !timingWait && (
-                      <p className="text-[10px] leading-relaxed text-slate-500">No qualifying zones on this timeframe yet.</p>
+                      <p className="text-[10px] leading-relaxed cx-text-faint">No qualifying zones on this timeframe yet.</p>
                     )}
                     {displayZones.map((zone: any) => {
                       const actionable = zone.actionable !== false;
                       const conflicting = zone.conflicting_with_harmonic === true;
                       const labelClass = actionable
                         ? (zone.direction === 'BUY' ? 'text-emerald-300' : 'text-rose-300')
-                        : 'text-slate-500';
+                        : 'cx-text-faint';
                       const prefix = actionable
                         ? `${zone.direction} only if price returns here`
                         : (conflicting ? 'Harmonic conflict - wait for confirmation' : 'Reference area - not actionable');
                       return (
                         <div key={`${zone.direction}-${zone.center}`} className="flex justify-between gap-3 text-[10px]">
                           <span className={labelClass}>{prefix}</span>
-                          <b className={actionable ? 'text-slate-200' : 'text-slate-500'}>{setupPrice(zone.low)} - {setupPrice(zone.high)}</b>
+                          <b className={actionable ? 'cx-text' : 'cx-text-faint'}>{setupPrice(zone.low)} - {setupPrice(zone.high)}</b>
                         </div>
                       );
                     })}
@@ -2526,8 +2526,8 @@ const TradingView: React.FC = () => {
 
         {/* Pattern Info Overlay */}
         {(harmonicPatterns.length > 0 || trendLines.length > 0 || fibonacciLevels.length > 0) && (
-          <div className="absolute bottom-4 left-4 max-w-sm rounded-xl border border-white/10 bg-[#0b1020]/95 p-3 text-xs text-slate-300 shadow-2xl backdrop-blur">
-            <h4 className="mb-2 flex items-center text-white">
+          <div className="absolute bottom-4 left-4 max-w-sm rounded-xl border cx-border-strong cx-bg-elev/95 p-3 text-xs cx-text-muted shadow-2xl backdrop-blur">
+            <h4 className="mb-2 flex items-center cx-text-strong">
               <BarChart3 className="mr-2 h-4 w-4 text-cyan-300" />
               <span className="font-black tracking-widest text-cyan-300">TECHNICAL ANALYSIS</span>
             </h4>
@@ -2563,40 +2563,40 @@ const TradingView: React.FC = () => {
       {showLoginModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md">
-            <h2 className="text-2xl font-bold text-white mb-4 flex items-center">
+            <h2 className="text-2xl font-bold cx-text-strong mb-4 flex items-center">
               <Link className="w-6 h-6 mr-2 text-emerald-500" />
               Connect to TradeLocker
             </h2>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Email</label>
+                <label className="block text-sm cx-text-faint mb-1">Email</label>
                 <input
                   type="email"
                   value={tradeLockerCredentials.email}
                   onChange={(e) => setTradeLockerCredentials({ ...tradeLockerCredentials, email: e.target.value })}
-                  className="w-full bg-gray-700 text-white rounded px-3 py-2 border border-gray-600 focus:border-emerald-500 focus:outline-none"
+                  className="w-full bg-gray-700 cx-text-strong rounded px-3 py-2 border border-gray-600 focus:border-emerald-500 focus:outline-none"
                   placeholder="your@email.com"
                 />
               </div>
 
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Password</label>
+                <label className="block text-sm cx-text-faint mb-1">Password</label>
                 <input
                   type="password"
                   value={tradeLockerCredentials.password}
                   onChange={(e) => setTradeLockerCredentials({ ...tradeLockerCredentials, password: e.target.value })}
-                  className="w-full bg-gray-700 text-white rounded px-3 py-2 border border-gray-600 focus:border-emerald-500 focus:outline-none"
+                  className="w-full bg-gray-700 cx-text-strong rounded px-3 py-2 border border-gray-600 focus:border-emerald-500 focus:outline-none"
                   placeholder="Your password"
                 />
               </div>
 
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Server</label>
+                <label className="block text-sm cx-text-faint mb-1">Server</label>
                 <select
                   value={tradeLockerCredentials.server}
                   onChange={(e) => setTradeLockerCredentials({ ...tradeLockerCredentials, server: e.target.value })}
-                  className="w-full bg-gray-700 text-white rounded px-3 py-2 border border-gray-600 focus:border-emerald-500 focus:outline-none"
+                  className="w-full bg-gray-700 cx-text-strong rounded px-3 py-2 border border-gray-600 focus:border-emerald-500 focus:outline-none"
                 >
                   <option value="demo">Demo Server</option>
                   <option value="HEROFX">HEROFX Server</option>
@@ -2612,26 +2612,26 @@ const TradingView: React.FC = () => {
                   onChange={(e) => setTradeLockerCredentials({ ...tradeLockerCredentials, isDemo: e.target.checked })}
                   className="rounded border-gray-600 text-emerald-500 focus:ring-emerald-500"
                 />
-                <label htmlFor="isDemo" className="text-sm text-gray-400">Use Demo Account</label>
+                <label htmlFor="isDemo" className="text-sm cx-text-faint">Use Demo Account</label>
               </div>
             </div>
 
             <div className="flex space-x-3 mt-6">
               <button
                 onClick={connectToTradeLocker}
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2 px-4 rounded transition-colors"
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700 cx-text-strong py-2 px-4 rounded transition-colors"
               >
                 Connect
               </button>
               <button
                 onClick={() => setShowLoginModal(false)}
-                className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors"
+                className="flex-1 bg-gray-600 hover:bg-gray-700 cx-text-strong py-2 px-4 rounded transition-colors"
               >
                 Cancel
               </button>
             </div>
 
-            <p className="text-xs text-gray-500 mt-4 text-center">
+            <p className="text-xs cx-text-faint mt-4 text-center">
               Your credentials are only used to authenticate with TradeLocker and are never stored on our servers.
             </p>
           </div>

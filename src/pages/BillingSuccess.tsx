@@ -33,11 +33,11 @@ const BillingSuccess: React.FC = () => {
   }, [sessionId]);
 
   return (
-    <div className="min-h-screen bg-[#05070d] px-5 py-24 text-white">
+    <div className="min-h-screen bg-[#05070d] px-5 py-24 cx-text-strong">
       <div className="mx-auto max-w-2xl rounded-3xl border border-emerald-400/30 bg-emerald-500/[0.05] p-8 text-center">
         <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-300" />
         <h1 className="mt-4 text-3xl font-black tracking-tight">Welcome to ConfluenceX Pro</h1>
-        <p className="mt-3 text-slate-300">
+        <p className="mt-3 cx-text-muted">
           Your subscription is active. We've already started streaming live scanners and signals
           to your workspace.
         </p>
@@ -60,13 +60,13 @@ const BillingSuccess: React.FC = () => {
           </Link>
           <Link
             to="/settings"
-            className="inline-flex items-center gap-2 rounded-2xl border border-white/10 px-6 py-3 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.06]"
+            className="inline-flex items-center gap-2 rounded-2xl border cx-border-strong px-6 py-3 text-sm font-semibold cx-text transition hover:cx-bg-card-hover"
           >
             Manage billing
           </Link>
         </div>
         {!isAuthenticated && (
-          <p className="mt-6 text-xs text-slate-500">
+          <p className="mt-6 text-xs cx-text-faint">
             Sign in with the email you used at checkout to see your Pro access.
           </p>
         )}

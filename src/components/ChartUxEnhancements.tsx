@@ -121,7 +121,7 @@ const TREND_COLOR: Record<string, string> = {
 const TREND_TEXT: Record<string, string> = {
   bullish: 'text-emerald-300',
   bearish: 'text-rose-300',
-  neutral: 'text-slate-400',
+  neutral: 'cx-text-muted',
 };
 
 const TrendDot: React.FC<{ trend?: MtfTrend; label: string }> = ({ trend, label }) => {
@@ -149,7 +149,7 @@ export const MtfBar: React.FC<MtfBarProps> = ({ timeframes, alignmentScore, sele
     alignment >= 75 ? 'text-emerald-300' : alignment >= 40 ? 'text-amber-300' : 'text-rose-300';
 
   return (
-    <div className="flex items-center gap-4 rounded-lg border border-white/[0.06] bg-[#09131b] px-3 py-2">
+    <div className="flex items-center gap-4 rounded-lg border cx-border cx-bg-card px-3 py-2">
       <span className="text-[9px] font-black uppercase tracking-widest text-cyan-300">MTF</span>
       <div className="flex items-center gap-3">
         <TrendDot trend={timeframes.month} label="MN" />
@@ -158,8 +158,8 @@ export const MtfBar: React.FC<MtfBarProps> = ({ timeframes, alignmentScore, sele
         <TrendDot trend={timeframes.selected} label={selectedLabel || 'TF'} />
       </div>
       {alignmentScore != null && (
-        <div className="ml-2 flex items-center gap-1.5 border-l border-white/[0.08] pl-3">
-          <span className="text-[9px] font-black uppercase tracking-wider text-slate-500">ALIGN</span>
+        <div className="ml-2 flex items-center gap-1.5 border-l cx-border pl-3">
+          <span className="text-[9px] font-black uppercase tracking-wider cx-text-faint">ALIGN</span>
           <span className={`font-mono text-xs font-black ${alignmentColor}`}>{alignment}%</span>
         </div>
       )}
@@ -191,7 +191,7 @@ export const QuickSymbolPills: React.FC<QuickSymbolPillsProps> = ({ symbols, act
             className={`rounded-full px-2.5 py-1 text-[10px] font-black tracking-wider transition ${
               isActive
                 ? 'bg-emerald-400/15 text-emerald-300 ring-1 ring-emerald-400/30'
-                : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.08] hover:text-slate-200'
+                : 'cx-bg-card cx-text-muted hover:bg-white/[0.08] hover:cx-text'
             }`}
           >
             {s.symbol.replace('USD', '/USD')}
@@ -239,11 +239,11 @@ export const TradeLevels: React.FC<TradeLevelsProps> = ({ direction, entry, stop
         <span className={`text-[10px] font-black uppercase tracking-widest ${dirColor}`}>
           {direction} SETUP
         </span>
-        <span className="text-[9px] font-black uppercase tracking-wider text-slate-500">R:R</span>
+        <span className="text-[9px] font-black uppercase tracking-wider cx-text-faint">R:R</span>
       </div>
       <div className="grid grid-cols-3 gap-2 text-xs">
         <div>
-          <div className="text-[9px] font-black uppercase tracking-wider text-slate-500">Entry</div>
+          <div className="text-[9px] font-black uppercase tracking-wider cx-text-faint">Entry</div>
           <div className={`font-mono font-bold ${dirColor}`}>{formatPrice(Number(entry))}</div>
         </div>
         <div>
@@ -252,14 +252,14 @@ export const TradeLevels: React.FC<TradeLevelsProps> = ({ direction, entry, stop
         </div>
         <div>
           <div className="text-[9px] font-black uppercase tracking-wider text-cyan-400">Risk</div>
-          <div className="font-mono font-bold text-slate-300">{formatPrice(risk)}</div>
+          <div className="font-mono font-bold cx-text-muted">{formatPrice(risk)}</div>
         </div>
       </div>
       {targets.length > 0 && (
-        <div className="mt-2 space-y-1 border-t border-white/[0.06] pt-2">
+        <div className="mt-2 space-y-1 border-t cx-border pt-2">
           {targets.map((target, i) => (
             <div key={target.label} className="flex items-center justify-between text-xs">
-              <span className="text-slate-400">{target.label}</span>
+              <span className="cx-text-muted">{target.label}</span>
               <div className="flex items-center gap-2">
                 <span className="font-mono text-cyan-300">{formatPrice(Number(target.price))}</span>
                 <span className={`rounded px-1 py-0.5 text-[9px] font-black ${
@@ -273,8 +273,8 @@ export const TradeLevels: React.FC<TradeLevelsProps> = ({ direction, entry, stop
         </div>
       )}
       {currentPrice != null && (
-        <div className="mt-2 border-t border-white/[0.06] pt-1.5 text-[10px] text-slate-500">
-          Current: <span className="font-mono text-slate-300">{formatPrice(currentPrice)}</span>
+        <div className="mt-2 border-t cx-border pt-1.5 text-[10px] cx-text-faint">
+          Current: <span className="font-mono cx-text-muted">{formatPrice(currentPrice)}</span>
           <span className="ml-2">
             ({((Number(currentPrice) - Number(entry)) / Number(entry) * 100).toFixed(2)}% from entry)
           </span>
@@ -297,19 +297,19 @@ const distanceToneClass = (distance: number, currentPrice: number): string => {
   const relativeDistance = currentPrice > 0 ? Math.abs(distance) / currentPrice : 0;
   if (relativeDistance < 0.005) return 'text-emerald-300 bg-emerald-400/10';
   if (relativeDistance < 0.02) return 'text-amber-300 bg-amber-400/10';
-  return 'text-slate-400 bg-white/[0.04]';
+  return 'cx-text-muted cx-bg-card';
 };
 
 const strengthToneClass = (strength: 'weak' | 'medium' | 'strong' | string): string => {
   if (strength === 'strong') return 'text-emerald-300 bg-emerald-400/10';
   if (strength === 'medium') return 'text-amber-300 bg-amber-400/10';
-  return 'text-slate-400 bg-white/[0.04]';
+  return 'cx-text-muted cx-bg-card';
 };
 
 const strengthNumericTone = (s: number): string => {
   if (s >= 70) return 'text-emerald-300 bg-emerald-400/10';
   if (s >= 40) return 'text-amber-300 bg-amber-400/10';
-  return 'text-slate-400 bg-white/[0.04]';
+  return 'cx-text-muted cx-bg-card';
 };
 
 /**
@@ -326,7 +326,7 @@ export const TechnicalAnalysisTable: React.FC<TechnicalAnalysisTableProps> = ({
 }) => {
   if (patterns.length === 0 && fibLevels.length === 0 && trendLines.length === 0) {
     return (
-      <div className="rounded-md border border-white/[0.06] bg-[#0b1020] px-3 py-2 text-xs text-slate-500">
+      <div className="rounded-md border cx-border cx-bg-elev px-3 py-2 text-xs cx-text-faint">
         No active patterns or levels on this timeframe.
       </div>
     );
@@ -339,7 +339,7 @@ export const TechnicalAnalysisTable: React.FC<TechnicalAnalysisTableProps> = ({
           <div className="mb-1 text-[9px] font-black uppercase tracking-widest text-emerald-300">Harmonic Patterns</div>
           <table className="w-full text-xs">
             <thead>
-              <tr className="text-[9px] uppercase tracking-wider text-slate-500">
+              <tr className="text-[9px] uppercase tracking-wider cx-text-faint">
                 <th className="py-1 text-left">Pattern</th>
                 <th className="py-1 text-right">Confidence</th>
                 <th className="py-1 text-right">PRZ</th>
@@ -353,8 +353,8 @@ export const TechnicalAnalysisTable: React.FC<TechnicalAnalysisTableProps> = ({
                       {p.type}
                     </span>
                   </td>
-                  <td className="py-1.5 text-right font-mono text-slate-300">{p.confidence.toFixed(0)}%</td>
-                  <td className="py-1.5 text-right font-mono text-slate-200">
+                  <td className="py-1.5 text-right font-mono cx-text-muted">{p.confidence.toFixed(0)}%</td>
+                  <td className="py-1.5 text-right font-mono cx-text">
                     {formatPrice(p.prz.min)} – {formatPrice(p.prz.max)}
                   </td>
                 </tr>
@@ -369,7 +369,7 @@ export const TechnicalAnalysisTable: React.FC<TechnicalAnalysisTableProps> = ({
           <div className="mb-1 text-[9px] font-black uppercase tracking-widest text-purple-300">Fibonacci Levels</div>
           <table className="w-full text-xs">
             <thead>
-              <tr className="text-[9px] uppercase tracking-wider text-slate-500">
+              <tr className="text-[9px] uppercase tracking-wider cx-text-faint">
                 <th className="py-1 text-left">Level</th>
                 <th className="py-1 text-left">Type</th>
                 <th className="py-1 text-right">Price</th>
@@ -385,7 +385,7 @@ export const TechnicalAnalysisTable: React.FC<TechnicalAnalysisTableProps> = ({
                       {String(f.type) === 'extension' ? 'EXT' : 'RET'}
                     </span>
                   </td>
-                  <td className="py-1.5 text-right font-mono text-slate-200">{formatPrice(f.price)}</td>
+                  <td className="py-1.5 text-right font-mono cx-text">{formatPrice(f.price)}</td>
                   <td className="py-1.5 text-right">
                     <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-black ${strengthToneClass(f.strength)}`}>
                       {String(f.strength).toUpperCase()}
@@ -403,7 +403,7 @@ export const TechnicalAnalysisTable: React.FC<TechnicalAnalysisTableProps> = ({
           <div className="mb-1 text-[9px] font-black uppercase tracking-widest text-blue-300">Trend Lines</div>
           <table className="w-full text-xs">
             <thead>
-              <tr className="text-[9px] uppercase tracking-wider text-slate-500">
+              <tr className="text-[9px] uppercase tracking-wider cx-text-faint">
                 <th className="py-1 text-left">Type</th>
                 <th className="py-1 text-right">Strength</th>
                 <th className="py-1 text-right">Touches</th>
@@ -423,7 +423,7 @@ export const TechnicalAnalysisTable: React.FC<TechnicalAnalysisTableProps> = ({
                       {t.strength.toFixed(0)}%
                     </span>
                   </td>
-                  <td className="py-1.5 text-right font-mono text-slate-400">{t.touches}</td>
+                  <td className="py-1.5 text-right font-mono cx-text-muted">{t.touches}</td>
                   <td className="py-1.5 text-right">
                     <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-black ${distanceToneClass(t.distance, currentPrice)}`}>
                       {formatPrice(Math.abs(t.distance))}
@@ -497,7 +497,7 @@ export const SetupGuideHero: React.FC<SetupGuideHeroProps> = ({
     bodyText = 'Timing is WAIT — waiting on a confirming candle, volume, ADR, and V2 direction.';
   } else {
     headline = 'NO ACTIVE SETUP';
-    headlineColor = 'text-slate-400';
+    headlineColor = 'cx-text-muted';
     Icon = AlertTriangle;
     bodyText = 'No qualifying zones on this timeframe yet.';
   }
@@ -512,7 +512,7 @@ export const SetupGuideHero: React.FC<SetupGuideHeroProps> = ({
       : 'border-slate-400/40 bg-slate-500/15';
 
   return (
-    <div className="rounded-xl border border-white/10 bg-[#0b1020]/95 p-3 text-xs text-slate-300 shadow-2xl backdrop-blur">
+    <div className="rounded-xl border cx-border-strong cx-bg-elev/95 p-3 text-xs cx-text-muted shadow-2xl backdrop-blur">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Icon className={`h-4 w-4 ${headlineColor}`} />
@@ -531,14 +531,14 @@ export const SetupGuideHero: React.FC<SetupGuideHeroProps> = ({
           )}
           <button
             onClick={onClose}
-            className="rounded px-1.5 py-0.5 text-slate-500 hover:bg-white/[0.08] hover:text-slate-200"
+            className="rounded px-1.5 py-0.5 cx-text-faint hover:bg-white/[0.08] hover:cx-text"
             aria-label="Hide setup guide"
           >
             ×
           </button>
         </div>
       </div>
-      <p className="mt-2 text-[11px] leading-relaxed text-slate-300">{bodyText}</p>
+      <p className="mt-2 text-[11px] leading-relaxed cx-text-muted">{bodyText}</p>
       {children}
       {(calendarBlocking || setupHardBlocked) && (
         <div className="mt-2 flex items-center gap-1.5 text-[10px] text-rose-300">
@@ -577,7 +577,7 @@ export const CandlePatternMarkers: React.FC<CandlePatternMarkersProps> = ({ cand
             ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300'
             : p.direction === 'bearish'
             ? 'border-rose-400/30 bg-rose-500/10 text-rose-300'
-            : 'border-slate-400/30 bg-slate-500/10 text-slate-300';
+            : 'border-slate-400/30 bg-slate-500/10 cx-text-muted';
         return (
           <button
             key={`${p.type}-${p.index}-${i}`}

@@ -38,7 +38,7 @@ const clamp = (value: number | null | undefined) => Math.max(0, Math.min(100, Nu
 const percent = (value: number | null | undefined) => `${Math.round(clamp(value))}%`;
 
 const scoreTone = (value: number) =>
-  value >= 70 ? 'text-cyan-300' : value >= 45 ? 'text-violet-300' : 'text-slate-300';
+  value >= 70 ? 'text-cyan-300' : value >= 45 ? 'text-violet-300' : 'cx-text-muted';
 
 const readinessTone = (status?: string) =>
   status === 'READY'
@@ -54,18 +54,18 @@ const EvidenceIcon: React.FC<{ status?: DecisionEvidence['status'] }> = ({ statu
 };
 
 const Metric: React.FC<{ label: string; value: number; note?: string }> = ({ label, value, note }) => (
-  <div className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-3">
+  <div className="rounded-xl border cx-border cx-bg-card p-3">
     <div className="flex items-center justify-between gap-2">
-      <span className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">{label}</span>
+      <span className="text-[9px] font-black uppercase tracking-[0.14em] cx-text-faint">{label}</span>
       <span className={`text-sm font-black ${scoreTone(value)}`}>{percent(value)}</span>
     </div>
-    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+    <div className="mt-2 h-1.5 overflow-hidden rounded-full cx-bg-card-hover">
       <div
         className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-violet-500"
         style={{ width: `${clamp(value)}%` }}
       />
     </div>
-    {note && <p className="mt-2 text-[10px] leading-4 text-slate-500">{note}</p>}
+    {note && <p className="mt-2 text-[10px] leading-4 cx-text-faint">{note}</p>}
   </div>
 );
 
@@ -110,13 +110,13 @@ const DecisionQualityPanel: React.FC<DecisionQualityPanelProps> = ({
   const status = timing?.status || plan?.status || 'WAIT';
 
   return (
-    <section className={`rounded-2xl border border-white/[0.08] bg-[#090d18] p-4 shadow-[0_0_40px_rgba(34,211,238,0.03)] ${className}`}>
+    <section className={`rounded-2xl border cx-border cx-bg-card p-4 shadow-[0_0_40px_rgba(34,211,238,0.03)] ${className}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-300">
             <Gauge className="h-3.5 w-3.5" /> Decision quality
           </div>
-          <p className="mt-1 text-xs text-slate-500">Evidence-led context, not a calibrated probability or sizing instruction.</p>
+          <p className="mt-1 text-xs cx-text-faint">Evidence-led context, not a calibrated probability or sizing instruction.</p>
         </div>
         <span className={`shrink-0 rounded-md border px-2 py-1 text-[9px] font-black ${readinessTone(status)}`}>{status}</span>
       </div>
@@ -132,26 +132,26 @@ const DecisionQualityPanel: React.FC<DecisionQualityPanelProps> = ({
       </div>
 
       <div className="mt-4">
-        <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-slate-500"><Target className="h-3.5 w-3.5 text-violet-300" /> Scenario weights</div>
+        <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] cx-text-faint"><Target className="h-3.5 w-3.5 text-violet-300" /> Scenario weights</div>
         {derivedScenarios.length ? (
           <div className="space-y-2">
             {derivedScenarios.map((scenario, index) => {
               const weight = scenario.weight === null || scenario.weight === undefined ? null : clamp(scenario.weight);
               return (
-                <div key={`${scenario.label}-${index}`} className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+                <div key={`${scenario.label}-${index}`} className="rounded-lg border cx-border bg-white/[0.02] px-3 py-2.5">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold text-slate-200">{scenario.label}</p>
-                      {scenario.detail && <p className="mt-0.5 text-[10px] leading-4 text-slate-500">Invalidation: {scenario.detail}</p>}
+                      <p className="text-xs font-semibold cx-text">{scenario.label}</p>
+                      {scenario.detail && <p className="mt-0.5 text-[10px] leading-4 cx-text-faint">Invalidation: {scenario.detail}</p>}
                     </div>
                     <span className="shrink-0 text-[10px] font-black text-amber-300">{weight === null ? 'UNCALIBRATED' : `${Math.round(weight)}%`}</span>
                   </div>
-                  {weight !== null && <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/[0.06]"><div className="h-full rounded-full bg-gradient-to-r from-violet-400 to-cyan-400" style={{ width: `${weight}%` }} /></div>}
+                  {weight !== null && <div className="mt-2 h-1 overflow-hidden rounded-full cx-bg-card-hover"><div className="h-full rounded-full bg-gradient-to-r from-violet-400 to-cyan-400" style={{ width: `${weight}%` }} /></div>}
                 </div>
               );
             })}
           </div>
-        ) : <p className="rounded-lg border border-dashed border-white/[0.08] px-3 py-2 text-xs text-slate-500">Scenario evidence is still loading.</p>}
+        ) : <p className="rounded-lg border border-dashed cx-border px-3 py-2 text-xs cx-text-faint">Scenario evidence is still loading.</p>}
       </div>
 
       <div className="mt-4 grid gap-2 sm:grid-cols-3">
@@ -191,18 +191,18 @@ const DecisionQualityPanel: React.FC<DecisionQualityPanelProps> = ({
         </div>
       )}
 
-      <details className="group mt-4 rounded-xl border border-white/[0.07] bg-white/[0.02]">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 text-xs font-black text-slate-300 marker:content-none">
-          <span className="flex items-center gap-2"><ClipboardList className="h-4 w-4 text-cyan-300" /> Evidence ledger <span className="text-slate-600">{ledger.length}</span></span>
-          <ChevronDown className="h-4 w-4 text-slate-500 transition group-open:rotate-180" />
+      <details className="group mt-4 rounded-xl border cx-border bg-white/[0.02]">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 text-xs font-black cx-text-muted marker:content-none">
+          <span className="flex items-center gap-2"><ClipboardList className="h-4 w-4 text-cyan-300" /> Evidence ledger <span className="cx-text-faint">{ledger.length}</span></span>
+          <ChevronDown className="h-4 w-4 cx-text-faint transition group-open:rotate-180" />
         </summary>
-        <div className="space-y-2 border-t border-white/[0.06] px-3 py-3">
+        <div className="space-y-2 border-t cx-border px-3 py-3">
           {ledger.length ? ledger.map((item, index) => (
             <div key={`${item.label}-${index}`} className="flex gap-2 text-xs">
               <EvidenceIcon status={item.status} />
-              <p className="min-w-0 text-slate-400"><span className="font-semibold text-slate-300">{item.label}</span>{item.detail ? ` · ${item.detail}` : ''}</p>
+              <p className="min-w-0 cx-text-muted"><span className="font-semibold cx-text-muted">{item.label}</span>{item.detail ? ` · ${item.detail}` : ''}</p>
             </div>
-          )) : <p className="text-xs text-slate-500">No evidence ledger is available yet.</p>}
+          )) : <p className="text-xs cx-text-faint">No evidence ledger is available yet.</p>}
         </div>
       </details>
     </section>

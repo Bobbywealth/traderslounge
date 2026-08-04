@@ -24,7 +24,7 @@ const severityConfig = {
   },
   low: {
     bg: 'bg-gray-100 dark:bg-gray-800',
-    text: 'text-gray-600 dark:text-gray-400',
+    text: 'text-gray-600 dark:cx-text-faint',
     border: 'border-gray-200 dark:border-gray-700',
     icon: Info,
     badge: 'bg-gray-500',
@@ -90,7 +90,7 @@ const WaitReasonItem: React.FC<{ reason: BlockingReason; compact?: boolean }> = 
           {dataString && (
             <p className={`text-xs ${config.text} opacity-75`}>{dataString}</p>
           )}
-          <p className="text-xs font-mono text-gray-400 dark:text-gray-500 mt-1">
+          <p className="text-xs font-mono cx-text-faint dark:cx-text-faint mt-1">
             {reason.code}
           </p>
         </div>
@@ -112,7 +112,7 @@ const WaitReasonDisplay: React.FC<WaitReasonDisplayProps> = ({ reasons, compact 
       <div className="flex flex-wrap gap-1.5">
         {blockingReasons.length > 0 && (
           <div className="flex items-center gap-1.5">
-            <Clock className="w-3.5 h-3.5 text-gray-400" />
+            <Clock className="w-3.5 h-3.5 cx-text-faint" />
             {blockingReasons.map((reason, idx) => (
               <WaitReasonItem key={`${reason.code}-${idx}`} reason={reason} compact />
             ))}
@@ -131,7 +131,7 @@ const WaitReasonDisplay: React.FC<WaitReasonDisplayProps> = ({ reasons, compact 
         <div>
           <div className="flex items-center gap-2 mb-2">
             <AlertCircle className="w-4 h-4 text-red-500" />
-            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+            <span className="text-sm font-semibold cx-text-muted dark:text-gray-300">
               Blocking Reasons ({blockingReasons.length})
             </span>
           </div>
@@ -146,7 +146,7 @@ const WaitReasonDisplay: React.FC<WaitReasonDisplayProps> = ({ reasons, compact 
         <div>
           <div className="flex items-center gap-2 mb-2">
             <Clock className="w-4 h-4 text-yellow-500" />
-            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+            <span className="text-sm font-semibold cx-text-muted dark:text-gray-300">
               Watching ({watchReasons.length})
             </span>
           </div>

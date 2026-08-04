@@ -1,0 +1,134 @@
+/* ConfluenceX Design Tokens
+ * ---------------------------------------------------------------
+ * Single source of truth for color, surface, text, border, status.
+ * Use these token classes (cx-*) instead of ad-hoc Tailwind combos.
+ * Dark theme is the default; light theme overrides under :root.light.
+ */
+
+:root {
+  /* Brand */
+  --cx-brand-cyan: #22d3ee;
+  --cx-brand-cyan-soft: #67e8f9;
+  --cx-brand-violet: #8b5cf6;
+  --cx-brand-violet-soft: #a78bfa;
+  --cx-brand-magenta: #d946ef;
+
+  /* Dark surfaces (default) */
+  --cx-bg: #070b14;
+  --cx-bg-elev: #0b1020;
+  --cx-bg-card: #0d1426;
+  --cx-bg-card-hover: #121c33;
+  --cx-bg-input: #0a1120;
+  --cx-bg-strong: #17203a;
+
+  /* Light surfaces */
+  --cx-bg-light: #f6f8fb;
+  --cx-bg-light-elev: #ffffff;
+  --cx-bg-light-card: #ffffff;
+  --cx-bg-light-card-hover: #f1f5f9;
+  --cx-bg-light-input: #f8fafc;
+  --cx-bg-light-strong: #e2e8f0;
+
+  /* Text */
+  --cx-text: #e8edf8;
+  --cx-text-strong: #ffffff;
+  --cx-text-muted: #a8b3cf;
+  --cx-text-faint: #6b7592;
+  --cx-text-disabled: #475569;
+
+  --cx-text-light: #0f172a;
+  --cx-text-light-strong: #020617;
+  --cx-text-light-muted: #475569;
+  --cx-text-light-faint: #64748b;
+  --cx-text-light-disabled: #94a3b8;
+
+  /* Borders */
+  --cx-border: rgba(148, 163, 184, 0.18);
+  --cx-border-strong: rgba(148, 163, 184, 0.32);
+  --cx-border-light: #e2e8f0;
+  --cx-border-light-strong: #cbd5e1;
+
+  /* Status surfaces */
+  --cx-status-success-bg: rgba(16, 185, 129, 0.14);
+  --cx-status-success-fg: #34d399;
+  --cx-status-success-border: rgba(16, 185, 129, 0.35);
+
+  --cx-status-warning-bg: rgba(245, 158, 11, 0.14);
+  --cx-status-warning-fg: #fbbf24;
+  --cx-status-warning-border: rgba(245, 158, 11, 0.35);
+
+  --cx-status-danger-bg: rgba(239, 68, 68, 0.14);
+  --cx-status-danger-fg: #fb7185;
+  --cx-status-danger-border: rgba(239, 68, 68, 0.4);
+
+  --cx-status-info-bg: rgba(34, 211, 238, 0.14);
+  --cx-status-info-fg: #22d3ee;
+  --cx-status-info-border: rgba(34, 211, 238, 0.35);
+
+  --cx-light-success-bg: #ecfdf5;
+  --cx-light-success-fg: #047857;
+  --cx-light-success-border: #a7f3d0;
+
+  --cx-light-warning-bg: #fffbeb;
+  --cx-light-warning-fg: #92400e;
+  --cx-light-warning-border: #fcd34d;
+
+  --cx-light-danger-bg: #fef2f2;
+  --cx-light-danger-fg: #b91c1c;
+  --cx-light-danger-border: #fecaca;
+
+  --cx-light-info-bg: #ecfeff;
+  --cx-light-info-fg: #0e7490;
+  --cx-light-info-border: #a5f3fc;
+
+  --cx-chart-grid: rgba(74, 92, 138, 0.13);
+
+  --cx-radius-xs: 0.375rem;
+  --cx-radius-sm: 0.5rem;
+  --cx-radius-md: 0.75rem;
+  --cx-radius-lg: 1rem;
+  --cx-radius-xl: 1.5rem;
+  --cx-radius-2xl: 2rem;
+
+  --cx-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --cx-fast: 150ms;
+  --cx-base: 200ms;
+  --cx-slow: 300ms;
+
+  color-scheme: dark;
+}
+
+:root.light {
+  --cx-bg: var(--cx-bg-light);
+  --cx-bg-elev: var(--cx-bg-light-elev);
+  --cx-bg-card: var(--cx-bg-light-card);
+  --cx-bg-card-hover: var(--cx-bg-light-card-hover);
+  --cx-bg-input: var(--cx-bg-light-input);
+  --cx-bg-strong: var(--cx-bg-light-strong);
+
+  --cx-text: var(--cx-text-light);
+  --cx-text-strong: var(--cx-text-light-strong);
+  --cx-text-muted: var(--cx-text-light-muted);
+  --cx-text-faint: var(--cx-text-light-faint);
+  --cx-text-disabled: var(--cx-text-light-disabled);
+
+  --cx-border: var(--cx-border-light);
+  --cx-border-strong: var(--cx-border-light-strong);
+
+  --cx-status-success-bg: var(--cx-light-success-bg);
+  --cx-status-success-fg: var(--cx-light-success-fg);
+  --cx-status-success-border: var(--cx-light-success-border);
+  --cx-status-warning-bg: var(--cx-light-warning-bg);
+  --cx-status-warning-fg: var(--cx-light-warning-fg);
+  --cx-status-warning-border: var(--cx-light-warning-border);
+  --cx-status-danger-bg: var(--cx-light-danger-bg);
+  --cx-status-danger-fg: var(--cx-light-danger-fg);
+  --cx-status-danger-border: var(--cx-light-danger-border);
+  --cx-status-info-bg: var(--cx-light-info-bg);
+  --cx-status-info-fg: var(--cx-light-info-fg);
+  --cx-status-info-border: var(--cx-light-info-border);
+
+  --cx-chart-grid: rgba(15, 23, 42, 0.08);
+
+  color-scheme: light;
+}

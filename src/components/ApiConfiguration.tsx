@@ -109,17 +109,17 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
                 <Key className="w-5 h-5 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                <h3 className="text-lg font-semibold cx-text-strong dark:cx-text-strong">
                   API Configuration
                 </h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
+                <p className="text-sm text-gray-600 dark:cx-text-faint">
                   Configure real financial data providers
                 </p>
               </div>
             </div>
             <button
               onClick={onClose}
-              className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-200"
+              className="p-2 cx-text-faint hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-200"
             >
               <X className="w-5 h-5" />
             </button>
@@ -149,7 +149,7 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex-1">
                     <div className="flex items-center space-x-3 mb-2">
-                      <h4 className="font-semibold text-gray-900 dark:text-white">
+                      <h4 className="font-semibold cx-text-strong dark:cx-text-strong">
                         {provider.name}
                       </h4>
                       {isConfigured(apiKeys[provider.id]) ? (
@@ -158,20 +158,20 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
                         <AlertCircle className="w-5 h-5 text-orange-500" />
                       )}
                     </div>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                    <p className="text-sm text-gray-600 dark:cx-text-faint mb-3">
                       {provider.description}
                     </p>
                     <div className="flex flex-wrap gap-2 mb-3">
                       {provider.features.map((feature) => (
                         <span
                           key={feature}
-                          className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-xs rounded-full text-gray-700 dark:text-gray-300"
+                          className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-xs rounded-full cx-text-muted dark:text-gray-300"
                         >
                           {feature}
                         </span>
                       ))}
                     </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                    <div className="text-xs cx-text-faint dark:cx-text-faint">
                       {provider.limits}
                     </div>
                   </div>
@@ -188,7 +188,7 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
 
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <label className="block text-sm font-medium cx-text-muted dark:text-gray-300 mb-2">
                       API Key
                     </label>
                     <div className="relative">
@@ -197,13 +197,13 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
                         value={apiKeys[provider.id]}
                         onChange={(e) => setApiKeys(prev => ({ ...prev, [provider.id]: e.target.value }))}
                         placeholder={provider.keyFormat}
-                        className="w-full px-3 py-2 pr-20 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 py-2 pr-20 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 cx-text-strong dark:cx-text-strong focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       />
                       <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex space-x-1">
                         <button
                           type="button"
                           onClick={() => setShowKeys(prev => ({ ...prev, [provider.id]: !prev[provider.id] }))}
-                          className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                          className="p-1 cx-text-faint hover:text-gray-600 dark:hover:text-gray-300"
                         >
                           {showKeys[provider.id] ? '👁️' : '👁️‍🗨️'}
                         </button>
@@ -214,14 +214,14 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
                   <div className="flex space-x-2">
                     <button
                       onClick={() => handleSaveKey(provider.id, apiKeys[provider.id])}
-                      className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200 text-sm"
+                      className="px-4 py-2 bg-blue-500 cx-text-strong rounded-lg hover:bg-blue-600 transition-colors duration-200 text-sm"
                     >
                       Save Key
                     </button>
                     <button
                       onClick={() => handleTestConnection(provider.id)}
                       disabled={!isConfigured(apiKeys[provider.id])}
-                      className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 text-sm"
+                      className="px-4 py-2 border border-gray-300 dark:border-gray-600 cx-text-muted dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 text-sm"
                     >
                       Test Connection
                     </button>
@@ -233,12 +233,12 @@ const ApiConfiguration: React.FC<ApiConfigurationProps> = ({ isOpen, onClose }) 
 
           <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
             <div className="flex justify-between items-center">
-              <div className="text-sm text-gray-600 dark:text-gray-400">
+              <div className="text-sm text-gray-600 dark:cx-text-faint">
                 {Object.values(apiKeys).filter(key => isConfigured(key)).length} of {apiProviders.length} APIs configured
               </div>
               <button
                 onClick={onClose}
-                className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors duration-200"
+                className="px-4 py-2 bg-gray-100 dark:bg-gray-700 cx-text-muted dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors duration-200"
               >
                 Close
               </button>

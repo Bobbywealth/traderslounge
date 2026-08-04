@@ -60,7 +60,7 @@ const AIAssistant: React.FC = () => {
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 w-14 h-14 bg-emerald-500 text-white rounded-full shadow-lg hover:bg-emerald-600 transition-colors duration-200 flex items-center justify-center z-50"
+        className="fixed bottom-6 right-6 w-14 h-14 bg-emerald-500 cx-text-strong rounded-full shadow-lg hover:bg-emerald-600 transition-colors duration-200 flex items-center justify-center z-50"
       >
         <MessageSquare className="w-6 h-6" />
       </button>
@@ -73,13 +73,13 @@ const AIAssistant: React.FC = () => {
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center space-x-2">
           <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
-            <Bot className="w-5 h-5 text-white" />
+            <Bot className="w-5 h-5 cx-text-strong" />
           </div>
-          <h3 className="font-semibold text-gray-900 dark:text-white">AI Assistant</h3>
+          <h3 className="font-semibold cx-text-strong dark:cx-text-strong">AI Assistant</h3>
         </div>
         <button
           onClick={() => setIsOpen(false)}
-          className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-200"
+          className="p-1 cx-text-faint hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-200"
         >
           <X className="w-5 h-5" />
         </button>
@@ -95,13 +95,13 @@ const AIAssistant: React.FC = () => {
             <div
               className={`max-w-[80%] p-3 rounded-lg ${
                 msg.type === 'user'
-                  ? 'bg-emerald-500 text-white'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                  ? 'bg-emerald-500 cx-text-strong'
+                  : 'bg-gray-100 dark:bg-gray-700 cx-text-strong dark:cx-text-strong'
               }`}
             >
               <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
               <span className={`text-xs mt-1 block ${
-                msg.type === 'user' ? 'text-emerald-100' : 'text-gray-500 dark:text-gray-400'
+                msg.type === 'user' ? 'text-emerald-100' : 'cx-text-faint dark:cx-text-faint'
               }`}>
                 {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </span>
@@ -119,11 +119,11 @@ const AIAssistant: React.FC = () => {
             onChange={(e) => setMessage(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
             placeholder="Ask about trading, analysis, or get help..."
-            className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+            className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 cx-text-strong dark:cx-text-strong text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
           />
           <button
             onClick={handleSendMessage}
-            className="p-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors duration-200"
+            className="p-2 bg-emerald-500 cx-text-strong rounded-lg hover:bg-emerald-600 transition-colors duration-200"
           >
             <Send className="w-4 h-4" />
           </button>

@@ -44,7 +44,7 @@ const PLAN_STYLE: Record<string, string> = {
   STRONG: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
   VALID: 'border-cyan-400/30 bg-cyan-400/10 text-cyan-300',
   WATCHLIST: 'border-amber-400/30 bg-amber-400/10 text-amber-300',
-  WAIT: 'border-slate-400/20 bg-slate-400/10 text-slate-400',
+  WAIT: 'border-slate-400/20 bg-slate-400/10 cx-text-muted',
   BLOCKED: 'border-rose-400/30 bg-rose-400/10 text-rose-300',
 };
 
@@ -53,19 +53,19 @@ const CALENDAR_STYLE: Record<string, string> = {
   CAUTION: 'bg-amber-400/10 text-amber-300 border-amber-400/20',
   BLOCKED: 'bg-rose-400/10 text-rose-300 border-rose-400/20',
   POST_NEWS: 'bg-violet-400/10 text-violet-300 border-violet-400/20',
-  UNAVAILABLE: 'bg-slate-400/10 text-slate-400 border-slate-400/20',
+  UNAVAILABLE: 'bg-slate-400/10 cx-text-muted border-slate-400/20',
 };
 
 const DIRECTION_TEXT: Record<string, string> = {
   BUY: 'text-emerald-300',
   SELL: 'text-rose-300',
-  NEUTRAL: 'text-slate-400',
+  NEUTRAL: 'cx-text-muted',
 };
 
 const DIRECTION_BG: Record<string, string> = {
   BUY: 'bg-emerald-400/10 text-emerald-300 border-emerald-400/20',
   SELL: 'bg-rose-400/10 text-rose-300 border-rose-400/20',
-  NEUTRAL: 'bg-slate-400/10 text-slate-400 border-slate-400/20',
+  NEUTRAL: 'bg-slate-400/10 cx-text-muted border-slate-400/20',
 };
 
 const calendarColor = (status?: string) =>
@@ -93,7 +93,7 @@ const Sparkline: React.FC<{ values: number[]; width?: number; height?: number }>
   if (!values || values.length < 2) {
     return (
       <div
-        className="rounded-md border border-white/[0.06] bg-white/[0.02]"
+        className="rounded-md border cx-border bg-white/[0.02]"
         style={{ width, height }}
       />
     );
@@ -138,11 +138,11 @@ const SubscoreChip: React.FC<{ name: string; value: number }> = ({ name, value }
       className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${
         strong
           ? 'border-cyan-400/20 bg-cyan-400/10 text-cyan-200'
-          : 'border-white/[0.07] bg-white/[0.04] text-slate-400'
+          : 'cx-border cx-bg-card cx-text-muted'
       }`}
       title={`${name} ${value}/${cap}`}
     >
-      <span className="text-slate-500">{name.replace(/_/g, ' ')}</span>
+      <span className="cx-text-faint">{name.replace(/_/g, ' ')}</span>
       <span className="font-black">{value}/{cap}</span>
     </span>
   );
@@ -268,9 +268,9 @@ export const SetupCard: React.FC<SetupCardProps> = ({
   if (variant === 'row') {
     return (
       <div
-        className={`group grid items-center gap-4 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition hover:border-cyan-400/20 hover:bg-white/[0.045] sm:grid-cols-[36px_1fr_auto_auto] ${className}`}
+        className={`group grid items-center gap-4 rounded-2xl border cx-border cx-bg-card p-4 transition hover:border-cyan-400/20 hover:cx-bg-card-hover sm:grid-cols-[36px_1fr_auto_auto] ${className}`}
       >
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.05] text-xs font-black text-slate-500">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl cx-bg-card-hover text-xs font-black cx-text-faint">
           {index !== undefined ? `0${index + 1}` : <Activity className="h-4 w-4" />}
         </div>
         <div className="min-w-0">
@@ -279,7 +279,7 @@ export const SetupCard: React.FC<SetupCardProps> = ({
             <PlanBadge status={planStatus} />
             <CalendarBadge status={calendarStatus} />
           </div>
-          <div className="mt-1 truncate text-xs text-slate-500">
+          <div className="mt-1 truncate text-xs cx-text-faint">
             {analysis?.scenarios?.primary || reason || 'Full-spectrum analysis loading'}
           </div>
         </div>
@@ -288,11 +288,11 @@ export const SetupCard: React.FC<SetupCardProps> = ({
           {direction}
         </div>
         <div className="text-right">
-          <div className="text-xl font-black text-white">
+          <div className="text-xl font-black cx-text-strong">
             {score}
-            <span className="text-xs text-slate-600">/100</span>
+            <span className="text-xs cx-text-faint">/100</span>
           </div>
-          <div className="text-[9px] text-slate-600">{formatTime(timestamp)}</div>
+          <div className="text-[9px] cx-text-faint">{formatTime(timestamp)}</div>
         </div>
       </div>
     );
@@ -302,7 +302,7 @@ export const SetupCard: React.FC<SetupCardProps> = ({
   if (variant === 'highlight') {
     return (
       <div
-        className={`relative overflow-hidden rounded-[24px] border border-violet-400/15 bg-[#090d18] bg-gradient-to-br from-violet-500/10 to-cyan-500/[0.04] p-6 ${className}`}
+        className={`relative overflow-hidden rounded-[24px] border border-violet-400/15 cx-bg-card bg-gradient-to-br from-violet-500/10 to-cyan-500/[0.04] p-6 ${className}`}
       >
         <div className="text-[10px] font-black tracking-[0.2em] text-violet-300">TOP CONFLUENCE</div>
         <div className="mt-4 flex items-start justify-between gap-4">
@@ -312,7 +312,7 @@ export const SetupCard: React.FC<SetupCardProps> = ({
               <DirectionBadge direction={direction} />
               <PlanBadge status={planStatus} />
             </div>
-            <div className="mt-1 text-sm capitalize text-slate-400">
+            <div className="mt-1 text-sm capitalize cx-text-muted">
               {analysis?.scenarios?.primary || 'Scenario pending'}
             </div>
           </div>
@@ -321,7 +321,7 @@ export const SetupCard: React.FC<SetupCardProps> = ({
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <CalendarBadge status={calendarStatus} />
           {alignPct !== undefined && (
-            <span className="rounded-md border border-white/[0.07] bg-white/[0.04] px-2 py-1 text-[10px] font-black text-slate-300">
+            <span className="rounded-md border cx-border cx-bg-card px-2 py-1 text-[10px] font-black cx-text-muted">
               Align {alignPct}%
             </span>
           )}
@@ -369,7 +369,7 @@ export const SetupCard: React.FC<SetupCardProps> = ({
   if (variant === 'compact') {
     return (
       <div
-        className={`flex items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-2 ${className}`}
+        className={`flex items-center gap-3 rounded-xl border cx-border cx-bg-card px-3 py-2 ${className}`}
       >
         <DirectionBadge direction={direction} withIcon={false} />
         <span className="font-black">{pair}</span>
@@ -382,16 +382,16 @@ export const SetupCard: React.FC<SetupCardProps> = ({
   // ---- FULL VARIANT (Live Scanner cards) ----
   return (
     <article
-      className={`rounded-[20px] border border-white/[0.08] bg-[#090d18] p-5 transition hover:border-cyan-400/20 ${className}`}
+      className={`rounded-[20px] border cx-border cx-bg-card p-5 transition hover:border-cyan-400/20 ${className}`}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h2 className="text-xl font-black text-white">{pair}</h2>
+            <h2 className="text-xl font-black cx-text-strong">{pair}</h2>
             <PlanBadge status={planStatus} />
             <CalendarBadge status={calendarStatus} />
           </div>
-          <div className="mt-1 text-xs capitalize text-slate-500">
+          <div className="mt-1 text-xs capitalize cx-text-faint">
             {analysis?.scenarios?.primary || 'Scenario pending'}
           </div>
         </div>
@@ -409,39 +409,39 @@ export const SetupCard: React.FC<SetupCardProps> = ({
         </div>
       )}
       {analysis?.market_context && (
-        <div className="mt-3 flex items-center justify-between rounded-lg bg-black/20 px-3 py-2 text-[9px] font-bold uppercase tracking-wider text-slate-500">
+        <div className="mt-3 flex items-center justify-between rounded-lg cx-bg-elev px-3 py-2 text-[9px] font-bold uppercase tracking-wider cx-text-faint">
           <span>
-            Month <b className="text-slate-200">{analysis.market_context.timeframes?.mn1?.trend || 'neutral'}</b>
+            Month <b className="cx-text">{analysis.market_context.timeframes?.mn1?.trend || 'neutral'}</b>
           </span>
           <span>
-            Week <b className="text-slate-200">{analysis.market_context.timeframes?.w1?.trend || 'neutral'}</b>
+            Week <b className="cx-text">{analysis.market_context.timeframes?.w1?.trend || 'neutral'}</b>
           </span>
           {alignPct !== undefined && (
             <span>
-              Align <b className="text-slate-200">{alignPct}%</b>
+              Align <b className="cx-text">{alignPct}%</b>
             </span>
           )}
         </div>
       )}
       {analysis?.institutional_analysis?.executive_summary && (
         <div className="mt-3 rounded-xl border border-violet-400/15 bg-violet-400/[0.05] p-3">
-          <div className="grid grid-cols-2 gap-2 text-[9px] font-bold uppercase tracking-wider text-slate-500 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 text-[9px] font-bold uppercase tracking-wider cx-text-faint sm:grid-cols-4">
             <span>Risk <b className="text-violet-200">{analysis.institutional_analysis.risk_assessment?.overall_risk_1_to_10 ?? '—'}/10</b></span>
-            <span>Elliott <b className="text-slate-200">{analysis.institutional_analysis.elliott_wave?.estimated_wave ? `Candidate Wave ${analysis.institutional_analysis.elliott_wave.estimated_wave}` : 'Candidate unavailable'}</b></span>
-            <span>AB=CD <b className="text-slate-200">{analysis.institutional_analysis.abcd_pattern?.detected ? 'Candidate, unvalidated' : 'None'}</b></span>
-            <span>Indicators <b className="text-slate-200">{analysis.institutional_analysis.momentum_detail?.agreement?.summary || '—'}</b></span>
+            <span>Elliott <b className="cx-text">{analysis.institutional_analysis.elliott_wave?.estimated_wave ? `Candidate Wave ${analysis.institutional_analysis.elliott_wave.estimated_wave}` : 'Candidate unavailable'}</b></span>
+            <span>AB=CD <b className="cx-text">{analysis.institutional_analysis.abcd_pattern?.detected ? 'Candidate, unvalidated' : 'None'}</b></span>
+            <span>Indicators <b className="cx-text">{analysis.institutional_analysis.momentum_detail?.agreement?.summary || '—'}</b></span>
           </div>
           {analysis.institutional_analysis.scenario_analysis && (
             <div className="mt-2">
               <div className="mb-1 text-[9px] font-black uppercase tracking-[0.16em] text-amber-300">Scenario Weights · Uncalibrated · Never used for sizing</div>
-              <div className="flex gap-3 text-[10px] text-slate-500">
+              <div className="flex gap-3 text-[10px] cx-text-faint">
                 <span>Bull <b className="text-emerald-300">{analysis.institutional_analysis.scenario_analysis.bull_case.weight_pct ?? analysis.institutional_analysis.scenario_analysis.bull_case.probability_pct}%</b></span>
                 <span>Base <b className="text-cyan-300">{analysis.institutional_analysis.scenario_analysis.base_case.weight_pct ?? analysis.institutional_analysis.scenario_analysis.base_case.probability_pct}%</b></span>
                 <span>Bear <b className="text-rose-300">{analysis.institutional_analysis.scenario_analysis.bear_case.weight_pct ?? analysis.institutional_analysis.scenario_analysis.bear_case.probability_pct}%</b></span>
               </div>
             </div>
           )}
-          <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+          <p className="mt-2 text-[11px] leading-relaxed cx-text-muted">
             {analysis.institutional_analysis.executive_summary.plain_english_thesis}
           </p>
         </div>
@@ -465,7 +465,7 @@ export const SetupCard: React.FC<SetupCardProps> = ({
             <DataPoint label="STOP" value={plan.stop} />
             <DataPoint label="TP1" value={plan.targets?.[0]?.price} />
           </div>
-          <div className="mt-3 flex justify-between text-[10px] text-slate-500">
+          <div className="mt-3 flex justify-between text-[10px] cx-text-faint">
             <span>Net movement {Number(plan.net_available_rr ?? plan.available_rr ?? 0).toFixed(2)}R</span>
             <span>Account risk {Number(plan.account_risk_percent ?? 0).toFixed(2)}%</span>
           </div>
@@ -477,8 +477,8 @@ export const SetupCard: React.FC<SetupCardProps> = ({
             'Waiting for all required confirmations.'}
         </div>
       )}
-      <div className="mt-4 flex items-center justify-between border-t border-white/[0.06] pt-3">
-        <span className="text-[10px] text-slate-600">{formatTime(timestamp)}</span>
+      <div className="mt-4 flex items-center justify-between border-t cx-border pt-3">
+        <span className="text-[10px] cx-text-faint">{formatTime(timestamp)}</span>
         {to ? (
           <Link
             to={to}
@@ -487,7 +487,7 @@ export const SetupCard: React.FC<SetupCardProps> = ({
             Validate chart <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         ) : (
-          <span className="flex items-center gap-1 text-xs font-black text-slate-600">
+          <span className="flex items-center gap-1 text-xs font-black cx-text-faint">
             <Crosshair className="h-3.5 w-3.5" /> No chart link
           </span>
         )}
@@ -500,9 +500,9 @@ const DataPoint: React.FC<{ label: string; value: number | null | undefined }> =
   label,
   value,
 }) => (
-  <div className="rounded-lg bg-black/20 p-2">
-    <div className="text-[8px] font-black tracking-widest text-slate-600">{label}</div>
-    <div className="mt-1 font-mono text-xs text-slate-300">
+  <div className="rounded-lg cx-bg-elev p-2">
+    <div className="text-[8px] font-black tracking-widest cx-text-faint">{label}</div>
+    <div className="mt-1 font-mono text-xs cx-text-muted">
       {value == null ? 'WAIT' : value.toLocaleString(undefined, { maximumFractionDigits: 5 })}
     </div>
   </div>

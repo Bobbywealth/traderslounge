@@ -170,8 +170,8 @@ const Signals: React.FC = () => {
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/[0.07] px-3 py-1 text-[10px] font-black tracking-[0.2em] text-emerald-300">
               <ShieldCheck className="h-3 w-3" /> QUALIFIED CALLS ONLY
             </div>
-            <h1 className="text-3xl font-black tracking-[-0.04em] text-white sm:text-4xl">Trade Signals</h1>
-            <p className="mt-2 max-w-2xl text-sm text-slate-400">
+            <h1 className="text-3xl font-black tracking-[-0.04em] cx-text-strong sm:text-4xl">Trade Signals</h1>
+            <p className="mt-2 max-w-2xl text-sm cx-text-muted">
               A call publishes only after every entry rule passes. Below the live calls, the Forming board
               shows what the scanner is building toward next.
             </p>
@@ -190,33 +190,33 @@ const Signals: React.FC = () => {
           <Metric label="Forming" value={String(forming.length)} />
           <Metric label="Session" value={openSessions.map((s) => s.name).join(' + ') || 'Closed'} />
         </div>
-        <div className="relative z-10 mt-3 flex items-center gap-2 text-[11px] text-slate-500">
+        <div className="relative z-10 mt-3 flex items-center gap-2 text-[11px] cx-text-faint">
           <Clock3 className="h-3.5 w-3.5" /> {sessionLine}
         </div>
       </section>
 
-      <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/[0.07] bg-[#090d18] p-4">
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border cx-border cx-bg-card p-4">
         <div className="flex flex-wrap gap-3">
-          <div className="flex rounded-xl border border-white/[0.07] bg-black/20 p-1">
+          <div className="flex rounded-xl border cx-border cx-bg-elev p-1">
             {(['ACTIVE', 'ALL'] as FeedFilter[]).map((value) => (
               <button
                 key={value}
                 onClick={() => setFilter(value)}
                 className={`rounded-lg px-4 py-2 text-[10px] font-black uppercase tracking-wider transition ${
-                  filter === value ? 'bg-cyan-400/15 text-cyan-200' : 'text-slate-500 hover:text-slate-300'
+                  filter === value ? 'bg-cyan-400/15 text-cyan-200' : 'cx-text-faint hover:cx-text-muted'
                 }`}
               >
                 {value === 'ACTIVE' ? 'Active signals' : 'Signal history'}
               </button>
             ))}
           </div>
-          <div className="flex rounded-xl border border-white/[0.07] bg-black/20 p-1">
+          <div className="flex rounded-xl border cx-border cx-bg-elev p-1">
             {(['ALL', 'Asia', 'London', 'New York'] as SessionFilter[]).map((value) => (
               <button
                 key={value}
                 onClick={() => setSessionFilter(value)}
                 className={`rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-wider transition ${
-                  sessionFilter === value ? 'bg-violet-400/15 text-violet-200' : 'text-slate-500 hover:text-slate-300'
+                  sessionFilter === value ? 'bg-violet-400/15 text-violet-200' : 'cx-text-faint hover:cx-text-muted'
                 }`}
               >
                 {value === 'ALL' ? 'All sessions' : value}
@@ -224,7 +224,7 @@ const Signals: React.FC = () => {
             ))}
           </div>
         </div>
-        <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-slate-500">
+        <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider cx-text-faint">
           <Clock3 className="h-3.5 w-3.5" />
           {updatedAt ? `Updated ${updatedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : 'Loading feed'}
         </div>
@@ -237,29 +237,29 @@ const Signals: React.FC = () => {
       )}
 
       {!loading && !error && visibleSignals.length === 0 && (
-        <section className="rounded-[24px] border border-dashed border-white/10 bg-[#090d18] px-6 py-10 text-center">
-          <Activity className="mx-auto h-10 w-10 text-slate-700" />
-          <h2 className="mt-4 text-xl font-black text-white">
+        <section className="rounded-[24px] border border-dashed cx-border-strong cx-bg-card px-6 py-10 text-center">
+          <Activity className="mx-auto h-10 w-10 cx-text-faint" />
+          <h2 className="mt-4 text-xl font-black cx-text-strong">
             {sessionFilter === 'ALL' ? 'No active call right now' : `No ${sessionFilter}-session calls`}
           </h2>
-          <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">
+          <p className="mx-auto mt-2 max-w-xl text-sm cx-text-faint">
             {sessionFilter === 'ALL'
               ? `The scanner is watching ${scanned || 'every'} tracked market${scanned === 1 ? '' : 's'}. Nothing has cleared every entry rule yet.`
               : 'Switch to All sessions to see every call, or check the Forming board below.'}
           </p>
           {sessionFilter === 'ALL' && blockers.length > 0 && (
             <div className="mx-auto mt-6 max-w-xl text-left">
-              <div className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-600">
+              <div className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] cx-text-faint">
                 What is holding setups back
               </div>
               <ul className="space-y-1.5">
                 {blockers.map((blocker) => (
                   <li
                     key={blocker.label}
-                    className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+                    className="flex items-center justify-between gap-3 rounded-xl border cx-border bg-white/[0.02] px-3 py-2"
                   >
-                    <span className="text-xs text-slate-400">{blocker.label}</span>
-                    <span className="shrink-0 rounded-md bg-white/[0.06] px-2 py-0.5 text-[10px] font-black text-slate-400">
+                    <span className="text-xs cx-text-muted">{blocker.label}</span>
+                    <span className="shrink-0 rounded-md cx-bg-card-hover px-2 py-0.5 text-[10px] font-black cx-text-muted">
                       {blocker.count} {blocker.count === 1 ? 'market' : 'markets'}
                     </span>
                   </li>
@@ -275,22 +275,22 @@ const Signals: React.FC = () => {
       </div>
 
       {/* Forming — future potential trades */}
-      <section className="rounded-[24px] border border-white/[0.08] bg-[#090d18] p-5 sm:p-6">
+      <section className="rounded-[24px] border cx-border cx-bg-card p-5 sm:p-6">
         <div className="mb-5 flex items-center justify-between gap-3">
           <div>
             <div className="text-[10px] font-black tracking-[0.2em] text-amber-300">FORMING</div>
-            <h2 className="mt-1 text-xl font-black text-white">Potential future trades</h2>
-            <p className="mt-1 text-xs text-slate-500">
+            <h2 className="mt-1 text-xl font-black cx-text-strong">Potential future trades</h2>
+            <p className="mt-1 text-xs cx-text-faint">
               Setups building confluence but not yet qualified. Each shows how close it is and what it still needs.
             </p>
           </div>
-          <Link to="/scanner" className="flex shrink-0 items-center gap-1 text-xs font-bold text-slate-400 hover:text-slate-200">
+          <Link to="/scanner" className="flex shrink-0 items-center gap-1 text-xs font-bold cx-text-muted hover:cx-text">
             Full scanner <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </div>
         {forming.length === 0 ? (
-          <div className="flex items-center gap-3 rounded-2xl border border-dashed border-white/10 px-5 py-6 text-sm text-slate-500">
-            <Hourglass className="h-5 w-5 shrink-0 text-slate-600" />
+          <div className="flex items-center gap-3 rounded-2xl border border-dashed cx-border-strong px-5 py-6 text-sm cx-text-faint">
+            <Hourglass className="h-5 w-5 shrink-0 cx-text-faint" />
             Nothing is close to setting up right now, or the scanner snapshot is unavailable.
           </div>
         ) : (
@@ -316,29 +316,29 @@ const FormingCard: React.FC<{ setup: FormingSetup }> = ({ setup }) => {
       ? 'bg-rose-400/10 text-rose-300'
       : 'bg-amber-400/10 text-amber-300';
   return (
-    <article className="rounded-2xl border border-white/[0.07] bg-black/20 p-4">
+    <article className="rounded-2xl border cx-border cx-bg-elev p-4">
       <div className="flex items-center justify-between">
-        <span className="font-black text-white">{setup.pair}</span>
+        <span className="font-black cx-text-strong">{setup.pair}</span>
         <span className={`rounded-md px-2 py-0.5 text-[10px] font-black ${lifecycleTone}`}>{setup.lifecycle}</span>
       </div>
-      <div className="mt-1 flex items-center gap-1.5 text-[11px] font-bold text-slate-400">
+      <div className="mt-1 flex items-center gap-1.5 text-[11px] font-bold cx-text-muted">
         {setup.direction === 'BUY' ? <TrendingUp className="h-3.5 w-3.5 text-emerald-400" /> : setup.direction === 'SELL' ? <TrendingUp className="h-3.5 w-3.5 rotate-180 text-rose-400" /> : null}
         {leaning}
       </div>
       <div className="mt-3">
-        <div className="flex items-center justify-between text-[10px] font-bold text-slate-500">
+        <div className="flex items-center justify-between text-[10px] font-bold cx-text-faint">
           <span>Confluence {setup.score}/{QUALIFY_SCORE} to qualify</span>
           <span>{progress}%</span>
         </div>
-        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+        <div className="mt-1 h-1.5 overflow-hidden rounded-full cx-bg-card-hover">
           <div
             className={`h-full rounded-full ${progress >= 80 ? 'bg-emerald-400/80' : progress >= 50 ? 'bg-cyan-400/70' : 'bg-slate-500/60'}`}
             style={{ width: `${progress}%` }}
           />
         </div>
       </div>
-      <div className="mt-3 text-[11px] leading-5 text-slate-400">
-        <span className="font-black uppercase tracking-wider text-slate-600">Waiting for: </span>
+      <div className="mt-3 text-[11px] leading-5 cx-text-muted">
+        <span className="font-black uppercase tracking-wider cx-text-faint">Waiting for: </span>
         {setup.waitingFor}
       </div>
     </article>
@@ -358,7 +358,7 @@ const SignalCall: React.FC<{ signal: PublishedSignal }> = ({ signal }) => {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-black text-white">{signal.pair}</h2>
+              <h2 className="text-xl font-black cx-text-strong">{signal.pair}</h2>
               <span className={`rounded-md px-2 py-0.5 text-[10px] font-black ${isBuy ? 'bg-emerald-400/15 text-emerald-300' : 'bg-rose-400/15 text-rose-300'}`}>{signal.direction}</span>
               {publishedSessions.length > 0 && (
                 <span className="rounded-md bg-violet-400/10 px-2 py-0.5 text-[10px] font-black text-violet-300">
@@ -366,16 +366,16 @@ const SignalCall: React.FC<{ signal: PublishedSignal }> = ({ signal }) => {
                 </span>
               )}
             </div>
-            <div className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">{signal.timeframe} · Published {published.toLocaleString()}</div>
+            <div className="mt-1 text-[10px] font-bold uppercase tracking-wider cx-text-faint">{signal.timeframe} · Published {published.toLocaleString()}</div>
           </div>
         </div>
         <div className="text-right">
           <div className={`text-[10px] font-black uppercase tracking-wider ${isBuy ? 'text-emerald-300' : 'text-rose-300'}`}>{signal.status.replace(/_/g, ' ')}</div>
-          <div className="mt-1 text-lg font-black text-white">{signal.score}/100</div>
+          <div className="mt-1 text-lg font-black cx-text-strong">{signal.score}/100</div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-px bg-white/[0.05] sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-px cx-bg-card-hover sm:grid-cols-5">
         <Level label="Entry" value={formatPrice(signal.entry)} tone="cyan" />
         <Level label="Stop loss" value={formatPrice(signal.stop_loss)} tone="rose" />
         <Level label="TP1" value={formatPrice(signal.tp1)} tone="emerald" />
@@ -391,13 +391,13 @@ const SignalCall: React.FC<{ signal: PublishedSignal }> = ({ signal }) => {
           <Fact label="Calendar" value={signal.calendar_status} icon={CheckCircle2} />
         </div>
         <div>
-          <div className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-600">Trade thesis</div>
-          <p className="mt-1.5 text-sm leading-6 text-slate-300">{signal.scenario}</p>
+          <div className="text-[9px] font-black uppercase tracking-[0.18em] cx-text-faint">Trade thesis</div>
+          <p className="mt-1.5 text-sm leading-6 cx-text-muted">{signal.scenario}</p>
         </div>
         {signal.rationale?.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {signal.rationale.map((reason) => (
-              <span key={reason} className="rounded-lg border border-white/[0.07] bg-white/[0.03] px-2.5 py-1 text-[10px] font-bold text-slate-400">{reason}</span>
+              <span key={reason} className="rounded-lg border cx-border bg-white/[0.03] px-2.5 py-1 text-[10px] font-bold cx-text-muted">{reason}</span>
             ))}
           </div>
         )}
@@ -407,24 +407,24 @@ const SignalCall: React.FC<{ signal: PublishedSignal }> = ({ signal }) => {
 };
 
 const Metric: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-  <div className="rounded-2xl border border-white/[0.07] bg-black/20 p-3">
-    <div className="text-[9px] font-black uppercase tracking-widest text-slate-600">{label}</div>
-    <div className="mt-1 text-lg font-black text-white">{value}</div>
+  <div className="rounded-2xl border cx-border cx-bg-elev p-3">
+    <div className="text-[9px] font-black uppercase tracking-widest cx-text-faint">{label}</div>
+    <div className="mt-1 text-lg font-black cx-text-strong">{value}</div>
   </div>
 );
 
 const Level: React.FC<{ label: string; value: string; tone: 'cyan' | 'rose' | 'emerald' }> = ({ label, value, tone }) => (
   <div className="bg-[#0b101d] p-4 text-center">
-    <div className="text-[9px] font-black uppercase tracking-widest text-slate-600">{label}</div>
+    <div className="text-[9px] font-black uppercase tracking-widest cx-text-faint">{label}</div>
     <div className={`mt-1 text-sm font-black ${tone === 'rose' ? 'text-rose-300' : tone === 'emerald' ? 'text-emerald-300' : 'text-cyan-300'}`}>{value}</div>
   </div>
 );
 
 const Fact: React.FC<{ label: string; value: string; icon: React.ElementType }> = ({ label, value, icon: Icon }) => (
-  <div className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-3">
-    <Icon className="h-4 w-4 text-slate-500" />
-    <div className="mt-2 text-[9px] font-black uppercase tracking-wider text-slate-600">{label}</div>
-    <div className="mt-0.5 text-xs font-black text-slate-200">{value}</div>
+  <div className="rounded-xl border cx-border cx-bg-card p-3">
+    <Icon className="h-4 w-4 cx-text-faint" />
+    <div className="mt-2 text-[9px] font-black uppercase tracking-wider cx-text-faint">{label}</div>
+    <div className="mt-0.5 text-xs font-black cx-text">{value}</div>
   </div>
 );
 

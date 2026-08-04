@@ -62,18 +62,18 @@ const Community: React.FC = () => {
       {/* Channels Sidebar */}
       <div className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+          <h2 className="text-lg font-semibold cx-text-strong dark:cx-text-strong flex items-center">
             <Users className="w-5 h-5 mr-2" />
             ConfluenceX
           </h2>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+          <p className="text-sm text-gray-600 dark:cx-text-faint mt-1">
             3,467 members online
           </p>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
           <div className="space-y-1">
-            <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+            <h3 className="text-xs font-medium cx-text-faint dark:cx-text-faint uppercase tracking-wider mb-2">
               Channels
             </h3>
             {channels.map((channel) => (
@@ -83,14 +83,14 @@ const Community: React.FC = () => {
                 className={`w-full flex items-center justify-between p-2 rounded-lg text-left transition-colors duration-200 ${
                   activeChannel === channel.id
                     ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
-                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    : 'cx-text-muted dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}
               >
                 <div className="flex items-center">
                   <Hash className="w-4 h-4 mr-2" />
                   <span className="text-sm">{channel.name}</span>
                 </div>
-                <span className="text-xs text-gray-500 dark:text-gray-400">
+                <span className="text-xs cx-text-faint dark:cx-text-faint">
                   {channel.members}
                 </span>
               </button>
@@ -104,11 +104,11 @@ const Community: React.FC = () => {
         {/* Chat Header */}
         <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
           <div className="flex items-center space-x-3">
-            <Hash className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-            <h3 className="font-semibold text-gray-900 dark:text-white">
+            <Hash className="w-5 h-5 cx-text-faint dark:cx-text-faint" />
+            <h3 className="font-semibold cx-text-strong dark:cx-text-strong">
               {channels.find(c => c.id === activeChannel)?.name}
             </h3>
-            <span className="text-sm text-gray-500 dark:text-gray-400">
+            <span className="text-sm cx-text-faint dark:cx-text-faint">
               {channels.find(c => c.id === activeChannel)?.members} members
             </span>
           </div>
@@ -118,22 +118,22 @@ const Community: React.FC = () => {
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {messages.map((msg) => (
             <div key={msg.id} className="flex space-x-3">
-              <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center text-white font-medium text-sm">
+              <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center cx-text-strong font-medium text-sm">
                 {msg.avatar}
               </div>
               <div className="flex-1">
                 <div className="flex items-center space-x-2 mb-1">
-                  <span className="font-medium text-gray-900 dark:text-white">
+                  <span className="font-medium cx-text-strong dark:cx-text-strong">
                     {msg.user}
                   </span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                  <span className="text-xs cx-text-faint dark:cx-text-faint">
                     {msg.timestamp}
                   </span>
                   {msg.isPinned && (
                     <Pin className="w-4 h-4 text-yellow-500" />
                   )}
                 </div>
-                <p className="text-gray-700 dark:text-gray-300 mb-2">
+                <p className="cx-text-muted dark:text-gray-300 mb-2">
                   {msg.message}
                 </p>
                 <div className="flex items-center space-x-4">
@@ -169,20 +169,20 @@ const Community: React.FC = () => {
                 onChange={(e) => setMessage(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                 placeholder={`Message #${channels.find(c => c.id === activeChannel)?.name}`}
-                className="w-full px-4 py-3 pr-24 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                className="w-full px-4 py-3 pr-24 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 cx-text-strong dark:cx-text-strong focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
               />
               <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center space-x-2">
-                <button className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-200">
+                <button className="p-1 cx-text-faint hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-200">
                   <Paperclip className="w-4 h-4" />
                 </button>
-                <button className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-200">
+                <button className="p-1 cx-text-faint hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-200">
                   <Smile className="w-4 h-4" />
                 </button>
               </div>
             </div>
             <button
               onClick={handleSendMessage}
-              className="p-3 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors duration-200"
+              className="p-3 bg-emerald-500 cx-text-strong rounded-lg hover:bg-emerald-600 transition-colors duration-200"
             >
               <Send className="w-4 h-4" />
             </button>

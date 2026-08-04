@@ -146,16 +146,16 @@ const LiveScanner: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <section className="relative overflow-hidden rounded-[24px] border border-violet-400/15 bg-[#090d18] bg-gradient-to-br from-violet-500/10 to-cyan-500/[0.04] p-6">
+      <section className="relative overflow-hidden rounded-[24px] border border-violet-400/15 cx-bg-card bg-gradient-to-br from-violet-500/10 to-cyan-500/[0.04] p-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="text-[10px] font-black tracking-[0.22em] text-cyan-300">
               V2 MARKET INTELLIGENCE
             </div>
-            <h1 className="mt-2 flex items-center gap-3 text-3xl font-black text-white">
+            <h1 className="mt-2 flex items-center gap-3 text-3xl font-black cx-text-strong">
               <Activity className="h-7 w-7 text-cyan-300" /> Live Scanner
             </h1>
-            <p className="mt-2 text-sm text-slate-400">
+            <p className="mt-2 text-sm cx-text-muted">
               One engine for score, direction, movement, and trade eligibility.{' '}
               {lastUpdate && (
                 <span className="ml-2 inline-block">
@@ -174,7 +174,7 @@ const LiveScanner: React.FC = () => {
               value={validationTimeframe}
               onChange={(event) => setValidationTimeframe(event.target.value)}
               disabled={validating}
-              className="rounded-lg border border-white/10 bg-black/20 px-2 py-2 text-xs text-slate-300"
+              className="rounded-lg border cx-border-strong cx-bg-elev px-2 py-2 text-xs cx-text-muted"
             >
               <option value="15m">15m</option>
               <option value="1h">1h</option>
@@ -184,7 +184,7 @@ const LiveScanner: React.FC = () => {
               value={validationDepth}
               onChange={(event) => setValidationDepth(Number(event.target.value))}
               disabled={validating}
-              className="rounded-lg border border-white/10 bg-black/20 px-2 py-2 text-xs text-slate-300"
+              className="rounded-lg border cx-border-strong cx-bg-elev px-2 py-2 text-xs cx-text-muted"
             >
               <option value={5000}>5K bars</option>
               <option value={10000}>10K bars</option>
@@ -219,8 +219,8 @@ const LiveScanner: React.FC = () => {
         </div>
       </section>
 
-      <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/[0.07] bg-[#090d18] p-4">
-        <Filter className="h-4 w-4 text-slate-500" />
+      <section className="flex flex-wrap items-center gap-3 rounded-2xl border cx-border cx-bg-card p-4">
+        <Filter className="h-4 w-4 cx-text-faint" />
         <FilterPill
           label="Direction"
           options={[
@@ -262,14 +262,14 @@ const LiveScanner: React.FC = () => {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Filter by symbol…"
-          className="rounded-xl border border-white/[0.07] bg-black/20 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:border-cyan-400/30 focus:outline-none"
+          className="rounded-xl border cx-border cx-bg-elev px-3 py-2 text-xs cx-text placeholder:cx-text-faint focus:border-cyan-400/30 focus:outline-none"
         />
-        <div className="ml-auto flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-slate-500">
+        <div className="ml-auto flex items-center gap-2 text-[10px] font-black uppercase tracking-wider cx-text-faint">
           <span>Sort</span>
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortBy)}
-            className="rounded-lg border border-white/[0.07] bg-black/20 px-2 py-1 text-[10px] font-black text-slate-300"
+            className="rounded-lg border cx-border cx-bg-elev px-2 py-1 text-[10px] font-black cx-text-muted"
           >
             <option value="plan">Plan status</option>
             <option value="score">Score</option>
@@ -279,22 +279,22 @@ const LiveScanner: React.FC = () => {
       </section>
 
       {hottest.length > 0 && (
-        <section className="rounded-[20px] border border-orange-400/15 bg-[#090d18] p-5">
+        <section className="rounded-[20px] border border-orange-400/15 cx-bg-card p-5">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <div className="text-[9px] font-black tracking-[0.2em] text-orange-300">HOT RIGHT NOW</div>
               <h2 className="mt-1 text-lg font-black">Highest-readiness markets</h2>
             </div>
-            <span className="text-[10px] text-slate-500">Sorted by live V2 score</span>
+            <span className="text-[10px] cx-text-faint">Sorted by live V2 score</span>
           </div>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             {hottest.map((row) => (
-              <div key={row.pair} className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4">
+              <div key={row.pair} className="rounded-2xl border cx-border cx-bg-card p-4">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="font-black text-white">{row.pair}</span>
+                  <span className="font-black cx-text-strong">{row.pair}</span>
                   <span className="rounded-lg bg-cyan-400/10 px-2 py-1 text-[10px] font-black text-cyan-300">{row.analysis?.total_score || 0}/100</span>
                 </div>
-                <div className="mt-2 text-xs text-slate-500">{row.analysis?.trade_timing?.wait_for?.[0]?.replace(/_/g, ' ') || row.analysis?.trade_timing?.status || 'Watching'}</div>
+                <div className="mt-2 text-xs cx-text-faint">{row.analysis?.trade_timing?.wait_for?.[0]?.replace(/_/g, ' ') || row.analysis?.trade_timing?.status || 'Watching'}</div>
                 <a href={`/analysis/${row.pair}`} className="mt-3 inline-block text-xs font-bold text-cyan-300 hover:text-cyan-200">Analyze</a>
               </div>
             ))}
@@ -309,7 +309,7 @@ const LiveScanner: React.FC = () => {
       )}
 
       {validation && (
-        <section className="rounded-[20px] border border-violet-400/15 bg-[#090d18] p-5">
+        <section className="rounded-[20px] border border-violet-400/15 cx-bg-card p-5">
           <div className="flex items-center justify-between">
             <div>
               <div className="text-[9px] font-black tracking-[0.2em] text-violet-300">
@@ -339,7 +339,7 @@ const LiveScanner: React.FC = () => {
               value={String(validation.validation.observed_out_of_sample_trades)}
             />
           </div>
-          <p className="mt-3 text-[10px] text-slate-500">{validation.validation.warning}</p>
+          <p className="mt-3 text-[10px] cx-text-faint">{validation.validation.warning}</p>
         </section>
       )}
 
@@ -349,7 +349,7 @@ const LiveScanner: React.FC = () => {
             return (
               <div
                 key={row.pair}
-                className="h-72 animate-pulse rounded-[20px] border border-white/[0.06] bg-[#090d18]"
+                className="h-72 animate-pulse rounded-[20px] border cx-border cx-bg-card"
               />
             );
           }
@@ -357,13 +357,13 @@ const LiveScanner: React.FC = () => {
             return (
               <div
                 key={row.pair}
-                className="rounded-[20px] border border-white/[0.06] bg-[#090d18] p-5"
+                className="rounded-[20px] border cx-border cx-bg-card p-5"
               >
                 <div className="flex justify-between">
                   <h3 className="text-lg font-black">{row.pair}</h3>
-                  <span className="text-xs text-slate-600">NO DATA</span>
+                  <span className="text-xs cx-text-faint">NO DATA</span>
                 </div>
-                <p className="mt-2 text-sm text-slate-500">
+                <p className="mt-2 text-sm cx-text-faint">
                   {row.error || 'No V2 analysis available.'}
                 </p>
               </div>
@@ -383,14 +383,14 @@ const LiveScanner: React.FC = () => {
           );
         })}
         {rows.length === 0 && !globalError && (
-          <div className="col-span-full py-12 text-center text-slate-500">
+          <div className="col-span-full py-12 text-center cx-text-faint">
             {refreshing ? 'Loading V2 analysis…' : 'No markets configured.'}
           </div>
         )}
       </div>
 
       {rows.length > 0 && sorted.length === 0 && !refreshing && (
-        <div className="rounded-xl border border-white/[0.06] bg-[#090d18] px-4 py-3 text-center text-xs text-slate-500">
+        <div className="rounded-xl border cx-border cx-bg-card px-4 py-3 text-center text-xs cx-text-faint">
           Showing 0 of {rows.length} markets after filters.
         </div>
       )}
@@ -399,9 +399,9 @@ const LiveScanner: React.FC = () => {
 };
 
 const Metric: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-  <div className="rounded-xl border border-white/[0.06] bg-black/20 p-3">
-    <div className="text-[9px] font-black tracking-widest text-slate-500">{label}</div>
-    <div className="mt-1 text-xl font-black text-white">{value}</div>
+  <div className="rounded-xl border cx-border cx-bg-elev p-3">
+    <div className="text-[9px] font-black tracking-widest cx-text-faint">{label}</div>
+    <div className="mt-1 text-xl font-black cx-text-strong">{value}</div>
   </div>
 );
 
@@ -419,14 +419,14 @@ const FilterPill: React.FC<{
       ? 'bg-violet-400/15 text-violet-200'
       : 'bg-amber-400/15 text-amber-200';
   return (
-    <div className="flex items-center gap-1 rounded-xl border border-white/[0.07] bg-black/20 p-1 text-[10px] font-black uppercase tracking-wider">
-      <span className="px-2 text-slate-500">{label}</span>
+    <div className="flex items-center gap-1 rounded-xl border cx-border cx-bg-elev p-1 text-[10px] font-black uppercase tracking-wider">
+      <span className="px-2 cx-text-faint">{label}</span>
       {options.map((opt) => (
         <button
           key={opt.v}
           onClick={() => onChange(opt.v)}
           className={`rounded-lg px-2 py-1 transition ${
-            value === opt.v ? active : 'text-slate-400 hover:text-slate-200'
+            value === opt.v ? active : 'cx-text-muted hover:cx-text'
           }`}
         >
           {opt.l}

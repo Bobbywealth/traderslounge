@@ -11,11 +11,11 @@ const BillingCancel: React.FC = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#05070d] px-5 py-24 text-white">
-      <div className="mx-auto max-w-2xl rounded-3xl border border-white/10 bg-white/[0.03] p-8 text-center">
-        <X className="mx-auto h-12 w-12 text-slate-400" />
+    <div className="min-h-screen bg-[#05070d] px-5 py-24 cx-text-strong">
+      <div className="mx-auto max-w-2xl rounded-3xl border cx-border-strong bg-white/[0.03] p-8 text-center">
+        <X className="mx-auto h-12 w-12 cx-text-muted" />
         <h1 className="mt-4 text-3xl font-black tracking-tight">Checkout cancelled</h1>
-        <p className="mt-3 text-slate-300">
+        <p className="mt-3 cx-text-muted">
           No payment was made. You can come back any time and pick a plan when you're ready.
         </p>
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
@@ -27,7 +27,7 @@ const BillingCancel: React.FC = () => {
           </Link>
           <Link
             to="/dashboard"
-            className="inline-flex items-center gap-2 rounded-2xl border border-white/10 px-6 py-3 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.06]"
+            className="inline-flex items-center gap-2 rounded-2xl border cx-border-strong px-6 py-3 text-sm font-semibold cx-text transition hover:cx-bg-card-hover"
           >
             Continue with demo
           </Link>

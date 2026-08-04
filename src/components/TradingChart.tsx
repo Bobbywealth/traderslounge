@@ -210,19 +210,19 @@ const TradingChart: React.FC<TradingChartProps> = ({
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center space-x-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            <h3 className="text-lg font-semibold cx-text-strong dark:cx-text-strong">
               {symbol} - {timeframe}
             </h3>
           </div>
         </div>
         <div className="flex flex-col items-center justify-center py-16" style={{ height: height - 100 }}>
           <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mb-4">
-            <BarChart3 className="w-8 h-8 text-gray-400" />
+            <BarChart3 className="w-8 h-8 cx-text-faint" />
           </div>
-          <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+          <h4 className="text-lg font-medium cx-text-strong dark:cx-text-strong mb-2">
             No Chart Data Available
           </h4>
-          <p className="text-gray-500 dark:text-gray-400 text-center max-w-sm">
+          <p className="cx-text-faint dark:cx-text-faint text-center max-w-sm">
             Connect your broker account to view live {symbol} charts with real-time market data.
           </p>
         </div>
@@ -234,11 +234,11 @@ const TradingChart: React.FC<TradingChartProps> = ({
     <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-4">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+          <h3 className="text-lg font-semibold cx-text-strong dark:cx-text-strong">
             {symbol} - {timeframe}
           </h3>
           <div className="flex items-center space-x-2">
-            <span className="text-2xl font-bold text-gray-900 dark:text-white">
+            <span className="text-2xl font-bold cx-text-strong dark:cx-text-strong">
               {currentPrice.toFixed(5)}
             </span>
             <div className={`flex items-center space-x-1 ${
@@ -258,7 +258,7 @@ const TradingChart: React.FC<TradingChartProps> = ({
         
         <div className="flex items-center space-x-2">
           <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-          <span className="text-sm text-gray-600 dark:text-gray-400">Live</span>
+          <span className="text-sm text-gray-600 dark:cx-text-faint">Live</span>
         </div>
       </div>
 

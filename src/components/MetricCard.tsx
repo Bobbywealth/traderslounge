@@ -36,10 +36,10 @@ const MetricCard: React.FC<MetricCardProps> = ({ title, value, change, trend, ic
           {change}
         </span>
       </div>
-      <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-1 metric-value">
+      <h3 className="text-2xl font-bold cx-text-strong dark:cx-text-strong mb-1 metric-value">
         {value}
       </h3>
-      <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">
+      <p className="text-sm cx-text-faint dark:cx-text-faint font-medium">
         {title}
       </p>
       

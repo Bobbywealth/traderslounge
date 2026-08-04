@@ -53,7 +53,7 @@ const DataAttribution: React.FC<DataAttributionProps> = ({
   const providerLabel = provider && provider.length > 0 ? provider : 'unknown provider';
   const StatusIcon = !provider ? WifiOff : live && !stale ? Wifi : stale ? AlertTriangle : Database;
   const tone = !provider
-    ? 'border-slate-400/20 bg-slate-400/[0.06] text-slate-400'
+    ? 'border-slate-400/20 bg-slate-400/[0.06] cx-text-muted'
     : stale
       ? 'border-amber-400/30 bg-amber-400/[0.08] text-amber-200'
       : live
@@ -68,11 +68,11 @@ const DataAttribution: React.FC<DataAttributionProps> = ({
           <span>{providerLabel}</span>
           {live && !stale && <span className="ml-0.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />}
         </span>
-        <span className="text-slate-500" title={relativeLabel}>
+        <span className="cx-text-faint" title={relativeLabel}>
           As of {freshLabel}
           {stale && provider ? ' · stale' : ''}
         </span>
-        {detail && <span className="text-slate-600">{detail}</span>}
+        {detail && <span className="cx-text-faint">{detail}</span>}
       </div>
     );
   }
@@ -83,11 +83,11 @@ const DataAttribution: React.FC<DataAttributionProps> = ({
         <StatusIcon className="h-3 w-3" />
         {providerLabel}
       </span>
-      <span className="text-slate-500" title={relativeLabel}>
+      <span className="cx-text-faint" title={relativeLabel}>
         {stale && provider ? 'stale · ' : 'as of '}
         {freshLabel}
       </span>
-      {detail && <span className="text-slate-600">{detail}</span>}
+      {detail && <span className="cx-text-faint">{detail}</span>}
     </span>
   );
 };
@@ -107,7 +107,7 @@ export const DataFreshnessPulse: React.FC<{
   const stale = isStale(timestamp, now, maxAgeMs);
   const label = !provider ? 'Offline' : stale ? 'Stale' : 'Live';
   const tone = !provider
-    ? 'border-slate-400/30 bg-slate-400/10 text-slate-300'
+    ? 'border-slate-400/30 bg-slate-400/10 cx-text-muted'
     : stale
       ? 'border-amber-400/30 bg-amber-400/10 text-amber-200'
       : 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300';

@@ -1,42 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import {
-  AlertCircle,
-  AlertTriangle,
-  ArrowDown,
-  ArrowUp,
-  Bell,
-  BellOff,
-  Calendar,
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  Clock,
-  Crosshair,
-  DollarSign,
-  Eye,
-  EyeOff,
-  Gauge,
-  HelpCircle,
-  Layers,
-  Minus,
-  Pause,
-  Play,
-  RefreshCw,
-  Shield,
-  TrendingDown,
-  TrendingUp,
-  Volume2,
-  XCircle,
-  Zap,
+  AlertCircle, AlertTriangle, ArrowDown, ArrowUp, Bell, Calendar, CheckCircle2,
+  ChevronRight, Clock, Crosshair, Eye, Gauge, HelpCircle, Layers, Minus, Pause, Play,
+  RefreshCw, TrendingDown, TrendingUp, Volume2, XCircle, Zap,
 } from 'lucide-react';
-import {
-  bwtsApi,
-  planReasonText,
-  type CalendarGateStatus,
-  type CryptoAnalysis,
-  type Trigger,
-} from '../services/bwtsApi';
+import { bwtsApi, type CalendarGateStatus, type CryptoAnalysis } from '../services/bwtsApi';
 
 interface MarketStateInfo {
   state: 'trending' | 'ranging' | 'breaking_out' | 'reversing' | 'unknown';
@@ -62,7 +31,6 @@ const detectMarketState = (analysis?: CryptoAnalysis | null): MarketStateInfo =>
   if (!analysis) return { state: 'unknown', label: 'Unknown', description: 'Insufficient data' };
 
   const structure = analysis.institutional_analysis?.market_structure;
-  const momentum = analysis.institutional_analysis?.momentum_detail;
   const volatility = analysis.institutional_analysis?.volatility_detail;
 
   if (structure?.overall) {
@@ -89,11 +57,7 @@ const detectMarketState = (analysis?: CryptoAnalysis | null): MarketStateInfo =>
 };
 
 const timeframeLabels: Record<string, string> = {
-  mn1: 'Monthly',
-  w1: 'Weekly',
-  d1: 'Daily',
-  h4: '4H',
-  h1: '1H',
+  mn1: 'Monthly', w1: 'Weekly', d1: 'Daily', h4: '4H', h1: '1H',
 };
 
 const timeframeOrder = ['mn1', 'w1', 'd1', 'h4', 'h1'];
@@ -110,84 +74,61 @@ const clamp = (value: number | null | undefined, min = 0, max = 100) => {
 
 const percent = (value: number | null | undefined) => `${Math.round(clamp(value))}%`;
 
+const cxAccentGradient: Record<string, string> = {
+  cyan: 'linear-gradient(90deg, #22d3ee, #06b6d4)',
+  violet: 'linear-gradient(90deg, #a78bfa, #8b5cf6)',
+  amber: 'linear-gradient(90deg, #fbbf24, #f59e0b)',
+  emerald: 'linear-gradient(90deg, #34d399, #10b981)',
+  rose: 'linear-gradient(90deg, #fb7185, #ef4444)',
+};
+
+const cxAccentText: Record<string, string> = {
+  cyan: 'var(--cx-status-info-fg)',
+  violet: 'var(--cx-brand-violet-soft)',
+  amber: 'var(--cx-status-warning-fg)',
+  emerald: 'var(--cx-status-success-fg)',
+  rose: 'var(--cx-status-danger-fg)',
+};
+
 const MetricBar: React.FC<{
   label: string;
   value: number;
   description?: string;
   accent?: 'cyan' | 'violet' | 'amber' | 'emerald' | 'rose';
-  size?: 'sm' | 'md';
-}> = ({ label, value, description, accent = 'cyan', size = 'md' }) => {
-  const colors: Record<string, string> = {
-    cyan: 'from-cyan-400 to-cyan-500',
-    violet: 'from-violet-400 to-violet-500',
-    amber: 'from-amber-400 to-amber-500',
-    emerald: 'from-emerald-400 to-emerald-500',
-    rose: 'from-rose-400 to-rose-500',
-  };
-
-  const textColors: Record<string, string> = {
-    cyan: 'text-cyan-300',
-    violet: 'text-violet-300',
-    amber: 'text-amber-300',
-    emerald: 'text-emerald-300',
-    rose: 'text-rose-300',
-  };
-
-  return (
-    <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">{label}</span>
-        <span className={`text-sm font-black ${textColors[accent]}`}>{percent(value)}</span>
-      </div>
-      <div className={`mt-2 overflow-hidden rounded-full bg-white/[0.06] ${size === 'sm' ? 'h-1' : 'h-1.5'}`}>
-        <div
-          className={`h-full rounded-full bg-gradient-to-r ${colors[accent]}`}
-          style={{ width: `${clamp(value)}%` }}
-        />
-      </div>
-      {description && <p className="mt-2 text-[10px] leading-4 text-slate-500">{description}</p>}
+}> = ({ label, value, description, accent = 'cyan' }) => (
+  <div className="cx-card cx-card-hoverable">
+    <div className="flex items-center justify-between gap-2">
+      <span className="cx-eyebrow">{label}</span>
+      <span className="text-base font-black" style={{ color: cxAccentText[accent] }}>{percent(value)}</span>
     </div>
-  );
-};
+    <div className="cx-progress mt-3">
+      <div className="cx-progress-bar" style={{ width: `${clamp(value)}%`, background: cxAccentGradient[accent] }} />
+    </div>
+    {description && <p className="cx-meta mt-3 leading-relaxed">{description}</p>}
+  </div>
+);
 
-const StatusBadge: React.FC<{
-  status: 'READY' | 'WAIT' | 'AVOID' | 'BLOCKED' | 'WATCHLIST' | string;
-}> = ({ status }) => {
-  const styles: Record<string, string> = {
-    READY: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
-    WAIT: 'border-amber-400/30 bg-amber-400/10 text-amber-300',
-    AVOID: 'border-rose-400/30 bg-rose-400/10 text-rose-300',
-    BLOCKED: 'border-rose-400/30 bg-rose-400/10 text-rose-300',
-    WATCHLIST: 'border-violet-400/30 bg-violet-400/10 text-violet-300',
-    STRONG: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
-    VALID: 'border-cyan-400/30 bg-cyan-400/10 text-cyan-300',
+const StatusBadge: React.FC<{ status: 'READY' | 'WAIT' | 'AVOID' | 'BLOCKED' | 'WATCHLIST' | string }> = ({ status }) => {
+  const variant: Record<string, string> = {
+    READY: 'cx-pill cx-pill-success',
+    WAIT: 'cx-pill cx-pill-warning',
+    AVOID: 'cx-pill cx-pill-danger',
+    BLOCKED: 'cx-pill cx-pill-danger',
+    WATCHLIST: 'cx-pill cx-pill-info',
+    STRONG: 'cx-pill cx-pill-success',
+    VALID: 'cx-pill cx-pill-info',
   };
-
-  return (
-    <span className={`rounded-md border px-2 py-1 text-[9px] font-black ${styles[status] || styles.WAIT}`}>
-      {status}
-    </span>
-  );
+  return <span className={variant[status] || 'cx-pill cx-pill-neutral'}>{status}</span>;
 };
 
 const DirectionBadge: React.FC<{ direction: 'BUY' | 'SELL' | 'NEUTRAL' }> = ({ direction }) => {
-  const styles: Record<string, string> = {
-    BUY: 'bg-emerald-400/10 text-emerald-300 border-emerald-400/20',
-    SELL: 'bg-rose-400/10 text-rose-300 border-rose-400/20',
-    NEUTRAL: 'bg-slate-400/10 text-slate-400 border-slate-400/20',
+  const variant: Record<string, string> = {
+    BUY: 'cx-pill cx-pill-success',
+    SELL: 'cx-pill cx-pill-danger',
+    NEUTRAL: 'cx-pill cx-pill-neutral',
   };
-
-  const icons: Record<string, React.ReactNode> = {
-    BUY: <TrendingUp className="h-3 w-3" />,
-    SELL: <TrendingDown className="h-3 w-3" />,
-    NEUTRAL: <Minus className="h-3 w-3" />,
-  };
-
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-black ${styles[direction]}`}>
-      {icons[direction]} {direction}
-    </span>
-  );
+  const icon = direction === 'BUY' ? <TrendingUp className="h-3 w-3" /> : direction === 'SELL' ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />;
+  return <span className={`${variant[direction]} gap-1`}>{icon} {direction}</span>;
 };
 
 const MarketStateIndicator: React.FC<{ state: MarketStateInfo }> = ({ state }) => {
@@ -198,21 +139,19 @@ const MarketStateIndicator: React.FC<{ state: MarketStateInfo }> = ({ state }) =
     reversing: <RefreshCw className="h-4 w-4" />,
     unknown: <HelpCircle className="h-4 w-4" />,
   };
-
-  const colors: Record<string, string> = {
-    trending: 'bg-emerald-400/10 text-emerald-300 border-emerald-400/20',
-    ranging: 'bg-amber-400/10 text-amber-300 border-amber-400/20',
-    breaking_out: 'bg-violet-400/10 text-violet-300 border-violet-400/20',
-    reversing: 'bg-rose-400/10 text-rose-300 border-rose-400/20',
-    unknown: 'bg-slate-400/10 text-slate-400 border-slate-400/20',
+  const variant: Record<string, string> = {
+    trending: 'cx-panel cx-panel-success',
+    ranging: 'cx-panel cx-panel-warning',
+    breaking_out: 'cx-panel cx-panel-info',
+    reversing: 'cx-panel cx-panel-danger',
+    unknown: 'cx-panel',
   };
-
   return (
-    <div className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 ${colors[state.state]}`}>
+    <div className={`${variant[state.state]} flex items-center gap-3`}>
       {icons[state.state]}
       <div>
-        <div className="text-xs font-black">{state.label}</div>
-        <div className="text-[10px] opacity-75">{state.description}</div>
+        <div className="cx-h2">{state.label}</div>
+        <div className="cx-meta">{state.description}</div>
       </div>
     </div>
   );
@@ -222,35 +161,29 @@ const HigherTimeframeBias: React.FC<{ analysis?: CryptoAnalysis | null }> = ({ a
   const timeframes = analysis?.market_context?.timeframes;
   if (!timeframes) return null;
 
-  const trendColors: Record<string, string> = {
-    bullish: 'text-emerald-300',
-    bearish: 'text-rose-300',
-    neutral: 'text-slate-400',
+  const trendPill: Record<string, string> = {
+    bullish: 'cx-pill cx-pill-success',
+    bearish: 'cx-pill cx-pill-danger',
+    neutral: 'cx-pill cx-pill-neutral',
   };
-
-  const trendBg: Record<string, string> = {
-    bullish: 'bg-emerald-400/10',
-    bearish: 'bg-rose-400/10',
-    neutral: 'bg-slate-400/10',
+  const trendArrow: Record<string, string> = {
+    bullish: '▲',
+    bearish: '▼',
+    neutral: '—',
   };
 
   return (
-    <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3">
-      <div className="mb-2 text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Higher Timeframe Bias</div>
+    <div className="cx-card">
+      <div className="cx-eyebrow mb-3">Higher Timeframe Bias</div>
       <div className="flex gap-2">
         {timeframeOrder.map((tf) => {
           const data = timeframes[tf];
           if (!data) return null;
           const trend = data.trend || 'neutral';
           return (
-            <div
-              key={tf}
-              className={`flex flex-col items-center gap-1 rounded-lg border px-2 py-1.5 ${trendBg[trend]} border-white/[0.06]`}
-            >
-              <span className="text-[9px] font-bold text-slate-500">{timeframeLabels[tf] || tf}</span>
-              <span className={`text-[10px] font-black ${trendColors[trend]}`}>
-                {trend === 'bullish' ? '▲' : trend === 'bearish' ? '▼' : '—'}
-              </span>
+            <div key={tf} className={`${trendPill[trend]} flex flex-col items-center gap-0.5`}>
+              <span className="text-[9px] font-black opacity-90">{timeframeLabels[tf] || tf}</span>
+              <span className="text-[12px] font-black">{trendArrow[trend]}</span>
             </div>
           );
         })}
@@ -259,10 +192,7 @@ const HigherTimeframeBias: React.FC<{ analysis?: CryptoAnalysis | null }> = ({ a
   );
 };
 
-const ImportantLevels: React.FC<{ analysis?: CryptoAnalysis | null; direction?: 'BUY' | 'SELL' | 'NEUTRAL' }> = ({
-  analysis,
-  direction = 'NEUTRAL',
-}) => {
+const ImportantLevels: React.FC<{ analysis?: CryptoAnalysis | null; direction?: 'BUY' | 'SELL' | 'NEUTRAL' }> = ({ analysis, direction = 'NEUTRAL' }) => {
   const zones = analysis?.zones || {};
   const supportLevels: LevelInfo[] = [];
   const resistanceLevels: LevelInfo[] = [];
@@ -271,21 +201,10 @@ const ImportantLevels: React.FC<{ analysis?: CryptoAnalysis | null; direction?: 
     if (!value || typeof value !== 'object') return;
     const price = value.price || value.level || value;
     if (typeof price !== 'number') return;
-
     if (key.includes('support') || key.includes('demand') || key.includes('ob')) {
-      supportLevels.push({
-        type: key,
-        price,
-        label: value.label || key.replace(/_/g, ' '),
-        strength: value.strength || 'moderate',
-      });
+      supportLevels.push({ type: key, price, label: value.label || key.replace(/_/g, ' '), strength: value.strength || 'moderate' });
     } else if (key.includes('resistance') || key.includes('supply') || key.includes('sell')) {
-      resistanceLevels.push({
-        type: key,
-        price,
-        label: value.label || key.replace(/_/g, ' '),
-        strength: value.strength || 'moderate',
-      });
+      resistanceLevels.push({ type: key, price, label: value.label || key.replace(/_/g, ' '), strength: value.strength || 'moderate' });
     }
   });
 
@@ -293,34 +212,25 @@ const ImportantLevels: React.FC<{ analysis?: CryptoAnalysis | null; direction?: 
                 direction === 'SELL' ? [...resistanceLevels, ...supportLevels] :
                 [...resistanceLevels, ...supportLevels];
 
-  if (levels.length === 0) {
-    return (
-      <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3">
-        <div className="mb-2 text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Key Levels</div>
-        <p className="text-xs text-slate-500">No structured levels detected</p>
-      </div>
-    );
-  }
-
-  const strengthColors: Record<string, string> = {
-    strong: 'border-emerald-400/30 bg-emerald-400/5',
-    moderate: 'border-amber-400/30 bg-amber-400/5',
-    weak: 'border-slate-400/30 bg-slate-400/5',
+  const strengthPill: Record<string, string> = {
+    strong: 'cx-pill cx-pill-success',
+    moderate: 'cx-pill cx-pill-warning',
+    weak: 'cx-pill cx-pill-neutral',
   };
 
   return (
-    <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3">
-      <div className="mb-2 text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Key Levels</div>
-      <div className="space-y-1.5">
-        {levels.slice(0, 6).map((level, i) => (
-          <div key={`${level.type}-${i}`} className={`flex items-center justify-between rounded-lg border px-2 py-1.5 ${strengthColors[level.strength]}`}>
-            <span className="text-[10px] text-slate-400">{level.label}</span>
-            <span className="font-mono text-[10px] font-bold text-slate-200">{formatPrice(level.price)}</span>
-          </div>
-        ))}
-      </div>
-      {levels.length > 6 && (
-        <div className="mt-2 text-[10px] text-slate-500">+{levels.length - 6} more levels</div>
+    <div className="cx-card">
+      <div className="cx-eyebrow mb-3">Key Levels</div>
+      {levels.length === 0 ? <p className="cx-meta">No structured levels detected</p> : (
+        <div className="space-y-2">
+          {levels.slice(0, 6).map((level, i) => (
+            <div key={`${level.type}-${i}`} className="flex items-center justify-between cx-bg-card-hover cx-border cx-rounded-lg px-3 py-2" style={{ borderRadius: 'var(--cx-radius-md)' }}>
+              <span className="cx-meta">{level.label}</span>
+              <span className={`cx-mono ${strengthPill[level.strength]}`}>{formatPrice(level.price)}</span>
+            </div>
+          ))}
+          {levels.length > 6 && <div className="cx-meta-faint">+{levels.length - 6} more levels</div>}
+        </div>
       )}
     </div>
   );
@@ -332,9 +242,9 @@ const MomentumVolatility: React.FC<{ analysis?: CryptoAnalysis | null }> = ({ an
 
   if (!momentum && !volatility) {
     return (
-      <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3">
-        <div className="mb-2 text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Momentum & Volatility</div>
-        <p className="text-xs text-slate-500">Data unavailable</p>
+      <div className="cx-card">
+        <div className="cx-eyebrow mb-3">Momentum & Volatility</div>
+        <p className="cx-meta">Data unavailable</p>
       </div>
     );
   }
@@ -344,46 +254,41 @@ const MomentumVolatility: React.FC<{ analysis?: CryptoAnalysis | null }> = ({ an
   const atrValue = volatility?.atr;
   const regime = volatility?.regime || 'unknown';
 
-  const rsiColors: Record<string, string> = {
-    oversold: 'text-emerald-300',
-    overbought: 'text-rose-300',
-    neutral: 'text-slate-300',
-    unknown: 'text-slate-500',
+  const rsiText: Record<string, string> = {
+    oversold: 'var(--cx-status-success-fg)',
+    overbought: 'var(--cx-status-danger-fg)',
+    neutral: 'var(--cx-text)',
+    unknown: 'var(--cx-text-faint)',
   };
-
-  const regimeColors: Record<string, string> = {
-    low: 'bg-amber-400/10 text-amber-300 border-amber-400/20',
-    normal: 'bg-emerald-400/10 text-emerald-300 border-emerald-400/20',
-    high: 'bg-rose-400/10 text-rose-300 border-rose-400/20',
-    unknown: 'bg-slate-400/10 text-slate-400 border-slate-400/20',
+  const regimePill: Record<string, string> = {
+    low: 'cx-pill cx-pill-warning',
+    normal: 'cx-pill cx-pill-success',
+    high: 'cx-pill cx-pill-danger',
+    unknown: 'cx-pill cx-pill-neutral',
   };
 
   return (
-    <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3">
-      <div className="mb-2 text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Momentum & Volatility</div>
+    <div className="cx-card">
+      <div className="cx-eyebrow mb-3">Momentum & Volatility</div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <div className="text-[9px] text-slate-600">RSI (14)</div>
-          <div className={`text-lg font-black ${rsiColors[rsiState]}`}>
+          <div className="cx-meta-faint">RSI (14)</div>
+          <div className="text-xl font-black cx-mono" style={{ color: rsiText[rsiState] }}>
             {rsiValue != null ? rsiValue.toFixed(1) : '—'}
           </div>
-          <div className="text-[10px] text-slate-500 capitalize">{rsiState}</div>
+          <div className="cx-meta-faint capitalize">{rsiState}</div>
         </div>
         <div>
-          <div className="text-[9px] text-slate-600">ATR</div>
-          <div className="text-lg font-black text-slate-200">
-            {atrValue != null ? atrValue.toFixed(5) : '—'}
-          </div>
-          <div className={`inline-block rounded border px-1.5 py-0.5 text-[10px] font-black capitalize ${regimeColors[regime]}`}>
-            {regime} vol
-          </div>
+          <div className="cx-meta-faint">ATR</div>
+          <div className="text-xl font-black cx-mono">{atrValue != null ? atrValue.toFixed(5) : '—'}</div>
+          <span className={`${regimePill[regime]} mt-1 capitalize`}>{regime} vol</span>
         </div>
       </div>
       {momentum?.macd != null && (
-        <div className="mt-2 border-t border-white/[0.06] pt-2">
-          <div className="flex justify-between text-[10px]">
-            <span className="text-slate-500">MACD</span>
-            <span className="text-slate-300">{(momentum.macd || 0).toFixed(4)}</span>
+        <div className="mt-3 cx-border-t pt-3">
+          <div className="flex justify-between cx-meta">
+            <span>MACD</span>
+            <span className="cx-mono cx-text">{(momentum.macd || 0).toFixed(4)}</span>
           </div>
         </div>
       )}
@@ -394,21 +299,20 @@ const MomentumVolatility: React.FC<{ analysis?: CryptoAnalysis | null }> = ({ an
 const EconomicRisk: React.FC<{ calendar?: CalendarGateStatus | null }> = ({ calendar }) => {
   if (!calendar) {
     return (
-      <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3">
-        <div className="mb-2 text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Economic Risk</div>
-        <p className="text-xs text-slate-500">Calendar data unavailable</p>
+      <div className="cx-card">
+        <div className="cx-eyebrow mb-3">Economic Risk</div>
+        <p className="cx-meta">Calendar data unavailable</p>
       </div>
     );
   }
 
-  const statusColors: Record<string, string> = {
-    CLEAR: 'bg-emerald-400/10 text-emerald-300 border-emerald-400/20',
-    CAUTION: 'bg-amber-400/10 text-amber-300 border-amber-400/20',
-    BLOCKED: 'bg-rose-400/10 text-rose-300 border-rose-400/20',
-    POST_NEWS: 'bg-violet-400/10 text-violet-300 border-violet-400/20',
-    UNAVAILABLE: 'bg-slate-400/10 text-slate-400 border-slate-400/20',
+  const variant: Record<string, string> = {
+    CLEAR: 'cx-pill cx-pill-success',
+    CAUTION: 'cx-pill cx-pill-warning',
+    BLOCKED: 'cx-pill cx-pill-danger',
+    POST_NEWS: 'cx-pill cx-pill-info',
+    UNAVAILABLE: 'cx-pill cx-pill-neutral',
   };
-
   const icons: Record<string, React.ReactNode> = {
     CLEAR: <CheckCircle2 className="h-4 w-4" />,
     CAUTION: <AlertTriangle className="h-4 w-4" />,
@@ -418,61 +322,43 @@ const EconomicRisk: React.FC<{ calendar?: CalendarGateStatus | null }> = ({ cale
   };
 
   return (
-    <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3">
-      <div className="mb-2 text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Economic Risk</div>
-      <div className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 ${statusColors[calendar.status] || statusColors.UNAVAILABLE}`}>
+    <div className="cx-card">
+      <div className="cx-eyebrow mb-3">Economic Risk</div>
+      <span className={`${variant[calendar.status] || variant.UNAVAILABLE} gap-2 px-3 py-2`}>
         {icons[calendar.status] || icons.UNAVAILABLE}
-        <span className="text-xs font-black">{calendar.status}</span>
-      </div>
+        <span>{calendar.status}</span>
+      </span>
       {calendar.next_event && (
-        <div className="mt-2 text-[10px] text-slate-400">
+        <div className="cx-meta mt-3">
           <span className="font-bold">{calendar.next_event.title}</span>
-          {calendar.minutes_to_event != null && (
-            <span className="ml-2 text-slate-500">in {calendar.minutes_to_event}m</span>
-          )}
+          {calendar.minutes_to_event != null && <span className="ml-2 cx-text-faint">in {calendar.minutes_to_event}m</span>}
         </div>
       )}
-      {calendar.event && (
-        <div className="mt-1 text-[10px] text-slate-500">
-          Current: {calendar.event.title}
-        </div>
-      )}
+      {calendar.event && <div className="cx-meta-faint mt-1">Current: {calendar.event.title}</div>}
     </div>
   );
 };
 
-const ScenarioBlock: React.FC<{
-  type: 'bullish' | 'bearish';
-  conditions: string[];
-  analysis?: CryptoAnalysis | null;
-}> = ({ type, conditions, analysis }) => {
-  const colors = type === 'bullish'
-    ? { border: 'border-emerald-400/20', bg: 'bg-emerald-400/5', text: 'text-emerald-300', icon: <ArrowUp className="h-4 w-4" /> }
-    : { border: 'border-rose-400/20', bg: 'bg-rose-400/5', text: 'text-rose-300', icon: <ArrowDown className="h-4 w-4" /> };
-
+const ScenarioBlock: React.FC<{ type: 'bullish' | 'bearish'; conditions: string[]; }> = ({ type, conditions }) => {
+  const variant = type === 'bullish' ? 'cx-panel cx-panel-success' : 'cx-panel cx-panel-danger';
+  const icon = type === 'bullish' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />;
   return (
-    <div className={`rounded-xl border ${colors.border} ${colors.bg} p-3`}>
-      <div className={`flex items-center gap-2 ${colors.text} mb-2`}>
-        {colors.icon}
-        <span className="text-[10px] font-black uppercase tracking-[0.14em]">
-          {type === 'bullish' ? 'Bullish Scenario' : 'Bearish Scenario'}
-        </span>
+    <div className={variant}>
+      <div className="flex items-center gap-2 mb-2">
+        {icon}
+        <span className="cx-eyebrow">{type === 'bullish' ? 'Bullish Scenario' : 'Bearish Scenario'}</span>
       </div>
-      <p className="text-xs text-slate-300 mb-2">
-        {type === 'bullish'
-          ? 'What must happen before considering a buy:'
-          : 'What must happen before considering a sell:'}
+      <p className="cx-meta mb-2">
+        {type === 'bullish' ? 'What must happen before considering a buy:' : 'What must happen before considering a sell:'}
       </p>
       <ul className="space-y-1">
         {conditions.map((condition, i) => (
-          <li key={i} className="flex items-start gap-2 text-[10px] text-slate-400">
-            <ChevronRight className="h-3 w-3 mt-0.5 flex-shrink-0 text-slate-500" />
+          <li key={i} className="flex items-start gap-2 cx-meta">
+            <ChevronRight className="h-3 w-3 mt-0.5 flex-shrink-0 cx-text-faint" />
             {condition}
           </li>
         ))}
-        {conditions.length === 0 && (
-          <li className="text-[10px] text-slate-500 italic">No specific conditions defined</li>
-        )}
+        {conditions.length === 0 && <li className="cx-meta-faint italic">No specific conditions defined</li>}
       </ul>
     </div>
   );
@@ -480,12 +366,11 @@ const ScenarioBlock: React.FC<{
 
 const PrimarySetup: React.FC<{ analysis?: CryptoAnalysis | null }> = ({ analysis }) => {
   const plan = analysis?.trade_plan;
-
   if (!plan) {
     return (
-      <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3">
-        <div className="mb-2 text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Primary Setup</div>
-        <p className="text-xs text-slate-500">No trade plan available</p>
+      <div className="cx-card">
+        <div className="cx-eyebrow mb-3">Primary Setup</div>
+        <p className="cx-meta">No trade plan available</p>
       </div>
     );
   }
@@ -495,157 +380,73 @@ const PrimarySetup: React.FC<{ analysis?: CryptoAnalysis | null }> = ({ analysis
     : plan.risk_distance != null
       ? `${plan.risk_distance.toFixed(4)}%`
       : '—';
-
   const rr = plan.net_available_rr ?? plan.available_rr ?? 0;
+  const rrClass = rr >= 2 ? 'cx-pill cx-pill-success' : rr >= 1 ? 'cx-pill cx-pill-warning' : 'cx-pill cx-pill-danger';
 
   return (
-    <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3">
-      <div className="mb-3 text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Primary Setup</div>
-
+    <div className="cx-card-strong">
+      <div className="cx-eyebrow mb-4">Primary Setup</div>
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <div className="text-[9px] text-slate-600 uppercase tracking-wider">Entry Zone</div>
-          <div className="font-mono text-sm font-bold text-slate-200">{formatPrice(plan.entry)}</div>
-        </div>
-        <div>
-          <div className="text-[9px] text-slate-600 uppercase tracking-wider">Invalidation</div>
-          <div className="font-mono text-sm font-bold text-rose-300">{formatPrice(plan.invalidation)}</div>
-        </div>
-        <div>
-          <div className="text-[9px] text-slate-600 uppercase tracking-wider">Stop Loss</div>
-          <div className="font-mono text-sm font-bold text-rose-300">{formatPrice(plan.stop)}</div>
-        </div>
-        <div>
-          <div className="text-[9px] text-slate-600 uppercase tracking-wider">Risk Distance</div>
-          <div className="font-mono text-sm font-bold text-slate-300">{riskDistance}</div>
-        </div>
+        <div><div className="cx-meta-faint">Entry Zone</div><div className="cx-mono text-base font-bold">{formatPrice(plan.entry)}</div></div>
+        <div><div className="cx-meta-faint">Invalidation</div><div className="cx-mono text-base font-bold" style={{ color: 'var(--cx-status-danger-fg)' }}>{formatPrice(plan.invalidation)}</div></div>
+        <div><div className="cx-meta-faint">Stop Loss</div><div className="cx-mono text-base font-bold" style={{ color: 'var(--cx-status-danger-fg)' }}>{formatPrice(plan.stop)}</div></div>
+        <div><div className="cx-meta-faint">Risk Distance</div><div className="cx-mono text-base font-bold">{riskDistance}</div></div>
       </div>
-
-      <div className="mt-3 border-t border-white/[0.06] pt-3">
-        <div className="text-[9px] text-slate-600 uppercase tracking-wider mb-2">Targets</div>
-        <div className="space-y-1.5">
+      <div className="mt-4 cx-border-t pt-4">
+        <div className="cx-eyebrow mb-2">Targets</div>
+        <div className="space-y-2">
           {plan.targets?.slice(0, 3).map((target, i) => (
-            <div key={i} className="flex items-center justify-between rounded-lg bg-black/20 px-2 py-1">
-              <span className="text-[10px] font-bold text-cyan-300">{target.label}</span>
-              <span className="font-mono text-[10px] text-slate-300">{formatPrice(target.price)}</span>
-              <span className="text-[9px] text-slate-500">{target.r_multiple?.toFixed(1)}R</span>
+            <div key={i} className="flex items-center justify-between cx-bg-elev px-3 py-2" style={{ borderRadius: 'var(--cx-radius-md)' }}>
+              <span className="cx-pill cx-pill-info">{target.label}</span>
+              <span className="cx-mono cx-mono">{formatPrice(target.price)}</span>
+              <span className="cx-meta-faint">{target.r_multiple?.toFixed(1)}R</span>
             </div>
           ))}
-          {(!plan.targets || plan.targets.length === 0) && (
-            <div className="text-[10px] text-slate-500">No targets defined</div>
-          )}
+          {(!plan.targets || plan.targets.length === 0) && <div className="cx-meta-faint">No targets defined</div>}
         </div>
       </div>
-
-      <div className="mt-3 border-t border-white/[0.06] pt-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-[9px] text-slate-600 uppercase tracking-wider">Risk:Reward</div>
-            <div className={`font-black ${rr >= 2 ? 'text-emerald-300' : rr >= 1 ? 'text-amber-300' : 'text-rose-300'}`}>
-              {rr > 0 ? `${rr.toFixed(2)}R` : '—'}
-            </div>
-          </div>
-          <div>
-            <div className="text-[9px] text-slate-600 uppercase tracking-wider">Account Risk</div>
-            <div className="font-black text-slate-300">{Number(plan.account_risk_percent || 0).toFixed(2)}%</div>
-          </div>
-          {plan.atr != null && (
-            <div>
-              <div className="text-[9px] text-slate-600 uppercase tracking-wider">ATR</div>
-              <div className="font-mono text-sm font-bold text-slate-300">{plan.atr.toFixed(5)}</div>
-            </div>
-          )}
-        </div>
+      <div className="mt-4 cx-border-t pt-4 flex items-center justify-between gap-4">
+        <div><div className="cx-meta-faint">Risk:Reward</div><div className={rrClass}>{rr > 0 ? `${rr.toFixed(2)}R` : '—'}</div></div>
+        <div><div className="cx-meta-faint">Account Risk</div><div className="font-black cx-text">{Number(plan.account_risk_percent || 0).toFixed(2)}%</div></div>
+        {plan.atr != null && <div><div className="cx-meta-faint">ATR</div><div className="cx-mono text-base font-bold">{plan.atr.toFixed(5)}</div></div>}
       </div>
     </div>
   );
 };
 
-const ReadinessChecklist: React.FC<{
-  analysis?: CryptoAnalysis | null;
-  direction?: 'BUY' | 'SELL' | 'NEUTRAL';
-}> = ({ analysis, direction }) => {
+const ReadinessChecklist: React.FC<{ analysis?: CryptoAnalysis | null; direction?: 'BUY' | 'SELL' | 'NEUTRAL' }> = ({ analysis, direction }) => {
   const timing = analysis?.trade_timing;
   const plan = analysis?.trade_plan;
   const calendar = analysis?.economic_calendar;
   const readiness = analysis?.decision_quality?.execution_readiness;
 
-  const checks: ReadinessCheck[] = [];
-
-  checks.push({
-    id: 'timing',
-    label: 'Timing confirmed',
-    passed: timing?.status === 'READY',
-    detail: timing?.status === 'READY' ? 'Entry timing is favorable' : timing?.wait_for?.[0]?.replace(/_/g, ' ') || timing?.avoid_reasons?.[0],
-  });
-
-  checks.push({
-    id: 'direction',
-    label: `${direction} direction aligned`,
-    passed: analysis?.direction === direction && direction !== 'NEUTRAL',
-    detail: `Market bias: ${analysis?.direction || 'unknown'}`,
-  });
-
-  checks.push({
-    id: 'calendar',
-    label: 'Calendar clear',
-    passed: calendar?.status === 'CLEAR',
-    detail: calendar?.next_event?.title || `Status: ${calendar?.status || 'unavailable'}`,
-  });
-
-  checks.push({
-    id: 'level',
-    label: 'At key level',
-    passed: timing?.location_ready === true,
-    detail: timing?.nearest_sr ? `Near ${formatPrice(timing.nearest_sr.price)}` : 'Not at significant level',
-  });
-
-  checks.push({
-    id: 'score',
-    label: 'Confluence sufficient',
-    passed: (analysis?.total_score || 0) >= 60,
-    detail: `Score: ${analysis?.total_score || 0}/100`,
-  });
-
-  checks.push({
-    id: 'plan',
-    label: 'Trade plan valid',
-    passed: plan?.status === 'STRONG' || plan?.status === 'VALID',
-    detail: plan?.status || 'No plan',
-  });
-
-  const passedCount = checks.filter((c) => c.passed).length;
-  const totalCount = checks.length;
+  const checks: ReadinessCheck[] = [
+    { id: 'timing', label: 'Timing confirmed', passed: timing?.status === 'READY', detail: timing?.status === 'READY' ? 'Entry timing is favorable' : timing?.wait_for?.[0]?.replace(/_/g, ' ') || timing?.avoid_reasons?.[0] },
+    { id: 'direction', label: `${direction} direction aligned`, passed: analysis?.direction === direction && direction !== 'NEUTRAL', detail: `Market bias: ${analysis?.direction || 'unknown'}` },
+    { id: 'calendar', label: 'Calendar clear', passed: calendar?.status === 'CLEAR', detail: calendar?.next_event?.title || `Status: ${calendar?.status || 'unavailable'}` },
+    { id: 'level', label: 'At key level', passed: timing?.location_ready === true, detail: timing?.nearest_sr ? `Near ${formatPrice(timing.nearest_sr.price)}` : 'Not at significant level' },
+    { id: 'score', label: 'Confluence sufficient', passed: (analysis?.total_score || 0) >= 60, detail: `Score: ${analysis?.total_score || 0}/100` },
+    { id: 'plan', label: 'Trade plan valid', passed: plan?.status === 'STRONG' || plan?.status === 'VALID', detail: plan?.status || 'No plan' },
+  ];
 
   return (
-    <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Readiness Checklist</div>
-        <div className="text-xs font-black text-cyan-300">{readiness ?? 0}% ready</div>
+    <div className="cx-card">
+      <div className="flex items-center justify-between mb-3">
+        <div className="cx-eyebrow">Readiness Checklist</div>
+        <div className="text-base font-black" style={{ color: 'var(--cx-status-success-fg)' }}>{readiness ?? 0}% ready</div>
       </div>
-
-      <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
-        <div
-          className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-emerald-400"
-          style={{ width: `${readiness ?? 0}%` }}
-        />
+      <div className="cx-progress mb-4">
+        <div className="cx-progress-bar" style={{ width: `${readiness ?? 0}%` }} />
       </div>
-
       <div className="space-y-2">
         {checks.map((check) => (
           <div key={check.id} className="flex items-start gap-2">
-            {check.passed ? (
-              <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-400" />
-            ) : (
-              <XCircle className="h-4 w-4 flex-shrink-0 text-slate-500" />
-            )}
+            {check.passed
+              ? <CheckCircle2 className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--cx-status-success-fg)' }} />
+              : <XCircle className="h-4 w-4 flex-shrink-0 cx-text-faint" />}
             <div className="min-w-0 flex-1">
-              <div className={`text-xs font-medium ${check.passed ? 'text-slate-200' : 'text-slate-500'}`}>
-                {check.label}
-              </div>
-              {check.detail && (
-                <div className="text-[10px] text-slate-500 truncate">{check.detail}</div>
-              )}
+              <div className={`text-sm font-medium ${check.passed ? 'cx-text' : 'cx-text-muted'}`}>{check.label}</div>
+              {check.detail && <div className="cx-meta-faint truncate">{check.detail}</div>}
             </div>
           </div>
         ))}
@@ -658,66 +459,46 @@ const MissingConditions: React.FC<{ analysis?: CryptoAnalysis | null }> = ({ ana
   const timing = analysis?.trade_timing;
   const plan = analysis?.trade_plan;
 
-  const missing: { condition: string; detail: string; trigger?: Trigger }[] = [];
-
-  if (timing?.wait_for?.length) {
-    timing.wait_for.forEach((w) => {
-      missing.push({ condition: w.replace(/_/g, ' '), detail: 'Required before entry' });
-    });
-  }
-
-  if (plan?.blocking_reasons?.length) {
-    plan.blocking_reasons.forEach((b) => {
-      missing.push({ condition: b.message || b.code, detail: `Severity: ${b.severity}` });
-    });
-  }
-
-  if (timing?.status === 'AVOID' && timing.avoid_reasons?.length) {
-    timing.avoid_reasons.forEach((r) => {
-      missing.push({ condition: 'Avoid reason', detail: r });
-    });
-  }
+  const missing: { condition: string; detail: string }[] = [];
+  if (timing?.wait_for?.length) timing.wait_for.forEach((w) => missing.push({ condition: w.replace(/_/g, ' '), detail: 'Required before entry' }));
+  if (plan?.blocking_reasons?.length) plan.blocking_reasons.forEach((b) => missing.push({ condition: b.message || b.code, detail: `Severity: ${b.severity}` }));
+  if (timing?.status === 'AVOID' && timing.avoid_reasons?.length) timing.avoid_reasons.forEach((r) => missing.push({ condition: 'Avoid reason', detail: r }));
 
   if (missing.length === 0) {
     return (
-      <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-3">
-        <div className="flex items-center gap-2 text-emerald-300">
-          <CheckCircle2 className="h-4 w-4" />
-          <span className="text-xs font-black">All conditions met</span>
+      <div className="cx-panel cx-panel-success flex items-center gap-2">
+        <CheckCircle2 className="h-4 w-4" />
+        <div>
+          <div className="font-black">All conditions met</div>
+          <div className="cx-meta-faint">Ready to execute when entry triggers</div>
         </div>
-        <p className="mt-1 text-[10px] text-slate-500">Ready to execute when entry triggers</p>
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3">
-      <div className="flex items-center gap-2 text-amber-300">
+    <div className="cx-panel cx-panel-warning">
+      <div className="flex items-center gap-2">
         <AlertTriangle className="h-4 w-4" />
-        <span className="text-xs font-black">Missing conditions ({missing.length})</span>
+        <span className="font-black">Missing conditions ({missing.length})</span>
       </div>
       <div className="mt-2 space-y-2">
         {missing.slice(0, 5).map((m, i) => (
-          <div key={i} className="flex items-start gap-2 text-[10px]">
-            <ChevronRight className="h-3 w-3 mt-0.5 flex-shrink-0 text-amber-400" />
+          <div key={i} className="flex items-start gap-2 cx-meta">
+            <ChevronRight className="h-3 w-3 mt-0.5 flex-shrink-0" />
             <div>
-              <div className="text-slate-300">{m.condition}</div>
-              <div className="text-slate-500">{m.detail}</div>
+              <div className="cx-text">{m.condition}</div>
+              <div className="cx-meta-faint">{m.detail}</div>
             </div>
           </div>
         ))}
-        {missing.length > 5 && (
-          <div className="text-[10px] text-slate-500">+{missing.length - 5} more</div>
-        )}
+        {missing.length > 5 && <div className="cx-meta-faint">+{missing.length - 5} more</div>}
       </div>
     </div>
   );
 };
 
-const PlainLanguageConclusion: React.FC<{
-  analysis?: CryptoAnalysis | null;
-  readinessPct: number;
-}> = ({ analysis, readinessPct }) => {
+const PlainLanguageConclusion: React.FC<{ analysis?: CryptoAnalysis | null; readinessPct: number }> = ({ analysis, readinessPct }) => {
   const direction = analysis?.direction || 'NEUTRAL';
   const timing = analysis?.trade_timing;
   const plan = analysis?.trade_plan;
@@ -725,79 +506,58 @@ const PlainLanguageConclusion: React.FC<{
 
   if (!analysis) {
     return (
-      <div className="rounded-xl border border-white/[0.08] bg-[#090d18] p-4">
-        <p className="text-sm text-slate-400">Analysis data unavailable</p>
-      </div>
+      <div className="cx-card"><p className="cx-meta">Analysis data unavailable</p></div>
     );
   }
 
   let conclusion = '';
   let subtext = '';
+  let variant: string;
+  let icon: React.ReactNode;
 
   if (timing?.status === 'AVOID') {
     const avoidReason = timing.avoid_reasons?.[0] || 'unstable volatility or market conditions';
     conclusion = `Do not enter. ${avoidReason}.`;
     subtext = 'Wait for conditions to stabilize before considering this setup.';
+    variant = 'cx-panel cx-panel-danger';
+    icon = <Pause className="h-5 w-5" />;
   } else if (timing?.status === 'WAIT') {
     const waitReason = timing.wait_for?.[0]?.replace(/_/g, ' ') || 'required confirmations';
     conclusion = `${direction === 'BUY' ? 'Bullish' : direction === 'SELL' ? 'Bearish' : 'Market'} structure exists, but do not enter. ${waitReason}.`;
-    subtext = readinessPct >= 70
-      ? 'Setup is close to qualifying. Alert me when readiness reaches 100%.'
-      : 'Multiple conditions still missing. Monitor for progress.';
+    subtext = readinessPct >= 70 ? 'Setup is close to qualifying. Alert me when readiness reaches 100%.' : 'Multiple conditions still missing. Monitor for progress.';
+    variant = 'cx-panel cx-panel-warning';
+    icon = <Eye className="h-5 w-5" />;
   } else if (timing?.status === 'READY' && plan?.eligible) {
     conclusion = `${direction === 'BUY' ? 'Bullish' : direction === 'SELL' ? 'Bearish' : 'Market'} setup is live. Entry at ${formatPrice(plan.entry)}.`;
-    subtext = plan.invalidation
-      ? `Invalidate if price closes ${direction === 'BUY' ? 'below' : 'above'} ${formatPrice(plan.invalidation)}.`
-      : 'Plan is active and eligible for execution.';
+    subtext = plan.invalidation ? `Invalidate if price closes ${direction === 'BUY' ? 'below' : 'above'} ${formatPrice(plan.invalidation)}.` : 'Plan is active and eligible for execution.';
+    variant = 'cx-panel cx-panel-success';
+    icon = <Play className="h-5 w-5" />;
   } else {
     conclusion = scenario || 'No active signal. Monitor for setups forming.';
     subtext = 'The scanner will alert you when conditions become favorable.';
+    variant = 'cx-panel';
+    icon = <Eye className="h-5 w-5" />;
   }
 
   return (
-    <div className={`rounded-xl border p-4 ${
-      timing?.status === 'READY' && plan?.eligible
-        ? 'border-emerald-400/30 bg-emerald-400/5'
-        : timing?.status === 'AVOID'
-          ? 'border-rose-400/30 bg-rose-400/5'
-          : 'border-amber-400/30 bg-amber-400/5'
-    }`}>
+    <div className={variant}>
       <div className="flex items-start gap-3">
-        <div className={`mt-0.5 rounded-lg p-2 ${
-          timing?.status === 'READY' && plan?.eligible
-            ? 'bg-emerald-400/10 text-emerald-300'
-            : timing?.status === 'AVOID'
-              ? 'bg-rose-400/10 text-rose-300'
-              : 'bg-amber-400/10 text-amber-300'
-        }`}>
-          {timing?.status === 'READY' && plan?.eligible ? (
-            <Play className="h-5 w-5" />
-          ) : timing?.status === 'AVOID' ? (
-            <Pause className="h-5 w-5" />
-          ) : (
-            <Eye className="h-5 w-5" />
-          )}
-        </div>
+        <div className="mt-0.5 cx-pill cx-pill-info p-2">{icon}</div>
         <div className="flex-1">
-          <p className="text-sm font-semibold text-slate-200">{conclusion}</p>
-          <p className="mt-1 text-xs text-slate-400">{subtext}</p>
+          <p className="text-base font-bold cx-text-strong">{conclusion}</p>
+          <p className="mt-1 cx-meta">{subtext}</p>
         </div>
       </div>
     </div>
   );
 };
 
-const AlertButton: React.FC<{
-  analysis?: CryptoAnalysis | null;
-  symbol: string;
-}> = ({ analysis, symbol }) => {
-  return (
-    <div className="flex items-center gap-2 rounded-xl border border-cyan-400/20 bg-cyan-400/5 px-4 py-3 text-xs font-bold text-slate-400">
-      <Bell className="h-4 w-4" />
-      Alert for {symbol} — coming soon
-    </div>
-  );
-};
+const AlertButton: React.FC<{ symbol: string }> = ({ symbol }) => (
+  <div className="cx-panel cx-panel-info flex items-center gap-2 text-sm font-bold">
+    <Bell className="h-4 w-4" />
+    Alert for {symbol} — coming soon
+  </div>
+);
 
 const MarketAnalysis: React.FC = () => {
   const { pair: routePair } = useParams<{ pair: string }>();
@@ -818,9 +578,7 @@ const MarketAnalysis: React.FC = () => {
     bwtsApi.pairs().then(({ pairs: p }) => setPairs(p)).catch(() => setPairs([]));
   }, []);
 
-  const handleSymbolChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    navigate(`/analysis/${e.target.value}`);
-  };
+  const handleSymbolChange = (e: React.ChangeEvent<HTMLSelectElement>) => navigate(`/analysis/${e.target.value}`);
 
   const load = useCallback(async () => {
     const currentLoadId = ++loadIdRef.current;
@@ -836,9 +594,7 @@ const MarketAnalysis: React.FC = () => {
       setCalendar(calendarData);
       setLastUpdated(new Date());
       setRefreshFailed(false);
-      if (analysisData.data_quality?.closed_bar_time) {
-        setCandleTime(new Date(analysisData.data_quality.closed_bar_time * 1000));
-      }
+      if (analysisData.data_quality?.closed_bar_time) setCandleTime(new Date(analysisData.data_quality.closed_bar_time * 1000));
     } catch (e: any) {
       if (currentLoadId === loadIdRef.current) {
         setError(e?.message || 'Failed to load analysis');
@@ -859,52 +615,11 @@ const MarketAnalysis: React.FC = () => {
   const marketState = detectMarketState(analysis);
   const timing = analysis?.trade_timing;
 
-  const readinessChecks: ReadinessCheck[] = [
-    {
-      id: 'timing',
-      label: 'Timing confirmed',
-      passed: timing?.status === 'READY',
-      detail: timing?.status === 'READY' ? 'Entry timing is favorable' : timing?.wait_for?.[0]?.replace(/_/g, ' ') || timing?.avoid_reasons?.[0],
-    },
-    {
-      id: 'direction',
-      label: `${direction} direction aligned`,
-      passed: analysis?.direction === direction && direction !== 'NEUTRAL',
-      detail: `Market bias: ${analysis?.direction || 'unknown'}`,
-    },
-    {
-      id: 'calendar',
-      label: 'Calendar clear',
-      passed: calendar?.status === 'CLEAR',
-      detail: calendar?.next_event?.title || `Status: ${calendar?.status || 'unavailable'}`,
-    },
-    {
-      id: 'level',
-      label: 'At key level',
-      passed: timing?.location_ready === true,
-      detail: timing?.nearest_sr ? `Near ${formatPrice(timing.nearest_sr.price)}` : 'Not at significant level',
-    },
-    {
-      id: 'score',
-      label: 'Confluence sufficient',
-      passed: (analysis?.total_score || 0) >= 60,
-      detail: `Score: ${analysis?.total_score || 0}/100`,
-    },
-    {
-      id: 'plan',
-      label: 'Trade plan valid',
-      passed: analysis?.trade_plan?.status === 'STRONG' || analysis?.trade_plan?.status === 'VALID',
-      detail: analysis?.trade_plan?.status || 'No plan',
-    },
-  ];
-
-  const passedCount = readinessChecks.filter((c) => c.passed).length;
-  const readinessPct = analysis?.decision_quality?.execution_readiness ?? Math.round((passedCount / readinessChecks.length) * 100);
+  const readinessPct = analysis?.decision_quality?.execution_readiness ?? 0;
 
   const bullishConditions = analysis?.scenarios?.primary
     ? [`Price confirms ${analysis.scenarios.primary}`, '1H candle closes in direction', 'Entry zone reaches price']
     : [];
-
   const bearishConditions = analysis?.scenarios?.primary
     ? [`Bearish scenario: ${analysis.scenarios.primary}`, 'Structure confirmation on lower timeframes', 'Invalidation holds']
     : [];
@@ -912,7 +627,7 @@ const MarketAnalysis: React.FC = () => {
   if (loading && !analysis) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="flex items-center gap-3 text-slate-400">
+        <div className="flex items-center gap-3 cx-text-muted">
           <RefreshCw className="h-5 w-5 animate-spin" />
           <span>Loading market analysis...</span>
         </div>
@@ -922,14 +637,12 @@ const MarketAnalysis: React.FC = () => {
 
   if (error && !analysis) {
     return (
-      <div className="rounded-2xl border border-rose-400/30 bg-rose-400/10 p-6">
-        <div className="flex items-center gap-3 text-rose-300">
+      <div className="cx-panel cx-panel-danger">
+        <div className="flex items-center gap-3" style={{ color: 'var(--cx-status-danger-fg)' }}>
           <AlertCircle className="h-5 w-5" />
           <span className="font-bold">{error}</span>
         </div>
-        <button onClick={load} className="mt-4 rounded-lg bg-rose-400/20 px-4 py-2 text-sm font-bold text-rose-300">
-          Retry
-        </button>
+        <button onClick={load} className="cx-btn cx-btn-secondary mt-4">Retry</button>
       </div>
     );
   }
@@ -939,60 +652,30 @@ const MarketAnalysis: React.FC = () => {
       <section className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <select
-              value={symbol}
-              onChange={handleSymbolChange}
-              className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xl font-black text-white hover:bg-white/10"
-            >
-              {pairs.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
+            <select value={symbol} onChange={handleSymbolChange} className="cx-input px-3 py-2 text-xl font-black">
+              {pairs.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
             <DirectionBadge direction={direction} />
             <StatusBadge status={analysis?.trade_plan?.status || analysis?.trade_timing?.status || 'WAIT'} />
           </div>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="cx-meta mt-1">
             Market analysis{refreshFailed ? ' · Refresh failed' : candleTime ? ` · Data from ${candleTime.toLocaleTimeString()}` : lastUpdated ? ` · Updated ${lastUpdated.toLocaleTimeString()}` : ''}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Link
-            to={`/tradingview?symbol=${symbol}`}
-            className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-4 py-2.5 text-xs font-bold text-slate-300 hover:bg-white/[0.08]"
-          >
-            <Crosshair className="h-4 w-4" />
-            View chart
+          <Link to={`/tradingview?symbol=${symbol}`} className="cx-btn cx-btn-secondary">
+            <Crosshair className="h-4 w-4" /> View chart
           </Link>
-          <button
-            onClick={load}
-            disabled={loading}
-            className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-4 py-2.5 text-xs font-bold text-slate-300 hover:bg-white/[0.08] disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
+          <button onClick={load} disabled={loading} className="cx-btn cx-btn-secondary disabled:opacity-50">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
           </button>
         </div>
       </section>
 
       <section className="grid gap-4 md:grid-cols-3">
-        <MetricBar
-          label="Market Bias"
-          value={analysis?.decision_quality?.market_bias_confidence ?? analysis?.market_context?.alignment_score ?? 0}
-          description={`Direction: ${direction}`}
-          accent={direction === 'BUY' ? 'emerald' : direction === 'SELL' ? 'rose' : 'violet'}
-        />
-        <MetricBar
-          label="Setup Quality"
-          value={analysis?.decision_quality?.setup_quality ?? analysis?.confluence_score ?? analysis?.total_score ?? 0}
-          description={`${analysis?.confidence_tier || 'developing'} evidence`}
-          accent="cyan"
-        />
-        <MetricBar
-          label="Execution Readiness"
-          value={readinessPct}
-          description={timing?.status === 'READY' ? 'Ready to enter' : timing?.status === 'AVOID' ? 'Avoid entry' : 'Waiting for conditions'}
-          accent={timing?.status === 'READY' ? 'emerald' : timing?.status === 'AVOID' ? 'rose' : 'amber'}
-        />
+        <MetricBar label="Market Bias" value={analysis?.decision_quality?.market_bias_confidence ?? analysis?.market_context?.alignment_score ?? 0} description={`Direction: ${direction}`} accent={direction === 'BUY' ? 'emerald' : direction === 'SELL' ? 'rose' : 'violet'} />
+        <MetricBar label="Setup Quality" value={analysis?.decision_quality?.setup_quality ?? analysis?.confluence_score ?? analysis?.total_score ?? 0} description={`${analysis?.confidence_tier || 'developing'} evidence`} accent="cyan" />
+        <MetricBar label="Execution Readiness" value={readinessPct} description={timing?.status === 'READY' ? 'Ready to enter' : timing?.status === 'AVOID' ? 'Avoid entry' : 'Waiting for conditions'} accent={timing?.status === 'READY' ? 'emerald' : timing?.status === 'AVOID' ? 'rose' : 'amber'} />
       </section>
 
       <PlainLanguageConclusion analysis={analysis} readinessPct={readinessPct} />
@@ -1013,8 +696,8 @@ const MarketAnalysis: React.FC = () => {
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <ScenarioBlock type="bullish" conditions={bullishConditions} analysis={analysis} />
-        <ScenarioBlock type="bearish" conditions={bearishConditions} analysis={analysis} />
+        <ScenarioBlock type="bullish" conditions={bullishConditions} />
+        <ScenarioBlock type="bearish" conditions={bearishConditions} />
       </section>
 
       <PrimarySetup analysis={analysis} />
@@ -1022,16 +705,16 @@ const MarketAnalysis: React.FC = () => {
       <MissingConditions analysis={analysis} />
 
       <section className="flex flex-wrap items-center gap-3">
-        <AlertButton analysis={analysis} symbol={symbol} />
+        <AlertButton symbol={symbol} />
         {analysis?.trade_plan?.triggers?.slice(0, 2).map((trigger, i) => (
-          <div key={i} className="flex items-center gap-2 rounded-lg border border-violet-400/20 bg-violet-400/5 px-3 py-2 text-xs">
-            <Volume2 className="h-3.5 w-3.5 text-violet-300" />
-            <span className="text-slate-300">{trigger.humanReadable || trigger.type}</span>
+          <div key={i} className="cx-panel cx-panel-info flex items-center gap-2 text-xs">
+            <Volume2 className="h-3.5 w-3.5" />
+            <span>{trigger.humanReadable || trigger.type}</span>
           </div>
         ))}
       </section>
 
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-1 text-[11px] text-slate-600">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-1 cx-meta-faint">
         <span>Decision support only — not financial advice.</span>
         {analysis?.version && <span>Engine V{analysis.version}</span>}
         {lastUpdated && <span>Analysis {lastUpdated.toLocaleString()}</span>}

@@ -79,7 +79,7 @@ const PricingSection: React.FC<PricingSectionProps> = ({ defaultCadence = 'month
           <h2 className="mt-4 text-4xl font-black tracking-[-0.04em] sm:text-6xl">
             Start with a free demo. Upgrade when you're ready.
           </h2>
-          <p className="mx-auto mt-5 max-w-2xl text-lg text-slate-400">
+          <p className="mx-auto mt-5 max-w-2xl text-lg cx-text-muted">
             Demo accounts explore the live workspace with demo data. Pro unlocks the full
             multi-asset scanner, Guarded Signals feed, streaming charts, and journal.
           </p>
@@ -105,19 +105,19 @@ const PricingSection: React.FC<PricingSectionProps> = ({ defaultCadence = 'month
           </div>
         )}
         {counter?.at_cap && (
-          <div className="mx-auto mt-10 max-w-3xl rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-center text-slate-300">
+          <div className="mx-auto mt-10 max-w-3xl rounded-2xl border cx-border-strong bg-white/5 px-5 py-4 text-center cx-text-muted">
             Founding Member spots are filled. Pro is still available.
           </div>
         )}
 
-        <div className="mx-auto mt-10 flex max-w-md items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-1.5 backdrop-blur">
+        <div className="mx-auto mt-10 flex max-w-md items-center justify-center gap-3 rounded-2xl border cx-border-strong bg-white/[0.03] p-1.5 backdrop-blur">
           <button
             type="button"
             onClick={() => setCadence('monthly')}
             className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition ${
               cadence === 'monthly'
                 ? 'bg-gradient-to-r from-cyan-400 to-violet-500 text-[#05070d]'
-                : 'text-slate-300 hover:text-white'
+                : 'cx-text-muted hover:cx-text-strong'
             }`}
           >
             Monthly
@@ -128,7 +128,7 @@ const PricingSection: React.FC<PricingSectionProps> = ({ defaultCadence = 'month
             className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition ${
               cadence === 'annual'
                 ? 'bg-gradient-to-r from-cyan-400 to-violet-500 text-[#05070d]'
-                : 'text-slate-300 hover:text-white'
+                : 'cx-text-muted hover:cx-text-strong'
             }`}
           >
             Annual
@@ -220,20 +220,20 @@ const PricingSection: React.FC<PricingSectionProps> = ({ defaultCadence = 'month
         </div>
 
         <div className="mx-auto mt-16 grid max-w-4xl gap-4 lg:grid-cols-1">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-center text-slate-300">
+          <div className="rounded-2xl border cx-border-strong bg-white/[0.03] p-6 text-center cx-text-muted">
             <div className="flex items-center justify-center gap-2 text-sm font-bold text-cyan-300">
               <Sparkles className="h-4 w-4" /> CONFLUENCEX ELITE — COMING SOON
             </div>
             <p className="mt-2 text-base">
               Advanced alerts, calibrated performance stats, expanded markets, and priority support.
             </p>
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs cx-text-faint">
               Not yet purchasable. Joining the Founding Member and Pro lists will be notified when Elite opens.
             </p>
           </div>
         </div>
 
-        <p className="mx-auto mt-10 max-w-3xl text-center text-xs text-slate-500">
+        <p className="mx-auto mt-10 max-w-3xl text-center text-xs cx-text-faint">
           ConfluenceX provides read-only market intelligence and decision support. It does not
           provide personalized financial advice or guarantee trading results.
         </p>
@@ -266,15 +266,15 @@ const PlanCard: React.FC<PlanCardProps> = ({
 }) => {
   const accentRing = highlight
     ? 'border-cyan-400/40 shadow-[0_0_60px_rgba(34,211,238,0.18)]'
-    : 'border-white/10';
+    : 'cx-border-strong';
   const accentBg = highlight
     ? 'bg-gradient-to-br from-cyan-400/[0.10] via-violet-500/[0.08] to-fuchsia-500/[0.10]'
     : 'bg-white/[0.02]';
   const ctaClass = (() => {
-    if (empty) return 'border border-white/10 bg-white/5 text-slate-400 cursor-not-allowed';
+    if (empty) return 'border cx-border-strong bg-white/5 cx-text-muted cursor-not-allowed';
     if (accent === 'amber') return 'bg-gradient-to-r from-amber-300 to-amber-500 text-[#05070d] hover:brightness-110';
     if (accent === 'violet') return 'bg-gradient-to-r from-cyan-400 to-violet-500 text-[#05070d] hover:-translate-y-0.5';
-    return 'border border-white/15 bg-white/5 text-white hover:bg-white/10';
+    return 'border border-white/15 bg-white/5 cx-text-strong hover:bg-white/10';
   })();
 
   return (
@@ -292,14 +292,14 @@ const PlanCard: React.FC<PlanCardProps> = ({
         {accent === 'amber' && <Crown className="h-5 w-5 text-amber-300" />}
         {accent === 'violet' && <Star className="h-5 w-5 text-violet-300" />}
       </div>
-      <p className="mt-2 text-sm text-slate-400">{tagline}</p>
+      <p className="mt-2 text-sm cx-text-muted">{tagline}</p>
       <div className="mt-6">
         <div className="text-4xl font-black tracking-tight">{price}</div>
-        <div className="mt-1 text-xs text-slate-500">{cadence}</div>
+        <div className="mt-1 text-xs cx-text-faint">{cadence}</div>
       </div>
       <ul className="mt-6 space-y-3 text-sm">
         {features.map((f) => (
-          <li key={f} className="flex items-start gap-2 text-slate-300">
+          <li key={f} className="flex items-start gap-2 cx-text-muted">
             <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-cyan-400/10 text-cyan-300">
               <Check className="h-3 w-3" />
             </span>
@@ -317,7 +317,7 @@ const PlanCard: React.FC<PlanCardProps> = ({
         {busy ? 'Redirecting to Stripe…' : cta}
       </button>
       {ctaHint && (
-        <p className="mt-2 text-center text-[11px] text-slate-500">{ctaHint}</p>
+        <p className="mt-2 text-center text-[11px] cx-text-faint">{ctaHint}</p>
       )}
     </div>
   );

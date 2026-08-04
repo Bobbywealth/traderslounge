@@ -77,17 +77,17 @@ const BrokerSetup: React.FC<BrokerSetupProps> = ({ isOpen, onClose }) => {
               <Settings className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              <h3 className="text-lg font-semibold cx-text-strong dark:cx-text-strong">
                 {config.displayName} Setup
               </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
+              <p className="text-sm text-gray-600 dark:cx-text-faint">
                 Configure your {config.displayName} connection
               </p>
             </div>
           </div>
           <button
             onClick={() => setSelectedBroker(null)}
-            className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-200"
+            className="p-2 cx-text-faint hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-200"
           >
             <X className="w-5 h-5" />
           </button>
@@ -128,7 +128,7 @@ const BrokerSetup: React.FC<BrokerSetupProps> = ({ isOpen, onClose }) => {
                 onChange={() => setIsDemo(true)}
                 className="w-4 h-4 text-emerald-600 focus:ring-emerald-500"
               />
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Demo Account</span>
+              <span className="text-sm font-medium cx-text-muted dark:text-gray-300">Demo Account</span>
             </label>
             <label className="flex items-center space-x-2">
               <input
@@ -138,13 +138,13 @@ const BrokerSetup: React.FC<BrokerSetupProps> = ({ isOpen, onClose }) => {
                 onChange={() => setIsDemo(false)}
                 className="w-4 h-4 text-emerald-600 focus:ring-emerald-500"
               />
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Live Account</span>
+              <span className="text-sm font-medium cx-text-muted dark:text-gray-300">Live Account</span>
             </label>
           </div>
 
           {config.fields.map((field) => (
             <div key={field.key}>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label className="block text-sm font-medium cx-text-muted dark:text-gray-300 mb-2">
                 {field.label}
                 {field.required && <span className="text-red-500 ml-1">*</span>}
               </label>
@@ -154,7 +154,7 @@ const BrokerSetup: React.FC<BrokerSetupProps> = ({ isOpen, onClose }) => {
                   value={formData[field.key] || ''}
                   onChange={(e) => handleInputChange(field.key, e.target.value)}
                   required={field.required}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 cx-text-strong dark:cx-text-strong focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 >
                   <option value="">Select {field.label}</option>
                   {field.options?.map((option) => (
@@ -174,13 +174,13 @@ const BrokerSetup: React.FC<BrokerSetupProps> = ({ isOpen, onClose }) => {
                     pattern={field.validation?.pattern}
                     minLength={field.validation?.minLength}
                     maxLength={field.validation?.maxLength}
-                    className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 cx-text-strong dark:cx-text-strong focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                   />
                   {field.type === 'password' && (
                     <button
                       type="button"
                       onClick={() => togglePasswordVisibility(field.key)}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 cx-text-faint hover:text-gray-600 dark:hover:text-gray-300"
                     >
                       {showPasswords[field.key] ? (
                         <EyeOff className="w-4 h-4" />
@@ -198,14 +198,14 @@ const BrokerSetup: React.FC<BrokerSetupProps> = ({ isOpen, onClose }) => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex-1 bg-emerald-500 text-white py-2 px-4 rounded-lg font-medium hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+              className="flex-1 bg-emerald-500 cx-text-strong py-2 px-4 rounded-lg font-medium hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
             >
               {isSubmitting ? 'Adding...' : 'Add Broker Account'}
             </button>
             <button
               type="button"
               onClick={() => setSelectedBroker(null)}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200"
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 cx-text-muted dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200"
             >
               Cancel
             </button>
@@ -218,12 +218,12 @@ const BrokerSetup: React.FC<BrokerSetupProps> = ({ isOpen, onClose }) => {
   const renderBrokerList = () => (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+        <h3 className="text-lg font-semibold cx-text-strong dark:cx-text-strong">
           Broker Connections
         </h3>
         <button
           onClick={onClose}
-          className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-200"
+          className="p-2 cx-text-faint hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-200"
         >
           <X className="w-5 h-5" />
         </button>
@@ -231,7 +231,7 @@ const BrokerSetup: React.FC<BrokerSetupProps> = ({ isOpen, onClose }) => {
 
       {credentials.length > 0 && (
         <div className="space-y-3">
-          <h4 className="font-medium text-gray-900 dark:text-white">Connected Accounts</h4>
+          <h4 className="font-medium cx-text-strong dark:cx-text-strong">Connected Accounts</h4>
           {credentials.map((cred) => {
             const status = connectionStatus[cred.id];
             const config = BROKER_CONFIGS[cred.brokerType];
@@ -244,10 +244,10 @@ const BrokerSetup: React.FC<BrokerSetupProps> = ({ isOpen, onClose }) => {
                       status?.isConnected ? 'bg-emerald-500' : 'bg-red-500'
                     }`} />
                     <div>
-                      <h5 className="font-medium text-gray-900 dark:text-white">
+                      <h5 className="font-medium cx-text-strong dark:cx-text-strong">
                         {cred.name}
                       </h5>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                      <p className="text-sm text-gray-600 dark:cx-text-faint">
                         {config.displayName} • {cred.isDemo ? 'Demo' : 'Live'}
                       </p>
                     </div>
@@ -256,7 +256,7 @@ const BrokerSetup: React.FC<BrokerSetupProps> = ({ isOpen, onClose }) => {
                     <button
                       onClick={() => handleTestConnection(cred.id)}
                       disabled={isLoading}
-                      className="p-2 text-gray-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors duration-200"
+                      className="p-2 cx-text-faint hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors duration-200"
                       title="Test Connection"
                     >
                       {status?.isConnected ? (
@@ -268,14 +268,14 @@ const BrokerSetup: React.FC<BrokerSetupProps> = ({ isOpen, onClose }) => {
                     <button
                       onClick={() => syncData(cred.id)}
                       disabled={isLoading}
-                      className="p-2 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors duration-200"
+                      className="p-2 cx-text-faint hover:text-blue-600 dark:hover:text-blue-400 transition-colors duration-200"
                       title="Sync Data"
                     >
                       <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
                     </button>
                     <button
                       onClick={() => removeCredentials(cred.id)}
-                      className="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors duration-200"
+                      className="p-2 cx-text-faint hover:text-red-600 dark:hover:text-red-400 transition-colors duration-200"
                       title="Remove"
                     >
                       <X className="w-4 h-4" />
@@ -291,7 +291,7 @@ const BrokerSetup: React.FC<BrokerSetupProps> = ({ isOpen, onClose }) => {
                 )}
                 
                 {status?.isConnected && status.latency && (
-                  <div className="text-sm text-gray-600 dark:text-gray-400">
+                  <div className="text-sm text-gray-600 dark:cx-text-faint">
                     Latency: {status.latency}ms • Last sync: {cred.lastSync?.toLocaleString() || 'Never'}
                   </div>
                 )}
@@ -302,7 +302,7 @@ const BrokerSetup: React.FC<BrokerSetupProps> = ({ isOpen, onClose }) => {
       )}
 
       <div className="space-y-3">
-        <h4 className="font-medium text-gray-900 dark:text-white">Add New Broker</h4>
+        <h4 className="font-medium cx-text-strong dark:cx-text-strong">Add New Broker</h4>
         <div className="grid grid-cols-2 gap-3">
           {Object.values(BROKER_CONFIGS).map((config) => (
             <button
@@ -313,10 +313,10 @@ const BrokerSetup: React.FC<BrokerSetupProps> = ({ isOpen, onClose }) => {
               <div className="flex items-center space-x-3">
                 <Plus className="w-5 h-5 text-emerald-500" />
                 <div>
-                  <h5 className="font-medium text-gray-900 dark:text-white">
+                  <h5 className="font-medium cx-text-strong dark:cx-text-strong">
                     {config.displayName}
                   </h5>
-                  <p className="text-xs text-gray-600 dark:text-gray-400">
+                  <p className="text-xs text-gray-600 dark:cx-text-faint">
                     {config.supportedFeatures.length} features
                   </p>
                 </div>

@@ -50,7 +50,7 @@ export const scoreToneClass = (value: unknown): string => {
   const tone = scoreTone(value);
   if (tone === 'strong') return 'text-cyan-300';
   if (tone === 'developing') return 'text-violet-300';
-  return 'text-slate-400';
+  return 'cx-text-muted';
 };
 
 /**

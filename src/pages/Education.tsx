@@ -103,8 +103,8 @@ const Education: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Education Hub</h1>
-        <div className="text-sm text-gray-600 dark:text-gray-400">
+        <h1 className="text-2xl font-bold cx-text-strong dark:cx-text-strong">Education Hub</h1>
+        <div className="text-sm text-gray-600 dark:cx-text-faint">
           {filteredCourses.length} resources available
         </div>
       </div>
@@ -113,13 +113,13 @@ const Education: React.FC = () => {
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
         <div className="flex flex-col md:flex-row md:items-center space-y-4 md:space-y-0 md:space-x-4">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 cx-text-faint" />
             <input
               type="text"
               placeholder="Search courses, videos, and articles..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 pr-4 py-2 w-full border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+              className="pl-10 pr-4 py-2 w-full border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 cx-text-strong dark:cx-text-strong focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
             />
           </div>
           
@@ -130,8 +130,8 @@ const Education: React.FC = () => {
                 onClick={() => setSelectedCategory(category)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
                   selectedCategory === category
-                    ? 'bg-emerald-500 text-white'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    ? 'bg-emerald-500 cx-text-strong'
+                    : 'bg-gray-100 dark:bg-gray-700 cx-text-muted dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                 }`}
               >
                 {category}
@@ -158,7 +158,7 @@ const Education: React.FC = () => {
                   className="w-full h-48 object-cover"
                 />
                 <div className="absolute top-4 left-4">
-                  <div className="flex items-center space-x-2 bg-black bg-opacity-75 text-white px-3 py-1 rounded-lg">
+                  <div className="flex items-center space-x-2 bg-black bg-opacity-75 cx-text-strong px-3 py-1 rounded-lg">
                     <TypeIcon className="w-4 h-4" />
                     <span className="text-sm capitalize">{course.type}</span>
                   </div>
@@ -177,14 +177,14 @@ const Education: React.FC = () => {
               </div>
 
               <div className="p-6">
-                <h3 className="font-semibold text-gray-900 dark:text-white mb-2">
+                <h3 className="font-semibold cx-text-strong dark:cx-text-strong mb-2">
                   {course.title}
                 </h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                <p className="text-sm text-gray-600 dark:cx-text-faint mb-4">
                   {course.description}
                 </p>
 
-                <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400 mb-4">
+                <div className="flex items-center justify-between text-sm cx-text-faint dark:cx-text-faint mb-4">
                   <div className="flex items-center space-x-1">
                     <Clock className="w-4 h-4" />
                     <span>{course.duration}</span>
@@ -199,7 +199,7 @@ const Education: React.FC = () => {
                 {course.progress > 0 && (
                   <div className="mb-4">
                     <div className="flex items-center justify-between text-sm mb-2">
-                      <span className="text-gray-600 dark:text-gray-400">Progress</span>
+                      <span className="text-gray-600 dark:cx-text-faint">Progress</span>
                       <span className="text-emerald-600 dark:text-emerald-400 font-medium">
                         {course.progress}%
                       </span>
@@ -213,7 +213,7 @@ const Education: React.FC = () => {
                   </div>
                 )}
 
-                <button className="w-full bg-emerald-500 text-white py-2 px-4 rounded-lg font-medium hover:bg-emerald-600 transition-colors duration-200">
+                <button className="w-full bg-emerald-500 cx-text-strong py-2 px-4 rounded-lg font-medium hover:bg-emerald-600 transition-colors duration-200">
                   {course.progress > 0 ? 'Continue Learning' : 'Start Learning'}
                 </button>
               </div>

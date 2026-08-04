@@ -78,11 +78,11 @@ const Settings: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-white flex items-center gap-3">
+        <h1 className="text-3xl font-bold cx-text-strong flex items-center gap-3">
           <SettingsIcon className="w-8 h-8 text-emerald-400" />
           Settings
         </h1>
-        <p className="text-gray-400 mt-1">Read-only view of your scanner configuration.</p>
+        <p className="cx-text-faint mt-1">Read-only view of your scanner configuration.</p>
       </div>
 
       {error && (
@@ -127,7 +127,7 @@ const Settings: React.FC = () => {
                 {kill.engaged ? 'ENGAGED' : 'DISENGAGED'}
               </span>
             </div>
-            <p className="text-sm text-gray-400 mb-4">
+            <p className="text-sm cx-text-faint mb-4">
               {kill.engaged
                 ? 'Execution is halted. New trades are rejected by the trade manager.'
                 : 'Execution is active. The trade manager will process STRONG signals.'}
@@ -140,8 +140,8 @@ const Settings: React.FC = () => {
               disabled={busy}
               className={`w-full px-4 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-50 ${
                 kill.engaged
-                  ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
-                  : 'bg-red-500 hover:bg-red-600 text-white'
+                  ? 'bg-emerald-500 hover:bg-emerald-600 cx-text-strong'
+                  : 'bg-red-500 hover:bg-red-600 cx-text-strong'
               }`}
             >
               {kill.engaged ? 'Disengage Kill Switch' : 'Engage Kill Switch'}
@@ -153,14 +153,14 @@ const Settings: React.FC = () => {
               <RefreshCw className="w-4 h-4 text-emerald-400" />
               Manual Scan
             </h3>
-            <p className="text-sm text-gray-400 mb-4">
+            <p className="text-sm cx-text-faint mb-4">
               Request the scanner to run an immediate cycle. Useful for testing
               without waiting for the next scheduled scan.
             </p>
             <button
               onClick={requestScan}
               disabled={busy}
-              className="w-full px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg font-medium text-sm transition-colors"
+              className="w-full px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 cx-text-strong rounded-lg font-medium text-sm transition-colors"
             >
               Trigger Scan Now
             </button>
@@ -199,8 +199,8 @@ const Settings: React.FC = () => {
         <div className="flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-amber-400 mt-0.5 flex-shrink-0" />
           <div>
-            <h3 className="text-sm font-semibold text-white mb-1">Configuration editing not yet wired</h3>
-            <p className="text-gray-400 text-sm">
+            <h3 className="text-sm font-semibold cx-text-strong mb-1">Configuration editing not yet wired</h3>
+            <p className="cx-text-faint text-sm">
               Thresholds, pairs, and scan interval are set via Render env vars
               (or <code className="text-emerald-300">render.yaml</code>). A
               live-edit endpoint will land in a follow-up.
@@ -221,8 +221,8 @@ const Card: React.FC<{ title: string; children: React.ReactNode }> = ({ title, c
 
 const Row: React.FC<{ label: string; value: string }> = ({ label, value }) => (
   <div className="flex justify-between py-1.5 border-b border-gray-800/50 last:border-0">
-    <span className="text-sm text-gray-400">{label}</span>
-    <span className="text-sm text-white font-mono">{value}</span>
+    <span className="text-sm cx-text-faint">{label}</span>
+    <span className="text-sm cx-text-strong font-mono">{value}</span>
   </div>
 );
 

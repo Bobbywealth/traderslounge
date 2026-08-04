@@ -35,16 +35,16 @@ const Positions: React.FC = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white flex items-center gap-3">
+          <h1 className="text-3xl font-bold cx-text-strong flex items-center gap-3">
             <Briefcase className="w-8 h-8 text-emerald-400" />
             Positions
           </h1>
-          <p className="text-gray-400 mt-1">Currently open positions on your account.</p>
+          <p className="cx-text-faint mt-1">Currently open positions on your account.</p>
         </div>
         <button
           onClick={refresh}
           disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 cx-text-strong rounded-lg transition-colors"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           Refresh
@@ -60,8 +60,8 @@ const Positions: React.FC = () => {
       {!error && positions.length === 0 && !loading && (
         <div className="bg-gray-900/60 border border-gray-700/50 rounded-xl p-8 text-center">
           <Briefcase className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-          <p className="text-gray-400">No open positions right now.</p>
-          <p className="text-gray-500 text-sm mt-1">
+          <p className="cx-text-faint">No open positions right now.</p>
+          <p className="cx-text-faint text-sm mt-1">
             When the position feed reports an open trade, its size, entry, stop, and live result show here.
           </p>
         </div>
@@ -84,7 +84,7 @@ const PositionCard: React.FC<{ pos: BwtsPosition }> = ({ pos }) => {
   return (
     <div className="bg-gray-900/60 border border-gray-700/50 rounded-xl p-5">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-lg font-semibold text-white">{pos.pair}</h3>
+        <h3 className="text-lg font-semibold cx-text-strong">{pos.pair}</h3>
         <span className="text-xs px-2 py-1 rounded border border-gray-700 text-gray-300 bg-gray-800">
           {pos.status}
         </span>
@@ -101,7 +101,7 @@ const PositionCard: React.FC<{ pos: BwtsPosition }> = ({ pos }) => {
         <Row label="TP2"   value={pos.tp2.toFixed(5)} />
         <Row label="TP3"   value={pos.tp3.toFixed(5)} />
       </div>
-      <p className="mt-3 text-xs text-gray-500">
+      <p className="mt-3 text-xs cx-text-faint">
         Opened {opened.toLocaleString()}
       </p>
     </div>
@@ -110,7 +110,7 @@ const PositionCard: React.FC<{ pos: BwtsPosition }> = ({ pos }) => {
 
 const Row: React.FC<{ label: string; value: string }> = ({ label, value }) => (
   <div className="flex justify-between">
-    <span className="text-gray-500">{label}</span>
+    <span className="cx-text-faint">{label}</span>
     <span className="text-gray-200 font-mono">{value}</span>
   </div>
 );

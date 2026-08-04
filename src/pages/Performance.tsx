@@ -77,7 +77,7 @@ const PerformancePage: React.FC = () => {
     <div className="space-y-6">
       <header>
         <h1 className="text-3xl font-black">Performance Center</h1>
-        <p className="mt-2 text-slate-400">
+        <p className="mt-2 cx-text-muted">
           Source: {stats.source.replace('_', ' ')} | Sample: {stats.sampleSize} | Period: {stats.dateRange}
         </p>
       </header>
@@ -87,7 +87,7 @@ const PerformancePage: React.FC = () => {
           <span key={source} className={`px-3 py-1 rounded-full text-xs ${
             stats.source === source 
               ? 'bg-cyan-400/20 text-cyan-300 border border-cyan-400/30'
-              : 'bg-slate-800 text-slate-500 border border-slate-700'
+              : 'bg-slate-800 cx-text-faint border border-slate-700'
           }`}>
             {source.replace('_', ' ')}
           </span>
@@ -101,29 +101,29 @@ const PerformancePage: React.FC = () => {
         <StatCard label="Profit Factor" value={stats.profitFactor.toFixed(2)} />
       </section>
 
-      <section className="rounded-2xl border border-white/10 bg-[#090d18] p-6">
+      <section className="rounded-2xl border cx-border-strong cx-bg-card p-6">
         <h2 className="text-lg font-bold mb-4">Target Hit Rates</h2>
         <div className="grid grid-cols-4 gap-4">
           <div className="text-center">
             <div className="text-3xl font-black text-emerald-300">{stats.tp1HitRate.toFixed(0)}%</div>
-            <div className="text-sm text-slate-500">TP1</div>
+            <div className="text-sm cx-text-faint">TP1</div>
           </div>
           <div className="text-center">
             <div className="text-3xl font-black text-emerald-300">{stats.tp2HitRate.toFixed(0)}%</div>
-            <div className="text-sm text-slate-500">TP2</div>
+            <div className="text-sm cx-text-faint">TP2</div>
           </div>
           <div className="text-center">
             <div className="text-3xl font-black text-emerald-300">{stats.tp3HitRate.toFixed(0)}%</div>
-            <div className="text-sm text-slate-500">TP3</div>
+            <div className="text-sm cx-text-faint">TP3</div>
           </div>
           <div className="text-center">
             <div className="text-3xl font-black text-rose-300">{stats.stopLossRate.toFixed(0)}%</div>
-            <div className="text-sm text-slate-500">Stop Loss</div>
+            <div className="text-sm cx-text-faint">Stop Loss</div>
           </div>
         </div>
       </section>
 
-      <section className="rounded-2xl border border-white/10 bg-[#090d18] p-6">
+      <section className="rounded-2xl border cx-border-strong cx-bg-card p-6">
         <h2 className="text-lg font-bold mb-4">Advanced Metrics</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard label="Median R" value={`${stats.medianR.toFixed(2)}R`} />
@@ -137,13 +137,13 @@ const PerformancePage: React.FC = () => {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-white/10 bg-[#090d18] p-6">
+      <section className="rounded-2xl border cx-border-strong cx-bg-card p-6">
         <h2 className="text-lg font-bold mb-4">Filters</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <select 
             value={filters.assetClass} 
             onChange={(e) => setFilters({...filters, assetClass: e.target.value})}
-            className="rounded-lg border border-white/10 bg-black/20 px-3 py-2"
+            className="rounded-lg border cx-border-strong cx-bg-elev px-3 py-2"
           >
             <option value="all">All Asset Classes</option>
             <option value="forex">Forex</option>
@@ -153,7 +153,7 @@ const PerformancePage: React.FC = () => {
           <select 
             value={filters.direction} 
             onChange={(e) => setFilters({...filters, direction: e.target.value})}
-            className="rounded-lg border border-white/10 bg-black/20 px-3 py-2"
+            className="rounded-lg border cx-border-strong cx-bg-elev px-3 py-2"
           >
             <option value="all">All Directions</option>
             <option value="BUY">Buy</option>
@@ -162,7 +162,7 @@ const PerformancePage: React.FC = () => {
           <select 
             value={filters.scoreBand} 
             onChange={(e) => setFilters({...filters, scoreBand: e.target.value})}
-            className="rounded-lg border border-white/10 bg-black/20 px-3 py-2"
+            className="rounded-lg border cx-border-strong cx-bg-elev px-3 py-2"
           >
             <option value="all">All Scores</option>
             <option value="strong">Strong (70+)</option>
@@ -172,7 +172,7 @@ const PerformancePage: React.FC = () => {
           <select 
             value={filters.confidenceTier} 
             onChange={(e) => setFilters({...filters, confidenceTier: e.target.value})}
-            className="rounded-lg border border-white/10 bg-black/20 px-3 py-2"
+            className="rounded-lg border cx-border-strong cx-bg-elev px-3 py-2"
           >
             <option value="all">All Confidence</option>
             <option value="high">High</option>
@@ -185,38 +185,38 @@ const PerformancePage: React.FC = () => {
             type="date"
             value={filters.dateFrom}
             onChange={(e) => setFilters({...filters, dateFrom: e.target.value})}
-            className="rounded-lg border border-white/10 bg-black/20 px-3 py-2"
+            className="rounded-lg border cx-border-strong cx-bg-elev px-3 py-2"
             placeholder="From date"
           />
           <input
             type="date"
             value={filters.dateTo}
             onChange={(e) => setFilters({...filters, dateTo: e.target.value})}
-            className="rounded-lg border border-white/10 bg-black/20 px-3 py-2"
+            className="rounded-lg border cx-border-strong cx-bg-elev px-3 py-2"
             placeholder="To date"
           />
         </div>
       </section>
 
-      <section className="rounded-2xl border border-white/10 bg-[#090d18] p-6">
+      <section className="rounded-2xl border cx-border-strong cx-bg-card p-6">
         <h2 className="text-lg font-bold mb-4">Outcome Breakdown</h2>
         <div className="grid grid-cols-3 gap-4">
           <div className="text-center">
             <div className="text-2xl font-black text-emerald-300">{(100 - stats.stopLossRate - stats.breakEvenRate - stats.expirationRate).toFixed(0)}%</div>
-            <div className="text-sm text-slate-500">Wins</div>
+            <div className="text-sm cx-text-faint">Wins</div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-black text-cyan-300">{stats.breakEvenRate.toFixed(0)}%</div>
-            <div className="text-sm text-slate-500">Break Even</div>
+            <div className="text-sm cx-text-faint">Break Even</div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-black text-amber-300">{stats.expirationRate.toFixed(0)}%</div>
-            <div className="text-sm text-slate-500">Expired</div>
+            <div className="text-sm cx-text-faint">Expired</div>
           </div>
         </div>
       </section>
 
-      <section className="text-xs text-slate-600">
+      <section className="text-xs cx-text-faint">
         <p>Past performance is not indicative of future results. This data represents {stats.source.replace('_', ' ')} results.</p>
         <p className="mt-1">Last updated: {stats.lastUpdated}</p>
       </section>
@@ -225,9 +225,9 @@ const PerformancePage: React.FC = () => {
 };
 
 const StatCard = ({ label, value }: { label: string; value: string }) => (
-  <div className="rounded-xl border border-white/10 bg-[#090d18] p-4">
-    <div className="text-sm text-slate-500">{label}</div>
-    <div className="mt-1 text-2xl font-black text-white">{value}</div>
+  <div className="rounded-xl border cx-border-strong cx-bg-card p-4">
+    <div className="text-sm cx-text-faint">{label}</div>
+    <div className="mt-1 text-2xl font-black cx-text-strong">{value}</div>
   </div>
 );
 

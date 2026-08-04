@@ -9,18 +9,18 @@ const RecentTrades: React.FC = () => {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+          <h3 className="text-lg font-semibold cx-text-strong dark:cx-text-strong">
             Recent Trades
           </h3>
         </div>
         <div className="text-center py-12">
           <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Link2 className="w-8 h-8 text-gray-400" />
+            <Link2 className="w-8 h-8 cx-text-faint" />
           </div>
-          <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+          <h4 className="text-lg font-medium cx-text-strong dark:cx-text-strong mb-2">
             No Trades Yet
           </h4>
-          <p className="text-gray-500 dark:text-gray-400 max-w-sm mx-auto">
+          <p className="cx-text-faint dark:cx-text-faint max-w-sm mx-auto">
             Connect your broker account to view your trading history and track your positions in real-time.
           </p>
         </div>
@@ -31,7 +31,7 @@ const RecentTrades: React.FC = () => {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+        <h3 className="text-lg font-semibold cx-text-strong dark:cx-text-strong">
           Recent Trades
         </h3>
         <button className="text-sm text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 font-medium">
@@ -59,7 +59,7 @@ const RecentTrades: React.FC = () => {
               </div>
               <div>
                 <div className="flex items-center space-x-3">
-                  <span className="font-medium text-gray-900 dark:text-white">
+                  <span className="font-medium cx-text-strong dark:cx-text-strong">
                     {trade.symbol}
                   </span>
                   <span className={`text-xs px-2 py-1 rounded-full ${
@@ -69,11 +69,11 @@ const RecentTrades: React.FC = () => {
                   }`}>
                     {trade.type.toUpperCase()}
                   </span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                  <span className="text-xs cx-text-faint dark:cx-text-faint">
                     {trade.volume} lots
                   </span>
                 </div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                <div className="text-xs cx-text-faint dark:cx-text-faint mt-1">
                   Entry: {trade.openPrice?.toFixed(5) || 'N/A'} • {new Date(trade.openTime).toLocaleString()}
                 </div>
               </div>
@@ -90,7 +90,7 @@ const RecentTrades: React.FC = () => {
               <div className={`text-xs px-2 py-1 rounded-full mt-1 ${
                 trade.status === 'open'
                   ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                  : 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300'
+                  : 'bg-gray-100 cx-text-muted dark:bg-gray-900/30 dark:text-gray-300'
               }`}>
                 {trade.status.charAt(0).toUpperCase() + trade.status.slice(1)}
               </div>

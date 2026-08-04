@@ -75,10 +75,10 @@ const Sidebar: React.FC<SidebarProps> = ({
         className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all duration-200 ${
           isActive
             ? 'bg-gradient-to-r from-cyan-400/15 to-violet-500/15 text-cyan-300'
-            : 'text-gray-400 hover:bg-white/[0.06] hover:text-gray-200'
+            : 'cx-text-faint hover:cx-bg-card-hover hover:text-gray-200'
         } ${collapsed ? 'justify-center px-2' : ''}`}
       >
-        <item.icon className={`h-5 w-5 shrink-0 ${isActive ? 'text-cyan-300' : 'text-gray-500 group-hover:text-gray-300'}`} />
+        <item.icon className={`h-5 w-5 shrink-0 ${isActive ? 'text-cyan-300' : 'cx-text-faint group-hover:text-gray-300'}`} />
         {!collapsed && <span className="truncate">{item.name}</span>}
       </Link>
     );
@@ -108,11 +108,11 @@ const Sidebar: React.FC<SidebarProps> = ({
             title="Close navigation"
             aria-label="Close navigation"
           >
-            <X className="h-5 w-5 text-gray-400" />
+            <X className="h-5 w-5 cx-text-faint" />
           </button>
         ) : (
           <button onClick={onToggle} className="rounded-xl p-2 transition-all duration-200 hover:bg-white/10" title={collapsed ? 'Expand navigation' : 'Collapse navigation'}>
-            {collapsed ? <ChevronRight className="h-5 w-5 text-gray-400" /> : <ChevronLeft className="h-5 w-5 text-gray-400" />}
+            {collapsed ? <ChevronRight className="h-5 w-5 cx-text-faint" /> : <ChevronLeft className="h-5 w-5 cx-text-faint" />}
           </button>
         )}
       </div>

@@ -88,7 +88,7 @@ export const AdminDiagnostics: React.FC = () => {
       case 'ok': return 'text-emerald-300 bg-emerald-400/10 border-emerald-400/30';
       case 'degraded': return 'text-amber-300 bg-amber-400/10 border-amber-400/30';
       case 'error': return 'text-rose-300 bg-rose-400/10 border-rose-400/30';
-      default: return 'text-slate-300 bg-slate-400/10 border-slate-400/30';
+      default: return 'cx-text-muted bg-slate-400/10 border-slate-400/30';
     }
   };
 
@@ -113,30 +113,30 @@ export const AdminDiagnostics: React.FC = () => {
       </div>
 
       {/* System Health */}
-      <section className="rounded-2xl border border-white/10 bg-[#090d18] p-6">
+      <section className="rounded-2xl border cx-border-strong cx-bg-card p-6">
         <h2 className="mb-4 text-lg font-bold">System Health</h2>
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-            <div className="text-sm text-slate-500">Status</div>
+          <div className="rounded-xl border cx-border-strong cx-bg-elev p-4">
+            <div className="text-sm cx-text-faint">Status</div>
             <div className={`mt-1 text-2xl font-black ${systemHealth?.status === 'ok' ? 'text-emerald-300' : 'text-rose-300'}`}>
               {systemHealth?.status?.toUpperCase() || 'UNKNOWN'}
             </div>
           </div>
-          <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-            <div className="text-sm text-slate-500">Uptime</div>
-            <div className="mt-1 text-2xl font-black text-white">
+          <div className="rounded-xl border cx-border-strong cx-bg-elev p-4">
+            <div className="text-sm cx-text-faint">Uptime</div>
+            <div className="mt-1 text-2xl font-black cx-text-strong">
               {systemHealth ? formatUptime(systemHealth.uptime_seconds) : '-'}
             </div>
           </div>
-          <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-            <div className="text-sm text-slate-500">Signals in DB</div>
-            <div className="mt-1 text-2xl font-black text-white">
+          <div className="rounded-xl border cx-border-strong cx-bg-elev p-4">
+            <div className="text-sm cx-text-faint">Signals in DB</div>
+            <div className="mt-1 text-2xl font-black cx-text-strong">
               {systemHealth?.db_signals?.toLocaleString() || '0'}
             </div>
           </div>
-          <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-            <div className="text-sm text-slate-500">Cache Entries</div>
-            <div className="mt-1 text-2xl font-black text-white">
+          <div className="rounded-xl border cx-border-strong cx-bg-elev p-4">
+            <div className="text-sm cx-text-faint">Cache Entries</div>
+            <div className="mt-1 text-2xl font-black cx-text-strong">
               {systemHealth?.cache?.entries || 0}
             </div>
           </div>
@@ -144,7 +144,7 @@ export const AdminDiagnostics: React.FC = () => {
 
         {/* Dependencies */}
         <div className="mt-4">
-          <h3 className="mb-2 text-sm font-bold text-slate-400">Dependencies</h3>
+          <h3 className="mb-2 text-sm font-bold cx-text-muted">Dependencies</h3>
           <div className="flex flex-wrap gap-2">
             {systemHealth?.dependencies && Object.entries(systemHealth.dependencies).map(([key, value]) => (
               <span
@@ -159,28 +159,28 @@ export const AdminDiagnostics: React.FC = () => {
 
         {/* Engine Config */}
         <div className="mt-4">
-          <h3 className="mb-2 text-sm font-bold text-slate-400">Engine Configuration</h3>
+          <h3 className="mb-2 text-sm font-bold cx-text-muted">Engine Configuration</h3>
           <div className="grid grid-cols-2 gap-2 text-sm">
-            <div className="text-slate-400">Min Score: <span className="text-white">{systemHealth?.engine?.minimum_score}</span></div>
-            <div className="text-slate-400">Min R:R: <span className="text-white">{systemHealth?.engine?.minimum_rr}</span></div>
-            <div className="text-slate-400">Actionable Status: <span className="text-white">{systemHealth?.engine?.actionable_status}</span></div>
-            <div className="text-slate-400">Analysis TTL: <span className="text-white">{systemHealth?.cache?.analysis_ttl_seconds}s</span></div>
+            <div className="cx-text-muted">Min Score: <span className="cx-text-strong">{systemHealth?.engine?.minimum_score}</span></div>
+            <div className="cx-text-muted">Min R:R: <span className="cx-text-strong">{systemHealth?.engine?.minimum_rr}</span></div>
+            <div className="cx-text-muted">Actionable Status: <span className="cx-text-strong">{systemHealth?.engine?.actionable_status}</span></div>
+            <div className="cx-text-muted">Analysis TTL: <span className="cx-text-strong">{systemHealth?.cache?.analysis_ttl_seconds}s</span></div>
           </div>
         </div>
       </section>
 
       {/* Provider Health */}
-      <section className="rounded-2xl border border-white/10 bg-[#090d18] p-6">
+      <section className="rounded-2xl border cx-border-strong cx-bg-card p-6">
         <h2 className="mb-4 text-lg font-bold">Market Data Providers</h2>
         {Object.keys(providerHealth).length === 0 ? (
-          <div className="text-slate-500">No provider health data available</div>
+          <div className="cx-text-faint">No provider health data available</div>
         ) : (
           <div className="space-y-4">
             {Object.entries(providerHealth).map(([name, health]) => (
-              <div key={name} className="rounded-xl border border-white/10 bg-black/20 p-4">
+              <div key={name} className="rounded-xl border cx-border-strong cx-bg-elev p-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <span className="text-lg font-bold text-white">{name}</span>
+                    <span className="text-lg font-bold cx-text-strong">{name}</span>
                     <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${statusColor(health.status)}`}>
                       {health.status?.toUpperCase()}
                     </span>
@@ -188,20 +188,20 @@ export const AdminDiagnostics: React.FC = () => {
                       <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-xs text-emerald-300">REAL-TIME</span>
                     )}
                   </div>
-                  <div className="text-right text-sm text-slate-400">
+                  <div className="text-right text-sm cx-text-muted">
                     <div>Latency: {health.avg_latency_ms?.toFixed(0)}ms</div>
                     <div>Success: {(health.success_rate * 100).toFixed(1)}%</div>
                   </div>
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                  <div className="text-slate-400">
+                  <div className="cx-text-muted">
                     Available: {health.available_timeframes?.join(', ') || 'none'}
                   </div>
-                  <div className="text-slate-400">
+                  <div className="cx-text-muted">
                     Missing: {health.missing_timeframes?.join(', ') || 'none'}
                   </div>
                   {health.rate_limit_remaining !== null && (
-                    <div className="text-slate-400">
+                    <div className="cx-text-muted">
                       Rate Limit: {health.rate_limit_remaining} remaining
                     </div>
                   )}
@@ -218,31 +218,31 @@ export const AdminDiagnostics: React.FC = () => {
       </section>
 
       {/* Worker Status */}
-      <section className="rounded-2xl border border-white/10 bg-[#090d18] p-6">
+      <section className="rounded-2xl border cx-border-strong cx-bg-card p-6">
         <h2 className="mb-4 text-lg font-bold">Scanner Worker</h2>
         {workerStatus ? (
           <div className="grid grid-cols-2 gap-4">
-            <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-              <div className="text-sm text-slate-500">Status</div>
+            <div className="rounded-xl border cx-border-strong cx-bg-elev p-4">
+              <div className="text-sm cx-text-faint">Status</div>
               <div className={`mt-1 text-xl font-black ${workerStatus.status === 'running' ? 'text-emerald-300' : 'text-amber-300'}`}>
                 {workerStatus.status?.toUpperCase()}
               </div>
             </div>
-            <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-              <div className="text-sm text-slate-500">Signals Scanned</div>
-              <div className="mt-1 text-xl font-black text-white">
+            <div className="rounded-xl border cx-border-strong cx-bg-elev p-4">
+              <div className="text-sm cx-text-faint">Signals Scanned</div>
+              <div className="mt-1 text-xl font-black cx-text-strong">
                 {workerStatus.signals_scanned?.toLocaleString()}
               </div>
             </div>
-            <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-              <div className="text-sm text-slate-500">Last Scan</div>
-              <div className="mt-1 text-sm text-white">
+            <div className="rounded-xl border cx-border-strong cx-bg-elev p-4">
+              <div className="text-sm cx-text-faint">Last Scan</div>
+              <div className="mt-1 text-sm cx-text-strong">
                 {workerStatus.last_scan ? new Date(workerStatus.last_scan).toLocaleString() : 'Never'}
               </div>
             </div>
-            <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-              <div className="text-sm text-slate-500">Next Scan</div>
-              <div className="mt-1 text-sm text-white">
+            <div className="rounded-xl border cx-border-strong cx-bg-elev p-4">
+              <div className="text-sm cx-text-faint">Next Scan</div>
+              <div className="mt-1 text-sm cx-text-strong">
                 {workerStatus.next_scan ? new Date(workerStatus.next_scan).toLocaleString() : 'Soon'}
               </div>
             </div>
@@ -258,47 +258,47 @@ export const AdminDiagnostics: React.FC = () => {
             )}
           </div>
         ) : (
-          <div className="text-slate-500">Worker status not available</div>
+          <div className="cx-text-faint">Worker status not available</div>
         )}
       </section>
 
       {/* Alert Delivery */}
-      <section className="rounded-2xl border border-white/10 bg-[#090d18] p-6">
+      <section className="rounded-2xl border cx-border-strong cx-bg-card p-6">
         <h2 className="mb-4 text-lg font-bold">Alert Delivery</h2>
         {alertDelivery ? (
           <div className="grid grid-cols-3 gap-4">
-            <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-              <div className="text-sm text-slate-500">Status</div>
+            <div className="rounded-xl border cx-border-strong cx-bg-elev p-4">
+              <div className="text-sm cx-text-faint">Status</div>
               <div className={`mt-1 text-xl font-black ${alertDelivery.status === 'ok' ? 'text-emerald-300' : 'text-amber-300'}`}>
                 {alertDelivery.status?.toUpperCase()}
               </div>
             </div>
-            <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-              <div className="text-sm text-slate-500">Delivered Today</div>
+            <div className="rounded-xl border cx-border-strong cx-bg-elev p-4">
+              <div className="text-sm cx-text-faint">Delivered Today</div>
               <div className="mt-1 text-xl font-black text-emerald-300">
                 {alertDelivery.delivered_today}
               </div>
             </div>
-            <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-              <div className="text-sm text-slate-500">Failed Today</div>
+            <div className="rounded-xl border cx-border-strong cx-bg-elev p-4">
+              <div className="text-sm cx-text-faint">Failed Today</div>
               <div className="mt-1 text-xl font-black text-rose-300">
                 {alertDelivery.failed_today}
               </div>
             </div>
           </div>
         ) : (
-          <div className="text-slate-500">Alert delivery not configured</div>
+          <div className="cx-text-faint">Alert delivery not configured</div>
         )}
       </section>
 
       {/* Tracked Pairs */}
-      <section className="rounded-2xl border border-white/10 bg-[#090d18] p-6">
+      <section className="rounded-2xl border cx-border-strong cx-bg-card p-6">
         <h2 className="mb-4 text-lg font-bold">Tracked Markets</h2>
         <div className="flex flex-wrap gap-2">
           {systemHealth?.pairs?.map((pair) => (
             <span
               key={pair}
-              className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-sm font-medium text-cyan-300"
+              className="rounded-lg border cx-border-strong bg-white/5 px-3 py-1 text-sm font-medium text-cyan-300"
             >
               {pair}
             </span>
