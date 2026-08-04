@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Activity, AlertTriangle, ArrowRight, BarChart3, CheckCircle2, Clock3, Flame, History, Loader2, RefreshCw, ShieldAlert, Zap,
+  Activity, AlertTriangle, ArrowRight, BarChart3, CheckCircle2, Clock3, Flame, History, Loader2, RefreshCw, ShieldAlert, XCircle, Zap,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { bwtsApi, planReasonText, type CalendarGateStatus, type CryptoAnalysis, type DashboardSnapshot, type PublishedSignal } from '../services/bwtsApi';
@@ -20,6 +20,35 @@ const uniqueMarkets = (markets: DashboardSnapshot['markets'] = []) => {
     seen.add(pair);
     return true;
   });
+};
+
+const SCORE_FLOOR = 60;
+const NET_R_FLOOR = 2.0;
+const BLOCKING_CALENDAR = new Set(['BLOCKED', 'POST_NEWS']);
+
+const gateScore = (analysis?: CryptoAnalysis) => {
+  const score = Number(analysis?.total_score || 0);
+  return { label: 'Score', value: `${score}/100`, pass: score >= SCORE_FLOOR, note: score >= SCORE_FLOOR ? `≥ ${SCORE_FLOOR} floor` : `< ${SCORE_FLOOR} floor` };
+};
+const gateTiming = (analysis?: CryptoAnalysis) => {
+  const status = analysis?.trade_timing?.status || 'WAIT';
+  return { label: 'Timing', value: status, pass: status === 'READY', note: status === 'READY' ? 'gates cleared' : status === 'AVOID' ? 'hard avoid' : 'still confirming' };
+};
+const gateCalendar = (analysis?: CryptoAnalysis) => {
+  const status = String(analysis?.economic_calendar?.status || 'CLEAR').toUpperCase();
+  return { label: 'Calendar', value: status, pass: !BLOCKING_CALENDAR.has(status), note: BLOCKING_CALENDAR.has(status) ? 'news blackout' : 'no blackout' };
+};
+const gateNetR = (analysis?: CryptoAnalysis) => {
+  const plan = analysis?.trade_plan;
+  const net = Number(plan?.net_rr ?? plan?.available_rr ?? 0);
+  return { label: 'Net R', value: `${net.toFixed(2)}R`, pass: Number.isFinite(net) && net >= NET_R_FLOOR, note: Number.isFinite(net) && net >= NET_R_FLOOR ? `≥ ${NET_R_FLOOR} floor` : `< ${NET_R_FLOOR} floor · cost-adjusted` };
+};
+
+const formatAsOf = (iso?: string | null) => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 };
 
 const firstBlocker = (analysis?: CryptoAnalysis) => {
@@ -85,69 +114,24 @@ const Dashboard: React.FC = () => {
     if (manual) setRefreshing(true);
     setError(null);
     try {
-      const { pairs } = await bwtsApi.pairs();
-      const pairList = (Array.isArray(pairs) ? pairs : []).filter((pair): pair is string => typeof pair === 'string' && pair.length > 0);
       const withTimeout = <T,>(promise: Promise<T>, ms: number, label: string) => Promise.race([
         promise,
         new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error(`${label} timed out`)), ms)),
       ]);
-      const [results, published] = await Promise.allSettled([
-        Promise.allSettled(pairList.map(async (pair) => ({
-          pair,
-          analysis: await withTimeout(bwtsApi.cryptoAnalysis(pair), 7000, pair),
-        }))),
+      const [snapshotResult, published] = await Promise.allSettled([
+        withTimeout(bwtsApi.dashboardSnapshot(), 30_000, 'dashboard snapshot'),
         bwtsApi.publishedSignals({ limit: 50 }).catch(() => ({ signals: [], count: 0, source: 'fallback' })),
       ]);
-      const generatedAt = new Date().toISOString();
-      const markets = results.status === 'fulfilled' ? results.value.flatMap((result) => {
-        if (result.status !== 'fulfilled') return [];
-        const { pair, analysis } = result.value;
-        const plan = analysis.trade_plan;
-        const targets = plan?.targets || [];
-        return [{
-          signal: {
-            id: 0,
-            created_at: generatedAt,
-            pair,
-            direction: analysis.direction,
-            tier: (plan?.eligible ? 'STRONG' : (analysis.total_score || 0) >= 50 ? 'WATCHLIST' : 'NO_TRADE') as const,
-            confidence_score: analysis.total_score || 0,
-            entry: plan?.entry || null,
-            stop_loss: plan?.stop || plan?.invalidation || null,
-            tp1: targets[0]?.price || plan?.tp1 || null,
-            tp2: targets[1]?.price || plan?.tp2 || null,
-            tp3: targets[2]?.price || plan?.tp3 || null,
-            risk_level: plan?.eligible ? 'Managed' : 'Watch',
-            session: plan?.timing?.session?.name || 'Current',
-            adr_status: plan?.daily_range ? `${Math.round(plan.daily_range.percent_used || 0)}% used` : 'unknown',
-            htf_bias: analysis.market_context?.macro_bias || 'neutral',
-            pattern: analysis.scenarios?.primary || 'forming',
-            reasons: (plan?.reasons || []).map(planReasonText).filter(Boolean).slice(0, 3),
-          },
-          analysis,
-          market_info: { status: 'analysis' },
-          lifecycle_state: { state: String(analysis.lifecycle_state || 'observing') },
-          recent_transitions: [],
-          score_history: { scores: [analysis.total_score || 0], count: 1 },
-        }];
-      }) : [];
+      if (snapshotResult.status !== 'fulfilled') {
+        throw (snapshotResult.reason as Error) || new Error('snapshot unavailable');
+      }
+      const data = snapshotResult.value as DashboardSnapshot;
+      const markets = uniqueMarkets(data.markets);
       const publishedList = published.status === 'fulfilled' ? (published.value.signals || []) : [];
-      setSignals(publishedList);
-      const data = {
-        snapshot_id: `client-${Date.now()}`,
-        generated_at: generatedAt,
-        market_data_timestamp: generatedAt,
-        scanner_health: { status: markets.length ? 'ok' : 'degraded', db_signals: 0, pairs: pairList },
-        config: { pairs: pairList, thresholds: { strong: 65, good: 50, watchlist: 35 }, scan_interval_seconds: 300, news_blackout_minutes: 15 },
-        provider_health: { market_data: markets.length ? 'ok' : 'degraded', calendar: 'checking', minimax: 'checking' } as any,
-        economic_event_risk: { level: 'checking', active_events: 0 },
-        markets,
-        performance_summary: { trades: 0, win_rate: 0, avg_r: 0 },
-        model_version: 'client-command-center',
-      } as DashboardSnapshot;
       setSnapshot(data);
-      setUpdatedAt(new Date(generatedAt));
-      const top = markets.sort((a, b) => heatScore(b.analysis) - heatScore(a.analysis))[0];
+      setUpdatedAt(new Date(data.generated_at || Date.now()));
+      setSignals(publishedList);
+      const top = [...markets].sort((a, b) => heatScore(b.analysis) - heatScore(a.analysis))[0];
       if (top?.signal?.pair) {
         bwtsApi.calendarStatus(top.signal.pair).then(setCalendar).catch(() => setCalendar(null));
       }
@@ -243,16 +227,7 @@ const Dashboard: React.FC = () => {
             {strongest && <span className="rounded-xl cx-bg-card-hover px-3 py-1 text-xs font-black cx-text-muted">Closest: {strongest.signal.pair} · {strongest.analysis.total_score}/100</span>}
           </div>
           {loading && !markets.length ? <SkeletonRows /> : active[0] ? <ReadySetup row={active[0]} /> : strongest ? (
-            <div className="rounded-2xl border border-amber-400/15 bg-amber-400/[0.05] p-5">
-              <div className="flex flex-wrap items-center gap-3"><span className="text-2xl font-black">{strongest.signal.pair}</span><HeatBadge row={strongest} /><DirectionBadge direction={strongest.analysis.direction} /></div>
-              <p className="mt-3 text-sm cx-text-muted"><b className="text-amber-200">Waiting for:</b> {strongest.blocker}</p>
-              <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                <MiniStat label="Score" value={`${strongest.analysis.total_score}/100`} />
-                <MiniStat label="Timing" value={strongest.analysis.trade_timing?.status || 'WAIT'} />
-                <MiniStat label="Nearest Fib" value={String(strongest.analysis.zones?.fibonacci?.nearest?.ratio || '—')} />
-              </div>
-              <div className="mt-4 flex flex-wrap gap-2"><Link to={`/tradingview?symbol=${strongest.signal.pair}`} className="rounded-lg border cx-border-strong cx-bg-card-hover px-3 py-2 text-xs font-black cx-text">Open on chart</Link><Link to={`/tradingview?symbol=${strongest.signal.pair}&panel=full`} className="rounded-lg bg-cyan-400 px-3 py-2 text-xs font-black text-[#05070d]">Full analysis</Link></div>
-            </div>
+            <DecisionNowBlocked row={strongest} snapshot={snapshot} />
           ) : <EmptyState title="Scanner data unavailable" detail="The command center will populate when the dashboard snapshot returns market rows." />}
         </div>
 
@@ -369,18 +344,73 @@ const FeedBadge: React.FC<{ state: FeedState }> = ({ state }) => {
 
 const Metric: React.FC<{ label: string; value: string; accent?: 'emerald' | 'amber' }> = ({ label, value, accent }) => <div className="rounded-2xl border cx-border cx-bg-card p-4"><div className="text-[9px] font-black tracking-widest cx-text-faint">{label}</div><div className={`mt-2 text-2xl font-black ${accent === 'emerald' ? 'text-emerald-300' : accent === 'amber' ? 'text-amber-300' : 'cx-text-strong'}`}>{value}</div></div>;
 const MiniStat: React.FC<{ label: string; value: string }> = ({ label, value }) => <div className="rounded-xl border cx-border cx-bg-elev p-3"><div className="text-[9px] font-black uppercase tracking-widest cx-text-faint">{label}</div><div className="mt-1 font-mono text-sm font-bold cx-text">{value}</div></div>;
-const DirectionBadge: React.FC<{ direction: string }> = ({ direction }) => <span className={`rounded-lg px-2 py-1 text-[10px] font-black ${direction === 'BUY' ? 'bg-emerald-400/10 text-emerald-300' : direction === 'SELL' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 cx-text-muted'}`}>{direction}</span>;
+const DirectionBadge: React.FC<{ direction: string; eligible?: boolean }> = ({ direction, eligible }) => {
+  const muted = eligible === false;
+  return <span className={`rounded-lg px-2 py-1 text-[10px] font-black ${direction === 'BUY' ? (muted ? 'bg-emerald-400/5 text-emerald-300/50 ring-1 ring-emerald-400/15' : 'bg-emerald-400/10 text-emerald-300') : direction === 'SELL' ? (muted ? 'bg-rose-400/5 text-rose-300/50 ring-1 ring-rose-400/15' : 'bg-rose-400/10 text-rose-300') : 'bg-slate-400/10 cx-text-muted'}`}>{direction}{muted ? ' · no trade' : ''}</span>;
+};
 const HeatBadge: React.FC<{ row: MarketRow }> = ({ row }) => <span className={`rounded-lg px-2 py-1 text-[10px] font-black ${row.statusLabel === 'Ready' ? 'bg-emerald-400/10 text-emerald-300' : row.statusLabel === 'Almost' ? 'bg-amber-400/10 text-amber-300' : row.statusLabel === 'Avoid' ? 'bg-rose-400/10 text-rose-300' : 'bg-cyan-400/10 text-cyan-300'}`}>{row.statusLabel} · {row.heat}/100 heat</span>;
 const Condition: React.FC<{ label: string; value: string; good?: boolean }> = ({ label, value, good }) => <div className="flex items-center justify-between gap-4 rounded-xl border cx-border cx-bg-card px-3 py-2"><span className="cx-text-faint">{label}</span><b className={good ? 'text-emerald-300' : 'text-amber-300'}>{value}</b></div>;
 
 const ReadySetup: React.FC<{ row: MarketRow; compact?: boolean }> = ({ row, compact }) => {
   const plan = row.analysis.trade_plan;
-  return <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] p-4"><div className="flex flex-wrap items-center gap-3"><span className="text-xl font-black">{row.signal.pair}</span><DirectionBadge direction={row.analysis.direction} /><HeatBadge row={row} /></div>{!compact && <p className="mt-2 text-sm cx-text-muted">{row.analysis.scenarios?.primary || 'Setup passed every entry rule.'}</p>}<div className="mt-3 grid gap-2 sm:grid-cols-4"><MiniStat label="Entry" value={formatPrice(plan?.entry)} /><MiniStat label="Stop" value={formatPrice(plan?.stop ?? plan?.invalidation)} /><MiniStat label="TP1" value={formatPrice(plan?.targets?.[0]?.price ?? plan?.tp1)} /><MiniStat label="RR" value={`${Number(plan?.net_rr ?? plan?.available_rr ?? 0).toFixed(2)}R`} /></div></div>;
+  return <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] p-4"><div className="flex flex-wrap items-center gap-3"><span className="text-xl font-black">{row.signal.pair}</span><DirectionBadge direction={row.analysis.direction} eligible={plan?.eligible} /><HeatBadge row={row} /></div>{!compact && <p className="mt-2 text-sm cx-text-muted">{row.analysis.scenarios?.primary || 'Setup passed every entry rule.'}</p>}<div className="mt-3 grid gap-2 sm:grid-cols-4"><MiniStat label="Entry" value={formatPrice(plan?.entry)} /><MiniStat label="Stop" value={formatPrice(plan?.stop ?? plan?.invalidation)} /><MiniStat label="TP1" value={formatPrice(plan?.targets?.[0]?.price ?? plan?.tp1)} /><MiniStat label="RR" value={`${Number(plan?.net_rr ?? plan?.available_rr ?? 0).toFixed(2)}R`} /></div></div>;
 };
 
-const HotMarketCard: React.FC<{ row: MarketRow }> = ({ row }) => <article className="rounded-2xl border cx-border cx-bg-card p-4 transition hover:border-cyan-400/25 hover:cx-bg-card"><div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><span className="text-lg font-black">{row.signal.pair}</span><DirectionBadge direction={row.analysis.direction} /><HeatBadge row={row} /></div><p className="mt-2 line-clamp-2 text-xs cx-text-faint">{row.blocker}</p></div><div className="text-right"><div className="text-2xl font-black cx-text-strong">{row.analysis.total_score}<span className="text-xs cx-text-faint">/100</span></div><div className="text-[10px] cx-text-faint">{formatAge(row.analysis.data_freshness_seconds)}</div></div></div><div className="mt-3 flex flex-wrap gap-2 text-[10px] cx-text-muted"><span className="rounded-md cx-bg-elev px-2 py-1">Timing {row.analysis.trade_timing?.status || 'WAIT'}</span><span className="rounded-md cx-bg-elev px-2 py-1">Fib {String(row.analysis.zones?.fibonacci?.nearest?.ratio || '—')}</span><span className="rounded-md cx-bg-elev px-2 py-1">Calendar {row.analysis.economic_calendar?.status || '—'}</span></div><div className="mt-3 flex gap-2"><Link to={`/tradingview?symbol=${row.signal.pair}&panel=full`} className="text-xs font-bold text-cyan-300 hover:text-cyan-200">Full analysis</Link><Link to={`/tradingview?symbol=${row.signal.pair}`} className="text-xs font-bold text-violet-300 hover:text-violet-200">Chart</Link></div></article>;
+const HotMarketCard: React.FC<{ row: MarketRow }> = ({ row }) => {
+  const eligible = row.analysis.trade_plan?.eligible;
+  const tf = row.analysis.data_quality?.primary_timeframe || '1h';
+  return <article className="rounded-2xl border cx-border cx-bg-card p-4 transition hover:border-cyan-400/25 hover:cx-bg-card"><div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><span className="text-lg font-black">{row.signal.pair}</span><DirectionBadge direction={row.analysis.direction} eligible={eligible} /><HeatBadge row={row} /></div><p className="mt-2 line-clamp-2 text-xs cx-text-faint">{row.blocker}</p></div><div className="text-right"><div className="text-2xl font-black cx-text-strong">{row.analysis.total_score}<span className="text-xs cx-text-faint">/100</span></div><div className="text-[10px] cx-text-faint">{tf} · {formatAge(row.analysis.data_freshness_seconds)}</div></div></div><div className="mt-3 flex flex-wrap gap-2 text-[10px] cx-text-muted"><span className="rounded-md cx-bg-elev px-2 py-1">Timing {row.analysis.trade_timing?.status || 'WAIT'}</span><span className="rounded-md cx-bg-elev px-2 py-1">Fib {String(row.analysis.zones?.fibonacci?.nearest?.ratio || '—')}</span><span className="rounded-md cx-bg-elev px-2 py-1">Calendar {row.analysis.economic_calendar?.status || '—'}</span></div><div className="mt-3 flex gap-2"><Link to={`/tradingview?symbol=${row.signal.pair}&panel=full`} className="text-xs font-bold text-cyan-300 hover:text-cyan-200">Full analysis</Link><Link to={`/tradingview?symbol=${row.signal.pair}`} className="text-xs font-bold text-violet-300 hover:text-violet-200">Chart</Link></div></article>;
+};
 const QueueRow: React.FC<{ row: MarketRow }> = ({ row }) => <div className="grid items-center gap-3 rounded-2xl border cx-border cx-bg-card p-4 sm:grid-cols-[1fr_auto]"><div><div className="flex flex-wrap items-center gap-2"><span className="font-black">{row.signal.pair}</span><HeatBadge row={row} /></div><p className="mt-1 text-xs cx-text-faint">{row.blocker}</p></div><div className="text-right"><div className="font-black cx-text-strong">{row.analysis.total_score}/60</div><div className="text-[10px] cx-text-faint">to qualify</div></div></div>;
 const EmptyState: React.FC<{ title: string; detail: string }> = ({ title, detail }) => <div className="rounded-2xl border border-dashed cx-border-strong p-6 text-center"><div className="font-black cx-text-muted">{title}</div><p className="mt-1 text-sm cx-text-faint">{detail}</p></div>;
 const SkeletonRows = () => <div className="space-y-3">{[1, 2, 3].map((i) => <div key={i} className="h-20 animate-pulse rounded-2xl cx-bg-card" />)}</div>;
+
+const CanonicalContract: React.FC<{ pair: string; timeframe: string; score: number; asOf?: string | null; engine?: string }> = ({ pair, timeframe, score, asOf, engine }) => (
+  <div className="flex flex-wrap items-center gap-2 text-[10px] font-black tracking-widest cx-text-muted">
+    <span className="rounded-md cx-bg-elev px-2 py-1 text-cyan-300">{pair}</span>
+    <span className="rounded-md cx-bg-elev px-2 py-1">{timeframe}</span>
+    <span className="rounded-md cx-bg-elev px-2 py-1">Score {score}/100</span>
+    <span className="rounded-md cx-bg-elev px-2 py-1">as-of {formatAsOf(asOf)}</span>
+    <span className="rounded-md cx-bg-elev px-2 py-1">{engine || 'V2'}</span>
+  </div>
+);
+
+const DecisionNowBlocked: React.FC<{ row: MarketRow; snapshot: DashboardSnapshot | null }> = ({ row, snapshot }) => {
+  const gates = [gateScore(row.analysis), gateTiming(row.analysis), gateCalendar(row.analysis), gateNetR(row.analysis)];
+  const failed = gates.filter((g) => !g.pass);
+  const tf = row.analysis.data_quality?.primary_timeframe || '1h';
+  const eligible = row.analysis.trade_plan?.eligible;
+  return (
+    <div className="rounded-2xl border border-amber-400/15 bg-amber-400/[0.05] p-5">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-2xl font-black">{row.signal.pair}</span>
+        <DirectionBadge direction={row.analysis.direction} eligible={eligible} />
+      </div>
+      <div className="mt-3">
+        <CanonicalContract pair={row.signal.pair} timeframe={tf} score={row.analysis.total_score || 0} asOf={snapshot?.generated_at} engine={snapshot?.model_version} />
+      </div>
+      <p className="mt-3 text-sm cx-text-muted"><b className="text-amber-200">Waiting for:</b> {row.blocker}</p>
+      <ul className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {gates.map((gate) => (
+          <li key={gate.label} className={`rounded-xl border p-3 ${gate.pass ? 'border-emerald-400/25 bg-emerald-400/[0.06]' : 'border-rose-400/25 bg-rose-400/[0.06]'}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-black tracking-widest cx-text-faint">{gate.label}</span>
+              {gate.pass ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" /> : <XCircle className="h-3.5 w-3.5 text-rose-300" />}
+            </div>
+            <div className={`mt-1 font-mono text-sm font-bold ${gate.pass ? 'text-emerald-200' : 'text-rose-200'}`}>{gate.value}</div>
+            <div className="text-[10px] cx-text-faint">{gate.note}</div>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <span className="rounded-xl cx-bg-card-hover px-3 py-1 text-xs font-black cx-text-muted">Nearest Fib {String(row.analysis.zones?.fibonacci?.nearest?.ratio || '—')}</span>
+        <span className="rounded-xl cx-bg-card-hover px-3 py-1 text-xs font-black cx-text-muted">Bias {row.analysis.market_context?.macro_bias || 'neutral'}</span>
+        <Link to={`/tradingview?symbol=${row.signal.pair}`} className="rounded-lg border cx-border-strong cx-bg-card-hover px-3 py-2 text-xs font-black cx-text">Open on chart</Link>
+        <Link to={`/tradingview?symbol=${row.signal.pair}&panel=full`} className="rounded-lg bg-cyan-400 px-3 py-2 text-xs font-black text-[#05070d]">Full analysis</Link>
+      </div>
+      {failed.length > 0 && <p className="mt-3 text-[11px] cx-text-faint">Failing gates: {failed.map((g) => g.label).join(' · ')}.</p>}
+    </div>
+  );
+};
 
 export default Dashboard;

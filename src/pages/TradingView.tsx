@@ -2101,6 +2101,19 @@ const TradingView: React.FC = () => {
 
       <div className="flex shrink-0 items-center gap-3 overflow-x-auto border-b cx-border bg-[#080d18] px-4 py-1.5 text-[10px] font-black uppercase tracking-wider cx-text-faint">
         <span className="text-cyan-300">MARKET CONTEXT</span>
+        {cryptoAnalysis && (
+          <span className="rounded bg-black/30 px-2 py-1 normal-case tracking-normal text-[10px] cx-text">
+            <b className="text-cyan-300">{cryptoAnalysis.pair || selectedSymbol}</b>
+            <span className="mx-1 opacity-50">·</span>
+            <span>{timeframe}</span>
+            <span className="mx-1 opacity-50">·</span>
+            <span>Score {cryptoAnalysis.total_score}/100</span>
+            <span className="mx-1 opacity-50">·</span>
+            <span className="cx-text-faint">as-of {chartUpdatedAt ? new Date(chartUpdatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'live'}</span>
+            <span className="mx-1 opacity-50">·</span>
+            <span className="cx-text-faint">{cryptoAnalysis.data_quality?.primary_timeframe ? `engine ${cryptoAnalysis.data_quality.primary_timeframe}` : 'engine V2'}</span>
+          </span>
+        )}
         <DataAttribution
           provider="Multi-source"
           timestamp={chartUpdatedAt}
