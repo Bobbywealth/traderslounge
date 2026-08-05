@@ -179,13 +179,6 @@ const TradingView: React.FC = () => {
   const [chartRevision, setChartRevision] = useState(0);
   const [chartUpdatedAt, setChartUpdatedAt] = useState<Date | null>(null);
 
-  // Component-scope view of the candle cache. Recomputed when the cache
-  // updates (chartRevision bumps after each successful fetch) so JSX and
-  // indicator effects see a stable reference keyed on symbol/timeframe.
-  const candles = useMemo<TradeLockerHistoryCandle[]>(
-    () => candleCacheRef.current[`${selectedSymbol}:${timeframe}`] || [],
-    [selectedSymbol, timeframe, chartRevision],
-  );
   const [candlePatterns, setCandlePatterns] = useState<Array<{ type: 'doji' | 'hammer' | 'engulfing' | 'shooting_star' | 'spinning_top'; direction: 'bullish' | 'bearish' | 'neutral'; index: number }>>([]);
   const [divergences, setDivergences] = useState<Divergence[]>([]);
   const [divergenceRevision, setDivergenceRevision] = useState(0);
@@ -198,6 +191,14 @@ const TradingView: React.FC = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLive, setIsLive] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Component-scope view of the candle cache. Recomputed when the cache
+  // updates (chartRevision bumps after each successful fetch) so JSX and
+  // indicator effects see a stable reference keyed on symbol/timeframe.
+  const candles = useMemo<TradeLockerHistoryCandle[]>(
+    () => candleCacheRef.current[`${selectedSymbol}:${timeframe}`] || [],
+    [selectedSymbol, timeframe, chartRevision],
+  );
   const [symbolSuggestions, setSymbolSuggestions] = useState<SymbolInfo[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [availableSymbols, setAvailableSymbols] = useState<SymbolInfo[]>(BWTS_SYMBOLS);
