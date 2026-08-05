@@ -790,7 +790,10 @@ const TradingView: React.FC = () => {
   }, [selectedSymbol, timeframe]);
 
   const replayPrev = useCallback(() => setReplayIndex((value) => Math.max(0, value - 1)), []);
-  const replayNext = useCallback(() => setReplayIndex((value) => Math.min(candles.length, value + 1)), [candles.length]);
+  const replayNext = useCallback(() => setReplayIndex((value) => {
+    const len = candleCacheRef.current[`${selectedSymbol}:${timeframe}`]?.length || 0;
+    return Math.min(len, value + 1);
+  }), [selectedSymbol, timeframe]);
   const replayToggle = useCallback(() => setReplayPlaying((value) => !value), []);
 
   // Compare overlay: a normalized line series on the main price chart.
@@ -916,6 +919,7 @@ const TradingView: React.FC = () => {
     if (!chart) return;
     const interval = window.setInterval(() => {
       setReplayIndex((value) => {
+        const candles = candleCacheRef.current[`${selectedSymbol}:${timeframe}`] || [];
         if (value >= candles.length) {
           setReplayPlaying(false);
           return value;
@@ -923,13 +927,15 @@ const TradingView: React.FC = () => {
         try {
           chart.timeScale().setVisibleLogicalRange({ from: 0, to: value + 1 });
         } catch {
-          chart.timeScale().scrollToPosition(candles[Math.min(value, candles.length - 1)].time);
+          if (candles.length > 0) {
+            chart.timeScale().scrollToPosition(candles[Math.min(value, candles.length - 1)].time);
+          }
         }
         return value + 1;
       });
     }, 500);
     return () => window.clearInterval(interval);
-  }, [replayPlaying, candles]);
+  }, [replayPlaying, selectedSymbol, timeframe]);
 
   // Replay: pause auto-advance when the user manually scrubs.
   useEffect(() => {
