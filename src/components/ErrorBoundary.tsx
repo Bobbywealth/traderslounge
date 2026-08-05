@@ -21,15 +21,6 @@ class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Uncaught error:', error, errorInfo);
-    try {
-      (window as any).__chartLastError = {
-        message: error?.message,
-        stack: error?.stack,
-        name: error?.name,
-        componentStack: errorInfo?.componentStack,
-        time: new Date().toISOString(),
-      };
-    } catch (_) {}
   }
 
   public render() {
