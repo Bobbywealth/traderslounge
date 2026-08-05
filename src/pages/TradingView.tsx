@@ -809,6 +809,7 @@ const TradingView: React.FC = () => {
     (async () => {
       try {
         const target = compareSymbol;
+        const candles = candleCacheRef.current[`${selectedSymbol}:${timeframe}`] || [];
         const base = candles[candles.length - 1]?.close;
         const series = chart.addSeries(LineSeries, {
           color: '#67e8f9',
@@ -830,7 +831,7 @@ const TradingView: React.FC = () => {
       }
     })();
     return () => { cancelled = true; };
-  }, [compareSymbol, selectedSymbol, timeframe, candles]);
+  }, [compareSymbol, selectedSymbol, timeframe]);
 
   const loadCandlesForSymbol = useCallback(async (
     symbol: string, tf: string, incremental = false
