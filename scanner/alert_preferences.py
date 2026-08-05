@@ -39,6 +39,7 @@ wraps it in handlers; the engine is testable in isolation.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -59,6 +60,7 @@ logger = logging.getLogger(__name__)
 
 
 class AlertType(str, Enum):
+    NEW_TRADE = "new_trade"
     ENTRY_ZONE = "entry_zone"
     CONFIRMATION = "confirmation"
     NEWS_RISK = "news_risk"
@@ -110,6 +112,7 @@ class AlertPreferences:
     # Which alert types are enabled.
     enabled_alert_types: list[str] = field(
         default_factory=lambda: [
+            AlertType.NEW_TRADE.value,
             AlertType.ENTRY_ZONE.value,
             AlertType.CONFIRMATION.value,
             AlertType.NEWS_RISK.value,
@@ -129,6 +132,9 @@ class AlertPreferences:
     # does not double-fire.
     last_daily_briefing_at: str | None = None
     last_weekly_briefing_at: str | None = None
+    # Preference schema version. Version 2 adds the dedicated new-trade
+    # alert and lets older saved documents opt in automatically once.
+    schema_version: int = 2
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -144,7 +150,18 @@ class AlertPreferences:
                 continue
             if field_name in payload:
                 kwargs[field_name] = payload[field_name]
-        return cls(**kwargs)
+        prefs = cls(**kwargs)
+        # Existing preference documents predate the dedicated NEW_TRADE
+        # category. Enable it once during the v1 -> v2 migration, while
+        # respecting an explicit opt-out on all subsequent saves.
+        try:
+            prior_version = int(payload.get("schema_version") or 1)
+        except (TypeError, ValueError):
+            prior_version = 1
+        if prior_version < 2 and AlertType.NEW_TRADE.value not in prefs.enabled_alert_types:
+            prefs.enabled_alert_types = [AlertType.NEW_TRADE.value, *prefs.enabled_alert_types]
+        prefs.schema_version = 2
+        return prefs
 
 
 # ---------------------------------------------------------------------------
@@ -162,12 +179,15 @@ class AlertEvent:
     body: str
     severity: str  # info | warning | critical
     payload: dict[str, Any] = field(default_factory=dict)
+    event_key: str | None = None
     created_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["event_key"] = alert_event_key(payload)
+        return payload
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +211,81 @@ def _is_in_timeframe(prefs: AlertPreferences, timeframe: str | None) -> bool:
 
 def _enabled(prefs: AlertPreferences, alert_type: AlertType) -> bool:
     return alert_type.value in prefs.enabled_alert_types
+
+
+def alert_event_key(event: dict[str, Any]) -> str:
+    """Return a deterministic key so polling cannot duplicate an alert."""
+    existing = str(event.get("event_key") or "").strip()
+    if existing:
+        return existing
+    stable = {
+        "user_id": event.get("user_id"),
+        "alert_type": event.get("alert_type"),
+        "pair": event.get("pair"),
+        "timeframe": event.get("timeframe"),
+        "title": event.get("title"),
+        "body": event.get("body"),
+        "payload": event.get("payload") or {},
+    }
+    raw = json.dumps(stable, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def evaluate_new_trade(
+    prefs: AlertPreferences,
+    signal: dict[str, Any],
+) -> list[AlertEvent]:
+    """Build one alert for a newly persisted guarded trade call.
+
+    This consumes the published signal payload rather than a forming analysis
+    snapshot, so WAIT/BLOCKED/watchlist setups can never be labeled new trades.
+    """
+    if not _enabled(prefs, AlertType.NEW_TRADE):
+        return []
+    pair = str(signal.get("pair") or "").upper()
+    timeframe = str(signal.get("timeframe") or "")
+    direction = str(signal.get("direction") or "").upper()
+    if not pair or direction not in {"BUY", "SELL"}:
+        return []
+    if not _is_in_watchlist(prefs, pair) or not _is_in_timeframe(prefs, timeframe):
+        return []
+
+    targets = [signal.get("tp1"), signal.get("tp2"), signal.get("tp3")]
+    targets = [target for target in targets if target is not None]
+    score = int(signal.get("score") or 0)
+    setup_quality = str(signal.get("setup_quality") or "QUALIFIED")
+    net_rr = signal.get("net_rr")
+    rr_text = f" Net available R:R {float(net_rr):.2f}R." if net_rr is not None else ""
+    fingerprint = str(signal.get("fingerprint") or "")
+    published_at = signal.get("published_at")
+    if hasattr(published_at, "isoformat"):
+        published_at = published_at.isoformat()
+
+    return [AlertEvent(
+        user_id=prefs.user_id,
+        alert_type=AlertType.NEW_TRADE.value,
+        pair=pair,
+        timeframe=timeframe or None,
+        title=f"NEW TRADE: {pair} {direction}",
+        body=(
+            f"A {setup_quality} {direction} call cleared every ConfluenceX gate "
+            f"at {score}/100.{rr_text}"
+        ),
+        severity="info",
+        payload={
+            "fingerprint": fingerprint,
+            "direction": direction,
+            "entry": signal.get("entry"),
+            "stop": signal.get("stop_loss"),
+            "targets": targets,
+            "score": score,
+            "setup_quality": setup_quality,
+            "net_rr": net_rr,
+            "published_at": published_at,
+        },
+        event_key=f"new_trade:{prefs.user_id}:{fingerprint or alert_event_key(signal)}",
+        created_at=str(published_at or datetime.now(timezone.utc).isoformat()),
+    )]
 
 
 def evaluate_rules(
@@ -236,8 +331,25 @@ def evaluate_rules(
     events: list[AlertEvent] = []
 
     # --- confirmation ----------------------------------------------------
+    # Confirmation means a transition, not every READY poll. The dedicated
+    # NEW_TRADE event handles the first persisted call; this rule only fires
+    # when a previous observed analysis was below the user's thresholds.
+    previous_confirmation_ready = False
+    if last_analysis is not None:
+        previous_decision = last_analysis.get("decision_quality") or {}
+        previous_timing_status = (last_analysis.get("trade_timing") or {}).get("status", "WAIT")
+        previous_confirmation_ready = (
+            previous_decision.get("setup_quality") is not None
+            and previous_decision.get("execution_readiness") is not None
+            and previous_decision.get("setup_quality") >= prefs.setup_quality_minimum
+            and previous_decision.get("execution_readiness") >= prefs.timing_minimum
+            and last_analysis.get("direction") in ("BUY", "SELL")
+            and previous_timing_status == "READY"
+        )
     if (
         _enabled(prefs, AlertType.CONFIRMATION)
+        and last_analysis is not None
+        and not previous_confirmation_ready
         and setup_quality is not None
         and timing is not None
         and setup_quality >= prefs.setup_quality_minimum
@@ -371,15 +483,16 @@ DEFAULT_STORE_DIR = Path(
 
 
 class AlertPreferencesStore:
-    """Simple JSON-on-disk CRUD for alert preferences.
+    """Durable preference CRUD with a local-file fallback.
 
-    Atomic writes (write to a temp file, rename). One file per user.
-    Falls back to an in-memory dict if the directory cannot be
-    created so the API still boots in restricted environments.
+    In production the signal repository supplies Postgres-backed preference
+    methods. Local JSON remains available for development and as a graceful
+    fallback when a database is not configured.
     """
 
-    def __init__(self, root: Path | str | None = None):
+    def __init__(self, root: Path | str | None = None, repository: Any | None = None):
         self.root = Path(root) if root else DEFAULT_STORE_DIR
+        self.repository = repository
         self._lock = threading.Lock()
         self._memory: dict[int, dict[str, Any]] = {}
         try:
@@ -415,6 +528,12 @@ class AlertPreferencesStore:
 
     def get(self, user_id: int) -> AlertPreferences | None:
         with self._lock:
+            if self.repository is not None and hasattr(self.repository, "get_alert_preferences"):
+                try:
+                    payload = self.repository.get_alert_preferences(int(user_id))
+                    return AlertPreferences.from_dict(payload) if payload else None
+                except Exception as exc:
+                    logger.warning("durable alert prefs read failed for user %s: %s", user_id, exc)
             if self._persist_ok and self._path_for(user_id).exists():
                 try:
                     payload = json.loads(self._path_for(user_id).read_text("utf-8"))
@@ -429,6 +548,12 @@ class AlertPreferencesStore:
     def upsert(self, prefs: AlertPreferences) -> AlertPreferences:
         with self._lock:
             payload = prefs.to_dict()
+            if self.repository is not None and hasattr(self.repository, "upsert_alert_preferences"):
+                try:
+                    saved = self.repository.upsert_alert_preferences(int(prefs.user_id), payload)
+                    return AlertPreferences.from_dict(saved or payload)
+                except Exception as exc:
+                    logger.warning("durable alert prefs write failed for user %s: %s", prefs.user_id, exc)
             if self._persist_ok:
                 try:
                     self._atomic_write(
@@ -443,6 +568,11 @@ class AlertPreferencesStore:
 
     def delete(self, user_id: int) -> bool:
         with self._lock:
+            if self.repository is not None and hasattr(self.repository, "delete_alert_preferences"):
+                try:
+                    return bool(self.repository.delete_alert_preferences(int(user_id)))
+                except Exception as exc:
+                    logger.warning("durable alert prefs delete failed for user %s: %s", user_id, exc)
             path = self._path_for(user_id)
             if path.exists():
                 try:
@@ -456,6 +586,11 @@ class AlertPreferencesStore:
     def all_user_ids(self) -> Iterable[int]:
         with self._lock:
             ids = set(self._memory.keys())
+            if self.repository is not None and hasattr(self.repository, "alert_preference_user_ids"):
+                try:
+                    ids.update(int(uid) for uid in self.repository.alert_preference_user_ids())
+                except Exception as exc:
+                    logger.warning("durable alert prefs listing failed: %s", exc)
             if self._persist_ok and self.root.exists():
                 for entry in self.root.glob("user-*.json"):
                     try:

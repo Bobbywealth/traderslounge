@@ -14,7 +14,7 @@ import logging
 import os
 import sys
 
-from .api import ApiState, make_server
+from .api import ApiState, make_server, start_signal_monitor
 from .binance_client import BinanceClient
 from .config import load_from_env
 from .data_provider import TwelveDataClient
@@ -69,6 +69,7 @@ def main() -> int:
 
     host = os.environ.get("API_HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))
+    alert_store = AlertPreferencesStore(repository=repo)
     state = ApiState(
         repository=repo, config=cfg,
         position_repo=position_repo,
@@ -78,6 +79,8 @@ def main() -> int:
         scan_request_path=scan_request_path,
         news_filter=news,
         market_client=market_client,
+        alert_preferences_store=alert_store,
+        alert_repo=repo,
     )
     # Wire the Telegram bot handle into API state. Constructing the
     # handle is safe even when TELEGRAM_BOT_TOKEN is unset; every
@@ -102,12 +105,14 @@ def main() -> int:
                 except (TypeError, ValueError):
                     continue
     server = make_server(state, host=host, port=port)
+    monitor_stop = start_signal_monitor(state)
     print(f"API listening on http://{host}:{port}", file=sys.stderr)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        monitor_stop.set()
         server.server_close()
         repo.close()
     return 0

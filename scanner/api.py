@@ -56,6 +56,8 @@ from .alert_preferences import (
     AlertEvent,
     AlertPreferences,
     AlertPreferencesStore,
+    alert_event_key,
+    evaluate_new_trade,
     evaluate_rules,
 )
 from .telegram_bot import TelegramBot
@@ -89,6 +91,8 @@ RATE_LIMITS: dict[str, tuple[int, float]] = {
     "/api/dashboard-snapshot": (30, 30.0 / 60.0),
     "/api/kill-switch": (10, 10.0 / 60.0),
     "/api/scans/refresh": (10, 10.0 / 60.0),
+    "/api/alerts/preferences": (60, 60.0 / 60.0),
+    "/api/alerts/feed": (60, 60.0 / 60.0),
 }
 
 # Endpoints that require a valid Authorization: Bearer token, in
@@ -247,6 +251,8 @@ class ApiState:
     # Last in-memory snapshot per pair, used by the invalidation rule
     # to detect price crossing the invalidation level.
     last_analysis_by_pair: dict = field(default_factory=dict)
+    # Fallback de-duplication when persistent alert storage is unavailable.
+    alert_event_keys: set[str] = field(default_factory=set)
     perf_repo: Optional[Any] = None
     # Telegram bot handle. Optional so the API still boots when the
     # TELEGRAM_BOT_TOKEN env var is not configured. When present,
@@ -551,7 +557,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return
         with _STATE.cache_lock:
             already = _STATE.dashboard_cache.get("payload") is not None
-        if already:
+            building = bool(_STATE.dashboard_cache.get("building"))
+        if already or building:
             _DASHBOARD_PREWARMED = True
             return
         _DASHBOARD_PREWARMED = True
@@ -1215,9 +1222,26 @@ class _ApiHandler(BaseHTTPRequestHandler):
         payload = build_published_signal(analysis)
         if payload is None:
             return
+
+        # Publication is the authority for a "new trade". Serialize this small
+        # section so simultaneous dashboard/analysis requests cannot announce
+        # the same setup twice. Repositories keep at most one ACTIVE call per
+        # pair/timeframe and report whether this invocation created it.
         try:
-            if hasattr(_STATE.repository, "publish_actionable"):
-                _STATE.repository.publish_actionable(payload)
+            with _STATE.cache_lock:
+                if hasattr(_STATE.repository, "publish_actionable_once"):
+                    signal_id, is_new = _STATE.repository.publish_actionable_once(payload)
+                elif hasattr(_STATE.repository, "publish_actionable"):
+                    signal_id = _STATE.repository.publish_actionable(payload)
+                    is_new = True
+                else:
+                    return
+            payload["id"] = int(signal_id)
+        except Exception:
+            logging.exception("failed to persist actionable V2 signal for %s", analysis.get("pair"))
+            return
+
+        try:
             if hasattr(_STATE.repository, "save_forecast"):
                 quality = analysis.get("decision_quality") or {}
                 weights = ((quality.get("scenario_weights") or {}).get("weights") or {})
@@ -1254,12 +1278,11 @@ class _ApiHandler(BaseHTTPRequestHandler):
         except Exception:
             logging.exception("failed to persist actionable V2 forecast for %s", analysis.get("pair"))
 
-        # Alert evaluation: for every user with preferences configured,
-        # evaluate the rules against this snapshot. Persist any events
-        # through the alert_repo (Postgres-backed when available) so the
-        # in-app /alerts feed surfaces them on next page load.
         try:
-            self._evaluate_and_persist_alerts(analysis)
+            self._evaluate_and_persist_alerts(
+                analysis,
+                new_trade=payload if is_new else None,
+            )
         except Exception:
             logging.exception("alert evaluation failed for %s", analysis.get("pair"))
 
@@ -1297,7 +1320,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
     def _alert_store(self) -> AlertPreferencesStore:
         store = getattr(_STATE, "alert_preferences_store", None)
         if store is None:
-            store = AlertPreferencesStore()
+            store = AlertPreferencesStore(repository=_STATE.repository)
             _STATE.alert_preferences_store = store  # type: ignore[attr-defined]
         return store
 
@@ -1417,54 +1440,75 @@ class _ApiHandler(BaseHTTPRequestHandler):
         self._json(200, {"set_webhook": result, "webhook_info": info})
 
 
-    def _evaluate_and_persist_alerts(self, analysis: dict) -> None:
-        """Run :func:`evaluate_rules` for every known user, persist events.
-
-        Failures here never bubble up — alerts are an additive concern
-        and must never break the canonical /api/analysis path.
-        """
+    def _evaluate_and_persist_alerts(
+        self,
+        analysis: dict,
+        new_trade: Optional[dict] = None,
+    ) -> None:
+        """Evaluate, durably de-duplicate, persist, and deliver alerts."""
         store = self._alert_store()
         user_ids = list(store.all_user_ids())
-        if not user_ids:
-            return
         pair = str(analysis.get("pair") or "").upper()
         last_analysis = _STATE.last_analysis_by_pair.get(pair) if hasattr(_STATE, "last_analysis_by_pair") else None
-        # Per-user evaluation is independent so we can evaluate in a
-        # tight loop without holding the store lock across calls.
         try:
-            calendar = (analysis.get("economic_calendar") or {})
+            calendar = analysis.get("economic_calendar") or {}
         except Exception:
             calendar = {}
         bot = getattr(_STATE, "telegram_bot", None)
+        repo = getattr(_STATE, "alert_repo", None)
+
         for uid in user_ids:
             prefs = store.get(int(uid))
             if prefs is None:
                 continue
             events = evaluate_rules(prefs, analysis, calendar=calendar, last_analysis=last_analysis)
+            if new_trade is not None:
+                # NEW_TRADE is the single user-facing confirmation for a newly
+                # published call. Suppress the older generic confirmation event
+                # on that same cycle so Telegram receives one clear message.
+                events = [event for event in events if event.alert_type != "confirmation"]
+                events.extend(evaluate_new_trade(prefs, new_trade))
             if not events:
                 continue
-            event_dicts = [e.to_dict() for e in events]
-            repo = getattr(_STATE, "alert_repo", None)
+            event_dicts = [event.to_dict() for event in events]
+            deliverable = event_dicts
             if repo is not None and hasattr(repo, "save_events"):
                 try:
-                    repo.save_events(event_dicts)
+                    saved = repo.save_events(event_dicts)
+                    deliverable = list(saved) if saved is not None else event_dicts
                 except Exception:
                     logging.exception("alert_repo.save_events failed for user %s", uid)
-            # Telegram dispatch is per-user so it sits inside the loop.
-            # TelegramBot.dispatch_event is a no-op when the user has
-            # not linked a chat_id, so the hot path stays cheap.
+                    deliverable = self._claim_in_memory_alerts(event_dicts)
+            else:
+                deliverable = self._claim_in_memory_alerts(event_dicts)
+
             if bot is not None:
-                for ev in event_dicts:
+                for event in deliverable:
                     try:
-                        bot.dispatch_event(ev, prefs)
+                        bot.dispatch_event(event, prefs)
                     except Exception:
                         logging.exception("telegram dispatch failed for user %s", uid)
-        # Update last_analysis cache for the invalidation rule next cycle.
+
         try:
             if hasattr(_STATE, "last_analysis_by_pair"):
                 _STATE.last_analysis_by_pair[pair] = analysis
         except Exception:
             pass
+
+    def _claim_in_memory_alerts(self, events: list[dict]) -> list[dict]:
+        """Fallback event de-duplication for local/no-database deployments."""
+        claimed: list[dict] = []
+        with _STATE.cache_lock:
+            for event in events:
+                key = alert_event_key(event)
+                if key in _STATE.alert_event_keys:
+                    continue
+                _STATE.alert_event_keys.add(key)
+                # Fallback-only cache: bound memory if durable storage is down.
+                while len(_STATE.alert_event_keys) > 5000:
+                    _STATE.alert_event_keys.pop()
+                claimed.append({**event, "event_key": key})
+        return claimed
 
     def _list_journal(self, query: dict) -> None:
         repo = _STATE.closed_trade_repo
@@ -2099,6 +2143,47 @@ def _by_pair(repo: SignalRepository, pair: str, limit: int):
     if hasattr(repo, "by_pair"):
         return repo.by_pair(pair, limit)  # type: ignore[attr-defined]
     return [r for r in repo.recent(limit=500) if r.get("pair") == pair][:limit]
+
+
+def start_signal_monitor(
+    state: ApiState,
+    interval_seconds: Optional[int] = None,
+) -> threading.Event:
+    """Continuously refresh canonical V2 analyses even with no browser open.
+
+    The refresh path is the same one used by the dashboard, so a newly eligible
+    plan is published and dispatched without relying on a user page load. The
+    default cadence follows SCAN_INTERVAL_SECONDS (five minutes in production),
+    which is fast enough for H1 calls while respecting the FX data budget.
+    """
+    stop = threading.Event()
+    if interval_seconds is None:
+        raw = os.environ.get("SIGNAL_MONITOR_INTERVAL_SECONDS")
+        try:
+            interval_seconds = int(raw) if raw else int(state.config.scan_interval_seconds)
+        except (TypeError, ValueError):
+            interval_seconds = 300
+    interval_seconds = max(30, int(interval_seconds))
+
+    def run() -> None:
+        handler = object.__new__(_ApiHandler)
+        while not stop.is_set():
+            should_refresh = False
+            with state.cache_lock:
+                if not state.dashboard_cache.get("building"):
+                    state.dashboard_cache["building"] = True
+                    should_refresh = True
+            if should_refresh:
+                try:
+                    handler._refresh_dashboard_cache()
+                except Exception:
+                    logging.exception("background signal monitor refresh failed")
+            stop.wait(interval_seconds)
+
+    thread = threading.Thread(target=run, name="v2-signal-monitor", daemon=True)
+    thread.start()
+    logging.info("V2 signal monitor started (%ds cadence, %d pairs)", interval_seconds, len(state.config.pairs))
+    return stop
 
 
 def make_server(state: ApiState, host: str = "0.0.0.0", port: int = 8000) -> ThreadingHTTPServer:

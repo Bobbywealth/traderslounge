@@ -157,7 +157,10 @@ class TestEvaluateRules(unittest.TestCase):
             setup_quality_minimum=60,
             timing_minimum=60,
         )
-        events = evaluate_rules(prefs, _analysis(setup_quality=70, timing=70))
+        previous = _analysis(setup_quality=50, timing=50, timing_status="WAIT")
+        events = evaluate_rules(
+            prefs, _analysis(setup_quality=70, timing=70), last_analysis=previous
+        )
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].alert_type, AlertType.CONFIRMATION.value)
         self.assertEqual(events[0].severity, "info")
@@ -237,7 +240,12 @@ class TestEvaluateRules(unittest.TestCase):
 
     def test_event_metadata_contains_pair_and_timeframe(self):
         prefs = AlertPreferences(user_id=42)
-        events = evaluate_rules(prefs, _analysis(pair="EURUSD", primary_timeframe="4h", setup_quality=80, timing=80))
+        previous = _analysis(pair="EURUSD", primary_timeframe="4h", setup_quality=50, timing=50, timing_status="WAIT")
+        events = evaluate_rules(
+            prefs,
+            _analysis(pair="EURUSD", primary_timeframe="4h", setup_quality=80, timing=80),
+            last_analysis=previous,
+        )
         self.assertGreater(len(events), 0)
         for event in events:
             self.assertEqual(event.user_id, 42)

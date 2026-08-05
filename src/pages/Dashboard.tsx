@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Activity, AlertTriangle, ArrowRight, BarChart3, CheckCircle2, Clock3, Flame, History, Loader2, RefreshCw, ShieldAlert, XCircle, Zap,
+  Activity, AlertTriangle, ArrowRight, BarChart3, BellRing, CheckCircle2, Clock3, Flame, History, Loader2, RefreshCw, ShieldAlert, XCircle, Zap,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { bwtsApi, planReasonText, type CalendarGateStatus, type CryptoAnalysis, type DashboardSnapshot, type PublishedSignal } from '../services/bwtsApi';
+import { bwtsApi, planReasonText, type AlertPreferences, type CalendarGateStatus, type CryptoAnalysis, type DashboardSnapshot, type PublishedSignal } from '../services/bwtsApi';
 import DataAttribution from '../components/DataAttribution';
 
 type MarketRow = DashboardSnapshot['markets'][number] & { heat: number; blocker: string; statusLabel: string };
@@ -96,6 +96,7 @@ const Dashboard: React.FC = () => {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
   const [calendar, setCalendar] = useState<CalendarGateStatus | null>(null);
   const [signals, setSignals] = useState<PublishedSignal[]>([]);
+  const [alertPrefs, setAlertPrefs] = useState<AlertPreferences | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -127,9 +128,10 @@ const Dashboard: React.FC = () => {
       // stream pairs in parallel at the same canonical H1 timeframe so the UI can
       // populate incrementally instead of staying blank.
       const H1 = '1h';
-      const [pairList, published] = await Promise.allSettled([
+      const [pairList, published, alertSettings] = await Promise.allSettled([
         withTimeout(bwtsApi.pairs(), 15_000, 'pairs'),
         bwtsApi.publishedSignals({ limit: 50 }).catch(() => ({ signals: [], count: 0, source: 'fallback' })),
+        bwtsApi.alertPreferences(),
       ]);
       const pairListResolved = pairList.status === 'fulfilled'
         ? (Array.isArray((pairList.value as { pairs: string[] }).pairs) ? (pairList.value as { pairs: string[] }).pairs : [])
@@ -195,6 +197,7 @@ const Dashboard: React.FC = () => {
       }
       const markets = uniqueMarkets(data.markets);
       const publishedList = published.status === 'fulfilled' ? (published.value.signals || []) : [];
+      setAlertPrefs(alertSettings.status === 'fulfilled' ? alertSettings.value : null);
       setSnapshot(data);
       setUpdatedAt(new Date(data.generated_at || Date.now()));
       setSignals(publishedList);
@@ -226,6 +229,10 @@ const Dashboard: React.FC = () => {
   const hot = useMemo(() => [...markets].sort((a, b) => b.heat - a.heat), [markets]);
   const active = hot.filter((row) => row.analysis?.trade_plan?.eligible);
   const forming = hot.filter((row) => !row.analysis?.trade_plan?.eligible && (row.analysis?.total_score || 0) >= 35).slice(0, 6);
+  const signalWatching = hot.filter((row) => !row.analysis?.trade_plan?.eligible && (row.analysis?.total_score || 0) >= 25).slice(0, 10);
+  const publishedActive = signals.filter((signal) => signal.status === 'ACTIVE');
+  const signalHistory = signals.filter((signal) => signal.status !== 'ACTIVE');
+  const telegramReady = Boolean(alertPrefs?.delivery_channels?.includes('telegram') && alertPrefs?.telegram_chat_id);
   const strongest = hot[0];
   const feedState: FeedState = loading ? 'LOADING' : error && !markets.length ? 'OFFLINE' : error ? 'DEGRADED' : 'LIVE';
   const providerHealth = snapshot?.provider_health as any;
@@ -250,8 +257,8 @@ const Dashboard: React.FC = () => {
   const tabs: { id: Tab; label: string; count: number; icon: React.ElementType }[] = [
     { id: 'hot', label: 'Hot Now', count: hot.length, icon: Flame },
     { id: 'all', label: 'All Markets', count: markets.length, icon: Activity },
-    { id: 'signals', label: 'Active Signals', count: active.length, icon: Zap },
-    { id: 'history', label: 'Signal History', count: signals.length, icon: History },
+    { id: 'signals', label: 'Active Signals', count: publishedActive.length, icon: Zap },
+    { id: 'history', label: 'Signal History', count: signalHistory.length, icon: History },
   ];
 
   return (
@@ -262,6 +269,12 @@ const Dashboard: React.FC = () => {
             <div className="flex flex-wrap items-center gap-3">
               <span className="rounded-full border border-cyan-400/25 bg-cyan-400/10 px-3 py-1 text-[10px] font-black tracking-[0.22em] text-cyan-300">MARKET COMMAND CENTER</span>
               <FeedBadge state={feedState} />
+              <Link
+                to="/alerts"
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[9px] font-black tracking-widest ${telegramReady ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-300' : 'border-amber-400/20 bg-amber-400/10 text-amber-300'}`}
+              >
+                <BellRing className="h-3 w-3" /> {telegramReady ? 'NEW-TRADE ALERTS ON' : 'ALERTS NEED SETUP'}
+              </Link>
             </div>
             <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl">What is hot right now, {user?.name?.split(' ')[0] || 'Trader'}?</h1>
             <p className="mt-2 max-w-3xl text-sm leading-relaxed cx-text-muted">
@@ -351,34 +364,51 @@ const Dashboard: React.FC = () => {
         )}
 
         {tab === 'signals' && (
-          <div className="space-y-3">
-            {active.length ? active.map((row) => <ReadySetup key={row.signal.pair} row={row} compact />) : (
-              <EmptyState title="No qualified calls right now" detail="That is good. ConfluenceX should wait until every rule passes instead of forcing trades." />
-            )}
+          <div className="space-y-5">
+            <div className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-4 ${telegramReady ? 'border-emerald-400/20 bg-emerald-400/[0.06]' : 'border-amber-400/20 bg-amber-400/[0.06]'}`}>
+              <div className="flex items-center gap-3">
+                <BellRing className={`h-5 w-5 ${telegramReady ? 'text-emerald-300' : 'text-amber-300'}`} />
+                <div>
+                  <div className="text-sm font-black cx-text-strong">{telegramReady ? 'New-trade alerts are on' : 'New-trade alerts are not connected'}</div>
+                  <p className="mt-0.5 text-xs cx-text-muted">Only a newly published STRONG or VALID call sends an alert. WAIT and BLOCKED setups stay visible below without notifying you.</p>
+                </div>
+              </div>
+              <Link to="/alerts" className="rounded-xl border cx-border-strong cx-bg-card-hover px-3 py-2 text-xs font-black cx-text">{telegramReady ? 'Manage alerts' : 'Connect Telegram'}</Link>
+            </div>
+
+            <div>
+              <div className="mb-3">
+                <div className="text-[10px] font-black tracking-[0.2em] text-emerald-300">CONFIRMED TRADE CALLS</div>
+                <h2 className="mt-1 text-xl font-black cx-text-strong">Active signals</h2>
+              </div>
+              <div className="grid gap-4 xl:grid-cols-2">
+                {publishedActive.length ? publishedActive.map((signal) => <PublishedSignalCard key={signal.id} signal={signal} />) : (
+                  <div className="xl:col-span-2"><EmptyState title="No qualified calls right now" detail="No setup has cleared every score, timing, calendar, data-quality, structure, and minimum-R gate." /></div>
+                )}
+              </div>
+            </div>
+
+            <div className="border-t cx-border pt-5">
+              <div className="mb-3">
+                <div className="text-[10px] font-black tracking-[0.2em] text-amber-300">WATCHING, NOT A TRADE YET</div>
+                <h2 className="mt-1 text-xl font-black cx-text-strong">Projected setups and missing confirmations</h2>
+                <p className="mt-1 text-xs cx-text-faint">These are the chart's entry, stop, targets, timing, and blockers. They do not trigger a new-trade alert until every gate passes.</p>
+              </div>
+              <div className="grid gap-4 xl:grid-cols-2">
+                {signalWatching.length ? signalWatching.map((row) => <WatchSetupCard key={row.signal.pair} row={row} />) : (
+                  <div className="xl:col-span-2"><EmptyState title="Nothing on watch" detail="No market currently has enough confluence to show a projected setup." /></div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
         {tab === 'history' && (
-          <div className="space-y-3">
-            {signals.length === 0 && <EmptyState title="No published signals yet" detail="Qualified calls publish here once the engine confirms them across timeframes." />}
-            {signals.map((sig) => (
-              <div key={sig.id} className="rounded-2xl border cx-border cx-bg-card p-4">
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="font-black">{sig.pair}</span>
-                  <span className={`rounded-lg px-2 py-1 text-[10px] font-black ${sig.direction === 'BUY' ? 'bg-emerald-400/10 text-emerald-300' : 'bg-rose-400/10 text-rose-300'}`}>{sig.direction}</span>
-                  <span className="rounded-md bg-black/20 px-2 py-1 text-[10px] cx-text-muted">{sig.timeframe}</span>
-                  <span className="rounded-md bg-black/20 px-2 py-1 text-[10px] cx-text-muted">Score {sig.score}</span>
-                  <span className="ml-auto text-[10px] cx-text-faint">{new Date(sig.published_at).toLocaleString()}</span>
-                </div>
-                <p className="mt-2 text-xs cx-text-muted">{sig.scenario || 'Qualified call'}</p>
-                <div className="mt-3 grid grid-cols-4 gap-2 text-[10px]">
-                  <MiniStat label="Entry" value={formatPrice(sig.entry)} />
-                  <MiniStat label="Stop" value={formatPrice(sig.stop_loss)} />
-                  <MiniStat label="TP1" value={formatPrice(sig.tp1)} />
-                  <MiniStat label="Status" value={sig.status} />
-                </div>
-              </div>
-            ))}
+          <div className="space-y-4">
+            {signalHistory.length === 0 && <EmptyState title="No completed signal history yet" detail="Resolved, expired, stopped, or cancelled calls will remain here with their original levels." />}
+            <div className="grid gap-4 xl:grid-cols-2">
+              {signalHistory.map((signal) => <PublishedSignalCard key={signal.id} signal={signal} />)}
+            </div>
           </div>
         )}
       </section>
@@ -420,7 +450,82 @@ const Condition: React.FC<{ label: string; value: string; good?: boolean }> = ({
 
 const ReadySetup: React.FC<{ row: MarketRow; compact?: boolean }> = ({ row, compact }) => {
   const plan = row.analysis.trade_plan;
-  return <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] p-4"><div className="flex flex-wrap items-center gap-3"><span className="text-xl font-black">{row.signal.pair}</span><DirectionBadge direction={row.analysis.direction} eligible={plan?.eligible} /><HeatBadge row={row} /></div>{!compact && <p className="mt-2 text-sm cx-text-muted">{row.analysis.scenarios?.primary || 'Setup passed every entry rule.'}</p>}<div className="mt-3 grid gap-2 sm:grid-cols-4"><MiniStat label="Entry" value={formatPrice(plan?.entry)} /><MiniStat label="Stop" value={formatPrice(plan?.stop ?? plan?.invalidation)} /><MiniStat label="TP1" value={formatPrice(plan?.targets?.[0]?.price ?? plan?.tp1)} /><MiniStat label="RR" value={`${Number(plan?.net_rr ?? plan?.available_rr ?? 0).toFixed(2)}R`} /></div></div>;
+  const tf = row.analysis.data_quality?.primary_timeframe || '1h';
+  return <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] p-4"><div className="flex flex-wrap items-center gap-3"><span className="text-xl font-black">{row.signal.pair}</span><DirectionBadge direction={row.analysis.direction} eligible={plan?.eligible} /><HeatBadge row={row} /><span className="rounded-md cx-bg-elev px-2 py-1 text-[10px] font-black cx-text-muted">{tf}</span></div>{!compact && <p className="mt-2 text-sm cx-text-muted">{row.analysis.scenarios?.primary || 'Setup passed every entry rule.'}</p>}<div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5"><MiniStat label="Entry" value={formatPrice(plan?.entry)} /><MiniStat label="Stop" value={formatPrice(plan?.stop ?? plan?.invalidation)} /><MiniStat label="TP1" value={formatPrice(plan?.targets?.[0]?.price ?? plan?.tp1)} /><MiniStat label="TP2" value={formatPrice(plan?.targets?.[1]?.price ?? plan?.tp2)} /><MiniStat label="TP3" value={formatPrice(plan?.targets?.[2]?.price ?? plan?.tp3)} /></div><div className="mt-3 text-xs font-black text-emerald-200">Net R:R {Number(plan?.net_rr ?? plan?.available_rr ?? 0).toFixed(2)}R · Alert publishes once</div></div>;
+};
+
+const WatchSetupCard: React.FC<{ row: MarketRow }> = ({ row }) => {
+  const plan = row.analysis.trade_plan;
+  const tf = row.analysis.data_quality?.primary_timeframe || '1h';
+  const status = plan?.status || row.analysis.trade_timing?.status || 'WAIT';
+  const targets = plan?.targets || [];
+  return (
+    <article className="rounded-2xl border border-amber-400/18 bg-amber-400/[0.04] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xl font-black cx-text-strong">{row.signal.pair}</span>
+            <DirectionBadge direction={row.analysis.direction} eligible={false} />
+            <span className="rounded-lg border border-amber-400/20 bg-amber-400/10 px-2 py-1 text-[10px] font-black text-amber-300">{status} · NO ALERT</span>
+          </div>
+          <div className="mt-1 text-[10px] font-bold uppercase tracking-wider cx-text-faint">{tf} · Score {row.analysis.total_score || 0}/100 · Timing {row.analysis.trade_timing?.status || 'WAIT'}</div>
+        </div>
+        <Link to={`/tradingview?symbol=${row.signal.pair}`} className="rounded-lg border cx-border-strong cx-bg-card-hover px-3 py-2 text-xs font-black cx-text">Open chart</Link>
+      </div>
+      <p className="mt-3 rounded-xl border border-amber-400/15 bg-amber-400/[0.05] px-3 py-2 text-xs leading-5 text-amber-100/80"><b className="text-amber-200">Waiting for:</b> {row.blocker}</p>
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+        <MiniStat label="Projected entry" value={formatPrice(plan?.entry)} />
+        <MiniStat label="Invalidation" value={formatPrice(plan?.stop ?? plan?.invalidation)} />
+        <MiniStat label="TP1" value={formatPrice(targets[0]?.price ?? plan?.tp1)} />
+        <MiniStat label="TP2" value={formatPrice(targets[1]?.price ?? plan?.tp2)} />
+        <MiniStat label="TP3" value={formatPrice(targets[2]?.price ?? plan?.tp3)} />
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-bold cx-text-muted">
+        <span className="rounded-md cx-bg-elev px-2 py-1">Net R {Number(plan?.net_rr ?? plan?.available_rr ?? 0).toFixed(2)}R</span>
+        <span className="rounded-md cx-bg-elev px-2 py-1">Calendar {row.analysis.economic_calendar?.status || plan?.calendar_status || '—'}</span>
+        <span className="rounded-md cx-bg-elev px-2 py-1">Lifecycle {row.analysis.direction_stability?.lifecycle || 'FORMING'}</span>
+      </div>
+    </article>
+  );
+};
+
+const PublishedSignalCard: React.FC<{ signal: PublishedSignal }> = ({ signal }) => {
+  const isBuy = signal.direction === 'BUY';
+  return (
+    <article className={`overflow-hidden rounded-2xl border ${isBuy ? 'border-emerald-400/20' : 'border-rose-400/20'} cx-bg-card`}>
+      <div className={`flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3 ${isBuy ? 'border-emerald-400/15 bg-emerald-400/[0.06]' : 'border-rose-400/15 bg-rose-400/[0.06]'}`}>
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xl font-black cx-text-strong">{signal.pair}</span>
+            <DirectionBadge direction={signal.direction} />
+            <span className="rounded-md cx-bg-elev px-2 py-1 text-[10px] font-black cx-text-muted">{signal.setup_quality}</span>
+            <span className="rounded-md cx-bg-elev px-2 py-1 text-[10px] font-black cx-text-muted">{signal.timeframe}</span>
+          </div>
+          <div className="mt-1 text-[10px] uppercase tracking-wider cx-text-faint">Published {new Date(signal.published_at).toLocaleString()}</div>
+        </div>
+        <div className="text-right"><div className={`text-[10px] font-black uppercase tracking-wider ${signal.status === 'ACTIVE' ? 'text-emerald-300' : 'cx-text-muted'}`}>{signal.status.replace(/_/g, ' ')}</div><div className="mt-1 text-lg font-black cx-text-strong">{signal.score}/100</div></div>
+      </div>
+      <div className="grid grid-cols-2 gap-2 p-4 sm:grid-cols-5">
+        <MiniStat label="Entry" value={formatPrice(signal.entry)} />
+        <MiniStat label="Stop" value={formatPrice(signal.stop_loss)} />
+        <MiniStat label="TP1" value={formatPrice(signal.tp1)} />
+        <MiniStat label="TP2" value={formatPrice(signal.tp2)} />
+        <MiniStat label="TP3" value={formatPrice(signal.tp3)} />
+      </div>
+      <div className="border-t cx-border px-4 py-3">
+        <div className="flex flex-wrap gap-2 text-[10px] font-bold cx-text-muted">
+          <span className="rounded-md cx-bg-elev px-2 py-1">Net R:R {signal.net_rr != null ? signal.net_rr.toFixed(2) : '—'}R</span>
+          <span className="rounded-md cx-bg-elev px-2 py-1">Calendar {signal.calendar_status}</span>
+          <span className="rounded-md cx-bg-elev px-2 py-1">Risk {signal.risk_percent != null ? `${signal.risk_percent}%` : '—'}</span>
+        </div>
+        <p className="mt-3 text-xs leading-5 cx-text-muted">{signal.scenario || 'Qualified guarded V2 trade call.'}</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {signal.rationale?.map((reason) => <span key={reason} className="rounded-md border cx-border px-2 py-1 text-[10px] cx-text-muted">{reason}</span>)}
+          <Link to={`/tradingview?symbol=${signal.pair}`} className="ml-auto text-xs font-black text-cyan-300 hover:text-cyan-200">Open chart</Link>
+        </div>
+      </div>
+    </article>
+  );
 };
 
 const HotMarketCard: React.FC<{ row: MarketRow }> = ({ row }) => {

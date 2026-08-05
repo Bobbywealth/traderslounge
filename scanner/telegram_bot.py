@@ -56,17 +56,17 @@ class TelegramBot:
         webhook_secret: Optional[str] = None,
     ) -> None:
         self.bot_token = (bot_token if bot_token is not None else os.environ.get("TELEGRAM_BOT_TOKEN", "")).strip()
-        if not self.bot_token:
+        if bot_token is None and not self.bot_token:
             self.bot_token = _TEST_FALLBACK_TOKEN
         self.bot_username = (
             bot_username if bot_username is not None else os.environ.get("TELEGRAM_BOT_USERNAME", "")
         ).strip().lstrip("@")
-        if not self.bot_username:
+        if bot_username is None and not self.bot_username:
             self.bot_username = _TEST_FALLBACK_USERNAME
         self.webhook_secret = (
             webhook_secret if webhook_secret is not None else os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
         ).strip()
-        if not self.webhook_secret:
+        if webhook_secret is None and not self.webhook_secret:
             self.webhook_secret = _TEST_FALLBACK_WEBHOOK_SECRET
 
         self._link_tokens: dict[str, dict[str, Any]] = {}

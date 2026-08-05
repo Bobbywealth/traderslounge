@@ -18,7 +18,7 @@ import logging
 import os
 import threading
 
-from .api import ApiState, make_server
+from .api import ApiState, make_server, start_signal_monitor
 from .alert_preferences import AlertPreferencesStore
 from .binance_client import BinanceClient
 from .config import load_from_env
@@ -80,6 +80,7 @@ def main() -> int:
     position_repo = SQLitePositionRepository(db_path)
     closed_trade_repo = SQLiteClosedTradeRepository(db_path)
     kill_switch = KillSwitch()
+    alert_store = AlertPreferencesStore(repository=repo)
     state = ApiState(
         repository=repo,
         config=cfg,
@@ -89,7 +90,8 @@ def main() -> int:
         scan_request_path=scan_request_path,
         market_client=client,
         news_filter=news,
-        alert_preferences_store=AlertPreferencesStore(),
+        alert_preferences_store=alert_store,
+        alert_repo=repo,
     )
     # Wire the Telegram bot into API state and rebuild the chat_id
     # reverse index from persisted preferences so a deploy does not
@@ -108,12 +110,14 @@ def main() -> int:
     host = os.environ.get("API_HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))
     server = make_server(state, host=host, port=port)
+    monitor_stop = start_signal_monitor(state)
     print(f"combined API listening on http://{host}:{port}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        monitor_stop.set()
         server.server_close()
         repo.close()
     return 0

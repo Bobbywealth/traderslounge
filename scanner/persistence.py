@@ -82,6 +82,26 @@ CREATE TABLE IF NOT EXISTS published_signals (
 CREATE INDEX IF NOT EXISTS idx_published_signals_time ON published_signals(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_published_signals_status ON published_signals(status, published_at DESC);
 
+CREATE TABLE IF NOT EXISTS alert_preferences (
+    user_id INTEGER PRIMARY KEY,
+    preferences_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS alert_events (
+    event_key TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    alert_type TEXT NOT NULL,
+    pair TEXT NOT NULL,
+    timeframe TEXT,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_alert_events_user_time ON alert_events(user_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS lifecycle_events (
     id TEXT PRIMARY KEY,
     setup_id TEXT NOT NULL,
@@ -238,6 +258,28 @@ class SQLiteRepository:
         ).fetchone()
         return int(row["id"])
 
+    def publish_actionable_once(self, payload: dict) -> tuple[int, bool]:
+        """Persist one active call per pair/timeframe and report if it is new."""
+        self._expire_stale_published()
+        current = self.conn.execute(
+            "SELECT id, direction FROM published_signals "
+            "WHERE pair = ? AND timeframe = ? AND status = 'ACTIVE' "
+            "ORDER BY published_at DESC LIMIT 1",
+            (payload["pair"], payload["timeframe"]),
+        ).fetchone()
+        if current is not None and str(current["direction"]).upper() == str(payload["direction"]).upper():
+            self.conn.execute(
+                "UPDATE published_signals SET updated_at = ? WHERE id = ?",
+                (_dt.datetime.now(_dt.timezone.utc).isoformat(), int(current["id"])),
+            )
+            return int(current["id"]), False
+        if current is not None:
+            self.conn.execute(
+                "UPDATE published_signals SET status = 'CANCELLED', updated_at = ? WHERE id = ?",
+                (_dt.datetime.now(_dt.timezone.utc).isoformat(), int(current["id"])),
+            )
+        return self.publish_actionable(payload), True
+
     # An entry area goes stale long before this, but a call that is never
     # retired reads as live forever. Age ACTIVE calls out on read.
     PUBLISHED_TTL_HOURS = 24
@@ -270,6 +312,72 @@ class SQLiteRepository:
         for row in rows:
             item = dict(row)
             item["rationale"] = json.loads(item.pop("rationale_json") or "[]")
+            output.append(item)
+        return output
+
+    def get_alert_preferences(self, user_id: int) -> dict | None:
+        row = self.conn.execute(
+            "SELECT preferences_json FROM alert_preferences WHERE user_id = ?",
+            (int(user_id),),
+        ).fetchone()
+        return json.loads(row["preferences_json"]) if row else None
+
+    def upsert_alert_preferences(self, user_id: int, preferences: dict) -> dict:
+        now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        self.conn.execute(
+            """
+            INSERT INTO alert_preferences (user_id, preferences_json, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                preferences_json = excluded.preferences_json,
+                updated_at = excluded.updated_at
+            """,
+            (int(user_id), json.dumps(preferences), now),
+        )
+        return dict(preferences)
+
+    def delete_alert_preferences(self, user_id: int) -> bool:
+        cur = self.conn.execute("DELETE FROM alert_preferences WHERE user_id = ?", (int(user_id),))
+        return bool(cur.rowcount)
+
+    def alert_preference_user_ids(self) -> List[int]:
+        rows = self.conn.execute("SELECT user_id FROM alert_preferences ORDER BY user_id").fetchall()
+        return [int(row["user_id"]) for row in rows]
+
+    def save_events(self, events: List[dict]) -> List[dict]:
+        from .alert_preferences import alert_event_key
+        inserted: List[dict] = []
+        for event in events:
+            key = alert_event_key(event)
+            created_at = str(event.get("created_at") or _dt.datetime.now(_dt.timezone.utc).isoformat())
+            cur = self.conn.execute(
+                """
+                INSERT OR IGNORE INTO alert_events (
+                    event_key, user_id, alert_type, pair, timeframe, title, body,
+                    severity, payload_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    key, int(event.get("user_id") or 0), str(event.get("alert_type") or ""),
+                    str(event.get("pair") or ""), event.get("timeframe"),
+                    str(event.get("title") or "Alert"), str(event.get("body") or ""),
+                    str(event.get("severity") or "info"),
+                    json.dumps(event.get("payload") or {}, default=str), created_at,
+                ),
+            )
+            if cur.rowcount:
+                inserted.append({**event, "event_key": key, "created_at": created_at})
+        return inserted
+
+    def recent_for_user(self, user_id: int, limit: int = 50) -> List[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM alert_events WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            (int(user_id), int(limit)),
+        ).fetchall()
+        output: List[dict] = []
+        for row in rows:
+            item = dict(row)
+            item["payload"] = json.loads(item.pop("payload_json") or "{}")
             output.append(item)
         return output
 

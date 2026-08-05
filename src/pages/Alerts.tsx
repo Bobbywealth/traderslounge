@@ -19,6 +19,7 @@ import bwtsApi, {
 import DataAttribution from '../components/DataAttribution';
 
 const ALERT_TYPE_LABELS: Record<string, string> = {
+  new_trade: 'New confirmed trade',
   entry_zone: 'Entry-zone hit',
   confirmation: 'Setup confirmation',
   news_risk: 'News risk',
@@ -28,6 +29,7 @@ const ALERT_TYPE_LABELS: Record<string, string> = {
 };
 
 const ALERT_TYPE_DESCRIPTIONS: Record<string, string> = {
+  new_trade: 'Fires once when a guarded STRONG or VALID call is first published. WAIT and BLOCKED setups never trigger it.',
   entry_zone: 'Fires when price enters the planned entry zone for a setup that has already been confirmed.',
   confirmation: 'Fires when setup quality and timing both cross your minimums at the same time.',
   news_risk: 'Fires when economic calendar status flips to caution / blocked / post-news on a pair you watch.',

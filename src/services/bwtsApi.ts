@@ -772,6 +772,7 @@ export interface AlertPreferences {
   weekly_briefing_enabled: boolean;
   last_daily_briefing_at: string | null;
   last_weekly_briefing_at: string | null;
+  schema_version: number;
 }
 
 export interface AlertEvent {
