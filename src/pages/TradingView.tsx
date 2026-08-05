@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts';
 import { createVolumePane, createRsiPane, computeVolume, computeRsi, detectDivergence, divergenceStyle, type Divergence } from '../components/chartPanes';
 import { computeEma, computeBollinger, mergeLineWithTime } from '../components/chartIndicators';
@@ -155,6 +155,14 @@ const TradingView: React.FC = () => {
   const rsiChartRef = useRef<IChartApi | null>(null);
   const rsiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const compareSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+
+  // Component-scope view of the candle cache. Recomputed when the cache
+  // updates (chartRevision bumps after each successful fetch) so JSX and
+  // indicator effects see a stable reference keyed on symbol/timeframe.
+  const candles = useMemo<TradeLockerHistoryCandle[]>(
+    () => candleCacheRef.current[`${selectedSymbol}:${timeframe}`] || [],
+    [selectedSymbol, timeframe, chartRevision],
+  );
   const [compareSymbol, setCompareSymbol] = useState<string | null>(null);
   const [replayIndex, setReplayIndex] = useState<number>(0);
   const [replayPlaying, setReplayPlaying] = useState(false);
