@@ -1651,7 +1651,11 @@ const TradingView: React.FC = () => {
         const y = priceSeries.priceToCoordinate(Number(anchor.price));
         if (y == null) return;
         const xFromTime = anchor.time ? chart.timeScale().timeToCoordinate(Number(anchor.time) as UTCTimestamp) : null;
-        const x = xFromTime == null ? (index === 0 ? 18 : 86) : Math.max(12, Math.min(container.clientWidth - 92, Number(xFromTime)));
+        // Only draw the anchor dot when the swing point is actually visible
+        // on the chart. Clamping off-screen times to the edges creates confusing
+        // clutter — better to hide them entirely.
+        if (xFromTime == null || Number(xFromTime) < 0 || Number(xFromTime) > container.clientWidth) return;
+        const x = Number(xFromTime);
         const circle = document.createElementNS(SVG_NS, 'circle');
         circle.setAttribute('cx', String(x)); circle.setAttribute('cy', String(y)); circle.setAttribute('r', '5');
         circle.setAttribute('fill', '#fbbf24'); circle.setAttribute('stroke', '#080d18'); circle.setAttribute('stroke-width', '3'); svg.appendChild(circle);
