@@ -229,6 +229,8 @@ const TradingView: React.FC = () => {
   const [showManualDrawings, setShowManualDrawings] = useState(true);
   const [showChartContext, setShowChartContext] = useState(false);
   const [showTechnicalControls, setShowTechnicalControls] = useState(false);
+  const [overlayDensity, setOverlayDensity] = useState<'minimal' | 'confluence' | 'full'>('confluence');
+  const [rightPanelTab, setRightPanelTab] = useState<'tools' | 'details' | 'guide' | null>(null);
   const [drawingRailCollapsed, setDrawingRailCollapsed] = useState(false);
   const [drawingRevision, setDrawingRevision] = useState(0);
   const [drawingColor, setDrawingColor] = useState('#22d3ee');
@@ -1616,12 +1618,12 @@ const TradingView: React.FC = () => {
     }
 
     levels.filter((level) => Number.isFinite(level.value)).forEach((level) => {
-      const showAxisLabel = /^[SR]\d/.test(level.title) || /★|⟡|Cluster/.test(level.title) || level.title.startsWith('Fib 0.236') || level.title.startsWith('Fib 0.618') || level.title.startsWith('Fib 0.65');
+      const showAxisLabel = overlayDensity === 'minimal' ? /^[SR]1$/.test(level.title) : overlayDensity === 'confluence' ? /^[SR][12]/.test(level.title) || /★|⟡|Cluster/.test(level.title) : /^[SR]\d/.test(level.title) || /★|⟡|Cluster/.test(level.title) || level.title.startsWith('Fib 0.236') || level.title.startsWith('Fib 0.618') || level.title.startsWith('Fib 0.65');
       const series = chart.addSeries(LineSeries, { color: level.color, lineWidth: 1, lineStyle: level.style, title: level.title, lastValueVisible: showAxisLabel, priceLineVisible: false });
       series.setData([{ time: start, value: level.value }, { time: end, value: level.value }]);
       v2LevelSeriesRefs.current.push(series);
     });
-  }, [cryptoAnalysis, showFibonacci, showSupportResistance, chartRevision, currentPrice]);
+  }, [cryptoAnalysis, showFibonacci, showSupportResistance, chartRevision, currentPrice, overlayDensity]);
 
   // Draw selected Fibonacci swing anchors so users can see why the auto leg was chosen.
   useEffect(() => {
@@ -2366,184 +2368,16 @@ const TradingView: React.FC = () => {
             }}
             alignmentScore={cryptoAnalysis.market_context.alignment_score}
             selectedLabel={timeframe}
+            onTimeframeChange={(tf) => setTimeframe(tf)}
           />
         )}
-        <button onClick={() => setShowTechnicalControls((value) => !value)} className="ml-auto rounded cx-bg-card-hover px-2.5 py-1 text-[9px] cx-text-muted hover:bg-white/[0.1]">{showTechnicalControls ? 'Hide tools' : 'Analysis tools'}</button>
-        <button onClick={() => setShowChartContext((value) => !value)} className="rounded bg-cyan-400/10 px-2.5 py-1 text-[9px] text-cyan-300 hover:bg-cyan-400/20">{showChartContext ? 'Hide details' : 'Details'}</button>
-        {!showSetupGuide && <button onClick={() => setShowSetupGuide(true)} className="rounded bg-emerald-400/10 px-2.5 py-1 text-[9px] text-emerald-300 hover:bg-emerald-400/20">Guide</button>}
+        <div className="ml-auto flex items-center gap-1">
+          <button onClick={() => { setRightPanelTab(rightPanelTab === 'tools' ? null : 'tools'); setShowTechnicalControls(rightPanelTab !== 'tools'); }} className={`rounded px-2.5 py-1 text-[9px] transition ${rightPanelTab === 'tools' ? 'bg-cyan-400/20 text-cyan-300' : 'cx-bg-card-hover cx-text-muted hover:bg-white/[0.1]'}`}>Tools</button>
+          <button onClick={() => { setRightPanelTab(rightPanelTab === 'details' ? null : 'details'); setShowChartContext(rightPanelTab !== 'details'); }} className={`rounded px-2.5 py-1 text-[9px] transition ${rightPanelTab === 'details' ? 'bg-cyan-400/20 text-cyan-300' : 'cx-bg-card-hover cx-text-muted hover:bg-white/[0.1]'}`}>Details</button>
+          <button onClick={() => { setRightPanelTab(rightPanelTab === 'guide' ? null : 'guide'); setShowSetupGuide(rightPanelTab !== 'guide'); }} className={`rounded px-2.5 py-1 text-[9px] transition ${rightPanelTab === 'guide' ? 'bg-cyan-400/20 text-cyan-300' : 'cx-bg-card-hover cx-text-muted hover:bg-white/[0.1]'}`}>Guide</button>
+          <button onClick={() => setOverlayDensity(overlayDensity === 'minimal' ? 'confluence' : overlayDensity === 'confluence' ? 'full' : 'minimal')} title="Overlay density" className="rounded px-2 py-1 text-[8px] font-black uppercase tracking-wider cx-text-faint hover:cx-bg-card-hover hover:cx-text">{overlayDensity}</button>
+        </div>
       </div>
-
-      {showTechnicalControls && <div className="shrink-0 overflow-x-auto bg-gray-800 border-b border-gray-700 px-4 py-2">
-        <div className="flex min-w-max items-center justify-between gap-6">
-          <div className="flex items-center space-x-4">
-            <span className="text-sm cx-text-faint">Technical Analysis:</span>
-
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={showHarmonics}
-                onChange={(e) => setShowHarmonics(e.target.checked)}
-                className="rounded border-gray-600 text-emerald-500 focus:ring-emerald-500"
-              />
-              <span className="text-sm cx-text-strong">Harmonic Patterns</span>
-              {harmonicPatterns.length > 0 && (
-                <span className="bg-emerald-600 cx-text-strong text-xs px-2 py-1 rounded-full">
-                  {harmonicPatterns.length}
-                </span>
-              )}
-            </label>
-
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={showTrendLines}
-                onChange={(e) => setShowTrendLines(e.target.checked)}
-                className="rounded border-gray-600 text-blue-500 focus:ring-blue-500"
-              />
-              <span className="text-sm cx-text-strong">Trend Lines</span>
-              {trendLines.length > 0 && (
-                <span className="bg-blue-600 cx-text-strong text-xs px-2 py-1 rounded-full">
-                  {trendLines.length}
-                </span>
-              )}
-            </label>
-
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={showSupportResistance}
-                onChange={(e) => setShowSupportResistance(e.target.checked)}
-                className="rounded border-gray-600 text-cyan-500 focus:ring-cyan-500"
-              />
-              <span className="text-sm cx-text-strong">Support / Resistance</span>
-            </label>
-
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={showFibonacci}
-                onChange={(e) => setShowFibonacci(e.target.checked)}
-                className="rounded border-gray-600 text-purple-500 focus:ring-purple-500"
-              />
-              <span className="text-sm cx-text-strong">Fibonacci Levels</span>
-              {fibonacciLevels.length > 0 && (
-                <span className="bg-purple-600 cx-text-strong text-xs px-2 py-1 rounded-full">
-                  {fibonacciLevels.length}
-                </span>
-              )}
-            </label>
-          </div>
-
-          {/* Pattern Summary */}
-          <div className="flex items-center space-x-4 text-sm">
-            {harmonicPatterns.length > 0 && (
-              <div className="flex items-center space-x-2">
-                <Target className="w-4 h-4 text-emerald-500" />
-                <span className="text-gray-300">
-                  {harmonicPatterns.filter(p => p.status === 'completed').length} Active Patterns
-                </span>
-              </div>
-            )}
-            {trendLines.length > 0 && (
-              <div className="flex items-center space-x-2">
-                <Activity className="w-4 h-4 text-blue-500" />
-                <span className="text-gray-300">
-                  {trendLines.filter(t => t.isActive).length} Active Lines
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>}
-
-      {showChartContext && <>
-      {showHarmonics && (
-        <div className={`px-4 py-2 border-b text-sm ${
-          harmonicPatterns.length > 0
-            ? 'bg-emerald-950 border-emerald-800 text-emerald-200'
-            : 'bg-gray-900 border-gray-700 cx-text-faint'
-        }`}>
-          {harmonicPatterns.length > 0 ? (
-            harmonicPatterns.map((pattern) => (
-              <span key={pattern.id} className="font-medium">
-                CANDIDATE · {pattern.direction.toUpperCase()} {pattern.type} on {selectedSymbol} {timeframe} · PRZ {pattern.prz.min.toFixed(2)}-{pattern.prz.max.toFixed(2)} · unvalidated geometry, X-A-B-C-D drawn below
-              </span>
-            ))
-          ) : (
-            <span>No harmonic candidate on {selectedSymbol} {timeframe}. Scanning live candles.</span>
-          )}
-        </div>
-      )}
-
-      {adrData && (
-        <div className={`px-4 py-2 border-b text-sm flex items-center gap-5 ${
-          adrData.exhausted
-            ? 'bg-red-950 border-red-800 text-red-200'
-            : 'bg-sky-950 border-sky-800 text-sky-200'
-        }`}>
-          <span className="font-semibold">ADR(14): {adrData.adr.toFixed(2)}</span>
-          <span>{adrData.percent_used.toFixed(0)}% used</span>
-          <span>Range: {adrData.current_range.toFixed(2)}</span>
-          <span>ADR Low: {adrData.adr_low.toFixed(2)}</span>
-          <span>Open: {adrData.day_open.toFixed(2)}</span>
-          <span>ADR High: {adrData.adr_high.toFixed(2)}</span>
-          {adrData.exhausted && <span className="font-bold">Range exhausted</span>}
-        </div>
-      )}
-
-      {cryptoAnalysis && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-violet-500/20 bg-[#0d1020] px-4 py-2 text-xs cx-text-muted">
-          <span className="rounded-md border border-violet-400/20 bg-violet-400/10 px-2 py-1 font-black tracking-wider text-violet-300">V2</span>
-          <span className="rounded-md border border-cyan-400/20 bg-cyan-400/10 px-2 py-1 text-sm font-black text-cyan-300">{cryptoAnalysis.total_score}<span className="text-[10px] text-cyan-500">/100</span></span>
-          <span className={`rounded-md border px-2 py-1 text-[9px] font-black ${cryptoAnalysis.direction === 'BUY' ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'border-rose-400/20 bg-rose-400/10 text-rose-300' : 'border-slate-400/20 bg-slate-400/10 cx-text-muted'}`}>{cryptoAnalysis.direction}</span>
-          {cryptoAnalysis.direction_stability && <span title={cryptoAnalysis.direction_stability.reason} className={`rounded-md border px-2 py-1 text-[9px] font-black ${cryptoAnalysis.direction_stability.lifecycle === 'READY' || cryptoAnalysis.direction_stability.lifecycle === 'CONFIRMED' ? 'border-cyan-400/20 bg-cyan-400/10 text-cyan-300' : cryptoAnalysis.direction_stability.lifecycle === 'INVALIDATED' ? 'border-rose-400/20 bg-rose-400/10 text-rose-300' : 'border-amber-400/20 bg-amber-400/10 text-amber-300'}`}>{cryptoAnalysis.direction_stability.lifecycle}{cryptoAnalysis.direction_stability.raw_direction !== cryptoAnalysis.direction_stability.confirmed_direction ? ` · RAW ${cryptoAnalysis.direction_stability.raw_direction}` : ''}</span>}
-          {cryptoAnalysis.decision_quality && <>
-            <span className="rounded-md border border-cyan-400/15 bg-cyan-400/[0.06] px-2 py-1 text-[9px] font-black text-cyan-200">BIAS {cryptoAnalysis.decision_quality.market_bias_confidence}%</span>
-            <span className="rounded-md border border-violet-400/15 bg-violet-400/[0.06] px-2 py-1 text-[9px] font-black text-violet-200">SETUP {cryptoAnalysis.decision_quality.setup_quality}%</span>
-            <span className="rounded-md border border-amber-400/15 bg-amber-400/[0.06] px-2 py-1 text-[9px] font-black text-amber-200">TIMING {cryptoAnalysis.decision_quality.execution_readiness}%</span>
-          </>}
-          <span className="rounded-md border cx-border cx-bg-card px-2 py-1 text-[10px] font-black cx-text-muted">STR {cryptoAnalysis.category_breakdown.structure}/20</span>
-          <span className="rounded-md border cx-border cx-bg-card px-2 py-1 text-[10px] font-black cx-text-muted">VOL {cryptoAnalysis.category_breakdown.volume}/10</span>
-          <span className="rounded-md border cx-border cx-bg-card px-2 py-1 text-[10px] font-black cx-text-muted">MOM {cryptoAnalysis.category_breakdown.momentum}/10</span>
-          <span className="rounded-md border cx-border cx-bg-card px-2 py-1 text-[10px] font-black cx-text-muted">LIQ {cryptoAnalysis.category_breakdown.liquidity}/15</span>
-          <span className="ml-auto rounded-md border border-cyan-400/20 bg-cyan-400/10 px-2 py-1 font-semibold uppercase text-cyan-300">{cryptoAnalysis.data_quality.primary_timeframe}</span>
-          <span className="rounded-md border cx-border cx-bg-card px-2 py-1 font-semibold uppercase cx-text-muted">{cryptoAnalysis.data_quality.status} data</span>
-        </div>
-      )}
-
-      {cryptoAnalysis?.market_context && (
-        <div className="flex items-center gap-5 border-b border-cyan-500/15 cx-bg-card px-4 py-2 text-[10px] font-bold uppercase tracking-wider cx-text-faint">
-          <span className="text-cyan-300">MARKET DIRECTION</span>
-          <span>Month <b className={cryptoAnalysis.market_context.timeframes.mn1?.trend === 'bullish' ? 'text-emerald-300' : cryptoAnalysis.market_context.timeframes.mn1?.trend === 'bearish' ? 'text-rose-300' : 'cx-text-muted'}>{cryptoAnalysis.market_context.timeframes.mn1?.trend || 'neutral'}</b></span>
-          <span>Week <b className={cryptoAnalysis.market_context.timeframes.w1?.trend === 'bullish' ? 'text-emerald-300' : cryptoAnalysis.market_context.timeframes.w1?.trend === 'bearish' ? 'text-rose-300' : 'cx-text-muted'}>{cryptoAnalysis.market_context.timeframes.w1?.trend || 'neutral'}</b></span>
-          <span>{timeframe} <b className={cryptoAnalysis.market_context.timeframes.selected?.trend === 'bullish' ? 'text-emerald-300' : cryptoAnalysis.market_context.timeframes.selected?.trend === 'bearish' ? 'text-rose-300' : 'cx-text-muted'}>{cryptoAnalysis.market_context.timeframes.selected?.trend || 'neutral'}</b></span>
-          <span>Alignment <b className="cx-text">{cryptoAnalysis.market_context.alignment_score}%</b></span>
-          <span className={`ml-auto rounded px-2 py-1 ${cryptoAnalysis.trade_timing?.status === 'READY' ? 'bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.trade_timing?.status === 'AVOID' ? 'bg-rose-400/10 text-rose-300' : 'bg-amber-400/10 text-amber-300'}`}>TIMING {cryptoAnalysis.trade_timing?.status || 'WAIT'}</span>
-          {(cryptoAnalysis.trade_timing?.status === 'AVOID' ? cryptoAnalysis.trade_timing.avoid_reasons?.[0] : cryptoAnalysis.trade_timing?.wait_for?.[0]) && <span className="normal-case tracking-normal cx-text-faint">{cryptoAnalysis.trade_timing.status === 'AVOID' ? 'Avoid: ' : 'Wait: '}{String(cryptoAnalysis.trade_timing.status === 'AVOID' ? cryptoAnalysis.trade_timing.avoid_reasons?.[0] : cryptoAnalysis.trade_timing.wait_for[0]).replace(/_/g, ' ')}</span>}
-        </div>
-      )}
-
-      {fibData && <div className="flex flex-wrap items-center gap-3 border-b border-amber-500/15 cx-bg-card px-4 py-2 text-[11px] cx-text-muted">
-        <span className="font-black tracking-wider text-amber-300">FIB CONTEXT</span>
-        <span className={fibData.leg === 'up' ? 'text-emerald-300' : 'text-rose-300'}>{fibData.leg === 'up' ? 'Bullish swing' : 'Bearish swing'}</span>
-        {fibNearest && <span>Nearest <b className="text-cyan-300">{String(fibNearest.ratio)}</b> at <b className="cx-text">{setupPrice(Number(fibNearest.level))}</b></span>}
-        {fibGolden && <span>Golden pocket <b className="text-violet-300">{setupPrice(Number(fibGolden.low))}-{setupPrice(Number(fibGolden.high))}</b></span>}
-        {fibTopCluster && <span>Cluster <b className="text-amber-200">{setupPrice(Number(fibTopCluster.low))}-{setupPrice(Number(fibTopCluster.high))}</b> <span className="cx-text-faint">{fibTopCluster.timeframes?.join('/')}</span></span>}
-        {fibHtfConflicts.length > 0 ? <span className="rounded bg-rose-400/10 px-2 py-1 text-[9px] font-black text-rose-300">HTF CONFLICT {fibHtfConflicts.join('/')}</span> : <span className="rounded bg-emerald-400/10 px-2 py-1 text-[9px] font-black text-emerald-300">HTF ALIGNED</span>}
-        {fibData.selection_reason && <span className="cx-text-faint">{String(fibData.selection_reason)}</span>}
-        {fibWaitFor.length > 0 && <span className="ml-auto text-amber-300">Wait: {fibWaitFor.join(' · ')}</span>}
-      </div>}
-
-      {cryptoAnalysis?.trade_plan && <div className="flex flex-wrap items-center gap-4 border-b border-emerald-500/15 cx-bg-card px-4 py-2 text-[11px] cx-text-muted">
-        <span className="font-black tracking-wider text-emerald-300">POSSIBLE SETUP</span>
-        <span className={cryptoAnalysis.trade_plan.direction === 'BUY' ? 'text-emerald-300' : cryptoAnalysis.trade_plan.direction === 'SELL' ? 'text-rose-300' : 'cx-text-muted'}>{cryptoAnalysis.trade_plan.direction}</span>
-        {cryptoAnalysis.trade_plan.entry != null && <span>Entry {Number(cryptoAnalysis.trade_plan.entry).toLocaleString()}</span>}
-        {cryptoAnalysis.trade_plan.stop != null && <span className="text-rose-300">Invalidation {Number(cryptoAnalysis.trade_plan.stop).toLocaleString()}</span>}
-        {cryptoAnalysis.trade_plan.targets?.slice(0, 3).map((target) => <span key={target.label} className="text-cyan-300">{target.label} {Number(target.price).toLocaleString()}</span>)}
-        <span className={`ml-auto rounded px-2 py-1 text-[9px] font-black ${cryptoAnalysis.trade_plan.eligible ? 'bg-emerald-400/10 text-emerald-300' : 'bg-amber-400/10 text-amber-300'}`}>{cryptoAnalysis.trade_plan.eligible ? 'ELIGIBLE' : 'WATCH / WAIT'}</span>
-      </div>}
-
-      </>}
 
       <ChartAiAnalysisPanel
         analysis={chartAiAnalysis}
@@ -2553,6 +2387,8 @@ const TradingView: React.FC = () => {
         onClose={() => { setChartAiAnalysis(null); setChartAiError(null); }}
       />
 
+      {/* Chart + Right Panel */}
+      <div className="flex-1 min-w-0 min-h-0 flex overflow-hidden">
       {/* Chart Area */}
       <div className="flex-1 min-w-0 min-h-0 overflow-hidden relative bg-gray-900">
         <div className="flex h-full min-h-0 flex-col">
@@ -2830,6 +2666,153 @@ const TradingView: React.FC = () => {
             <CandlePatternMarkers candlePatterns={candlePatterns} />
           </div>
         )}
+      </div>
+
+      {/* Right Analysis Panel */}
+      {rightPanelTab && (
+        <div className="w-72 shrink-0 overflow-y-auto border-l cx-border bg-gray-800 p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase tracking-widest text-cyan-300">
+              {rightPanelTab === 'tools' ? 'OVERLAYS & TOOLS' : rightPanelTab === 'details' ? 'MARKET DETAILS' : 'SETUP GUIDE'}
+            </span>
+            <button onClick={() => { setRightPanelTab(null); setShowTechnicalControls(false); setShowChartContext(false); setShowSetupGuide(false); }} className="rounded p-1 cx-text-faint hover:cx-text text-xs">x</button>
+          </div>
+
+          {rightPanelTab === 'tools' && (
+            <div className="space-y-1.5">
+              <div className="text-[9px] font-black uppercase tracking-widest cx-text-faint mb-1">OVERLAYS</div>
+              {[
+                ['Harmonic Patterns', showHarmonics, setShowHarmonics, harmonicPatterns.length, 'text-emerald-500'],
+                ['Trend Lines', showTrendLines, setShowTrendLines, trendLines.length, 'text-blue-500'],
+                ['Support / Resistance', showSupportResistance, setShowSupportResistance, 0, 'text-cyan-500'],
+                ['Fibonacci Levels', showFibonacci, setShowFibonacci, fibonacciLevels.length, 'text-purple-500'],
+                ['Possible Setups', showSetups, setShowSetups, 0, 'text-amber-500'],
+                ['Setup Guide', showSetupGuide, setShowSetupGuide, 0, 'text-emerald-500'],
+                ['Manual Drawings', showManualDrawings, setShowManualDrawings, drawings.length, 'text-cyan-500'],
+              ].map(([label, checked, setter, count, color]) => (
+                <label key={String(label)} className="flex items-center justify-between rounded px-2 py-1.5 cx-text-muted hover:cx-bg-card-hover text-xs">
+                  <div className="flex items-center gap-2">
+                    <input type="checkbox" checked={!!checked} onChange={(e) => (setter as any)(e.target.checked)} className={`rounded border-gray-600 ${String(color)} focus:ring-current`} />
+                    <span className="cx-text-strong">{String(label)}</span>
+                  </div>
+                  {Number(count) > 0 && <span className="rounded-full px-1.5 py-0.5 text-[9px] font-black bg-white/5 cx-text-faint">{String(count)}</span>}
+                </label>
+              ))}
+
+              <div className="border-t cx-border pt-2 mt-2 text-[9px] font-black uppercase tracking-widest cx-text-faint">PANES</div>
+              <label className="flex items-center justify-between rounded px-2 py-1.5 cx-text-muted hover:cx-bg-card-hover text-xs">
+                <span>Volume</span>
+                <input type="checkbox" checked={showVolume} onChange={(e) => setShowVolume(e.target.checked)} className="rounded border-gray-600 text-emerald-500 focus:ring-emerald-500" />
+              </label>
+              <label className="flex items-center justify-between rounded px-2 py-1.5 cx-text-muted hover:cx-bg-card-hover text-xs">
+                <span>RSI (14)</span>
+                <input type="checkbox" checked={showRsi} onChange={(e) => setShowRsi(e.target.checked)} className="rounded border-gray-600 text-violet-500 focus:ring-violet-500" />
+              </label>
+
+              <div className="border-t cx-border pt-2 mt-2 text-[9px] font-black uppercase tracking-widest cx-text-faint">ON-CHART</div>
+              <label className="flex items-center justify-between rounded px-2 py-1.5 cx-text-muted hover:cx-bg-card-hover text-xs">
+                <span>EMA 20 / 50</span>
+                <input type="checkbox" checked={showEma} onChange={(e) => setShowEma(e.target.checked)} className="rounded border-gray-600 text-emerald-500 focus:ring-emerald-500" />
+              </label>
+              <label className="flex items-center justify-between rounded px-2 py-1.5 cx-text-muted hover:cx-bg-card-hover text-xs">
+                <span>Bollinger Bands</span>
+                <input type="checkbox" checked={showBands} onChange={(e) => setShowBands(e.target.checked)} className="rounded border-gray-600 text-blue-500 focus:ring-blue-500" />
+              </label>
+            </div>
+          )}
+
+          {rightPanelTab === 'details' && (
+            <div className="space-y-2 text-xs">
+              {cryptoAnalysis && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-md border border-violet-400/20 bg-violet-400/10 px-2 py-1 font-black tracking-wider text-violet-300 text-[9px]">V2</span>
+                    <span className="text-lg font-black text-cyan-300">{cryptoAnalysis.total_score}<span className="text-[10px] text-cyan-500">/100</span></span>
+                    <span className={`rounded-md border px-2 py-1 text-[9px] font-black ${cryptoAnalysis.direction === 'BUY' ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-300' : cryptoAnalysis.direction === 'SELL' ? 'border-rose-400/20 bg-rose-400/10 text-rose-300' : 'border-slate-400/20 bg-slate-400/10 cx-text-muted'}`}>{cryptoAnalysis.direction}</span>
+                  </div>
+                  {cryptoAnalysis.decision_quality && (
+                    <div className="rounded-md border cx-border cx-bg-card px-2 py-1.5 space-y-1">
+                      <div className="text-[9px] font-black uppercase tracking-widest cx-text-faint">Decision Quality</div>
+                      <div className="flex justify-between"><span className="cx-text-faint">Bias</span><b>{cryptoAnalysis.decision_quality.market_bias_confidence}%</b></div>
+                      <div className="flex justify-between"><span className="cx-text-faint">Setup</span><b>{cryptoAnalysis.decision_quality.setup_quality}%</b></div>
+                      <div className="flex justify-between"><span className="cx-text-faint">Timing</span><b>{cryptoAnalysis.decision_quality.execution_readiness}%</b></div>
+                    </div>
+                  )}
+                  <div className="rounded-md border cx-border cx-bg-card px-2 py-1.5 space-y-1">
+                    <div className="text-[9px] font-black uppercase tracking-widest cx-text-faint">Score Breakdown</div>
+                    <div className="flex justify-between"><span className="cx-text-faint">Structure</span><b>{cryptoAnalysis.category_breakdown.structure}/20</b></div>
+                    <div className="flex justify-between"><span className="cx-text-faint">Volume</span><b>{cryptoAnalysis.category_breakdown.volume}/10</b></div>
+                    <div className="flex justify-between"><span className="cx-text-faint">Momentum</span><b>{cryptoAnalysis.category_breakdown.momentum}/10</b></div>
+                    <div className="flex justify-between"><span className="cx-text-faint">Liquidity</span><b>{cryptoAnalysis.category_breakdown.liquidity}/15</b></div>
+                  </div>
+                </div>
+              )}
+              {adrData && (
+                <div className={`rounded-md border px-2 py-1.5 space-y-1 ${adrData.exhausted ? 'border-red-800 bg-red-950 text-red-200' : 'border-sky-800 bg-sky-950 text-sky-200'}`}>
+                  <div className="text-[9px] font-black uppercase tracking-widest">ADR(14)</div>
+                  <div className="flex justify-between"><span>Range</span><b>{adrData.adr.toFixed(2)}</b></div>
+                  <div className="flex justify-between"><span>Used</span><b>{adrData.percent_used.toFixed(0)}%</b></div>
+                  <div className="flex justify-between"><span>Low</span><b>{adrData.adr_low.toFixed(2)}</b></div>
+                  <div className="flex justify-between"><span>High</span><b>{adrData.adr_high.toFixed(2)}</b></div>
+                  {adrData.exhausted && <div className="font-bold text-red-300">Range exhausted</div>}
+                </div>
+              )}
+              {cryptoAnalysis?.market_context && (
+                <div className="rounded-md border cx-border cx-bg-card px-2 py-1.5 space-y-1">
+                  <div className="text-[9px] font-black uppercase tracking-widest cx-text-faint">Market Direction</div>
+                  <div className="flex justify-between"><span>Month</span><b className={cryptoAnalysis.market_context.timeframes.mn1?.trend === 'bullish' ? 'text-emerald-300' : cryptoAnalysis.market_context.timeframes.mn1?.trend === 'bearish' ? 'text-rose-300' : 'cx-text-muted'}>{cryptoAnalysis.market_context.timeframes.mn1?.trend || 'neutral'}</b></div>
+                  <div className="flex justify-between"><span>Week</span><b className={cryptoAnalysis.market_context.timeframes.w1?.trend === 'bullish' ? 'text-emerald-300' : cryptoAnalysis.market_context.timeframes.w1?.trend === 'bearish' ? 'text-rose-300' : 'cx-text-muted'}>{cryptoAnalysis.market_context.timeframes.w1?.trend || 'neutral'}</b></div>
+                  <div className="flex justify-between"><span>{timeframe}</span><b className={cryptoAnalysis.market_context.timeframes.selected?.trend === 'bullish' ? 'text-emerald-300' : cryptoAnalysis.market_context.timeframes.selected?.trend === 'bearish' ? 'text-rose-300' : 'cx-text-muted'}>{cryptoAnalysis.market_context.timeframes.selected?.trend || 'neutral'}</b></div>
+                  <div className="flex justify-between"><span>Alignment</span><b>{cryptoAnalysis.market_context.alignment_score}%</b></div>
+                </div>
+              )}
+              {fibData && (
+                <div className="rounded-md border border-amber-500/15 bg-amber-500/5 px-2 py-1.5 space-y-1 text-amber-200">
+                  <div className="text-[9px] font-black uppercase tracking-widest text-amber-300">Fib Context</div>
+                  <div className="flex justify-between"><span>Leg</span><b>{fibData.leg === 'up' ? 'Bullish' : 'Bearish'}</b></div>
+                  {fibNearest && <div className="flex justify-between"><span>Nearest</span><b>{String(fibNearest.ratio)} @ {setupPrice(Number(fibNearest.level))}</b></div>}
+                  {fibGolden && <div className="flex justify-between"><span>Golden</span><b>{setupPrice(Number(fibGolden.low))}-{setupPrice(Number(fibGolden.high))}</b></div>}
+                  {fibTopCluster && <div className="flex justify-between"><span>Cluster</span><b>{setupPrice(Number(fibTopCluster.low))}-{setupPrice(Number(fibTopCluster.high))}</b></div>}
+                  {fibHtfConflicts.length > 0 ? <div className="rounded bg-rose-400/10 px-2 py-1 text-[9px] font-black text-rose-300">HTF CONFLICT {fibHtfConflicts.join('/')}</div> : <div className="rounded bg-emerald-400/10 px-2 py-1 text-[9px] font-black text-emerald-300">HTF ALIGNED</div>}
+                </div>
+              )}
+              {cryptoAnalysis?.trade_plan && (
+                <div className="rounded-md border border-emerald-500/15 bg-emerald-500/5 px-2 py-1.5 space-y-1">
+                  <div className="text-[9px] font-black uppercase tracking-widest text-emerald-300">Trade Plan</div>
+                  <div className="flex justify-between"><span>Direction</span><b className={cryptoAnalysis.trade_plan.direction === 'BUY' ? 'text-emerald-300' : 'text-rose-300'}>{cryptoAnalysis.trade_plan.direction}</b></div>
+                  {cryptoAnalysis.trade_plan.entry != null && <div className="flex justify-between"><span>Entry</span><b>{Number(cryptoAnalysis.trade_plan.entry).toLocaleString()}</b></div>}
+                  {cryptoAnalysis.trade_plan.stop != null && <div className="flex justify-between"><span>Stop</span><b className="text-rose-300">{Number(cryptoAnalysis.trade_plan.stop).toLocaleString()}</b></div>}
+                  {cryptoAnalysis.trade_plan.targets?.slice(0, 3).map((t) => <div key={t.label} className="flex justify-between"><span>{t.label}</span><b className="text-cyan-300">{Number(t.price).toLocaleString()}</b></div>)}
+                  <div className={`rounded px-2 py-1 text-[9px] font-black text-center ${cryptoAnalysis.trade_plan.eligible ? 'bg-emerald-400/10 text-emerald-300' : 'bg-amber-400/10 text-amber-300'}`}>{cryptoAnalysis.trade_plan.eligible ? 'ELIGIBLE' : 'WATCH / WAIT'}</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {rightPanelTab === 'guide' && showSetupGuide && (
+            <div className="text-xs">
+              <SetupGuideHero
+                direction={setupPlan?.direction || 'NEUTRAL'}
+                score={Number(cryptoAnalysis?.total_score || 0)}
+                timingStatus={setupTimingStatus}
+                calendarStatus={setupCalendarStatus}
+                onClose={() => { setShowSetupGuide(false); setRightPanelTab(null); }}
+              >
+                {setupPlan && setupPlan.direction !== 'NEUTRAL' && setupPlan.entry != null && (
+                  <TradeLevels
+                    direction={setupPlan.direction}
+                    entry={setupPlan.entry}
+                    stop={setupPlan.stop ?? setupPlan.invalidation}
+                    targets={setupPlan.targets?.slice(0, 3) || []}
+                    currentPrice={currentPrice}
+                    formatPrice={setupPrice}
+                  />
+                )}
+              </SetupGuideHero>
+            </div>
+          )}
+        </div>
+      )}
       </div>
 
       {/* TradeLocker Login Modal */}

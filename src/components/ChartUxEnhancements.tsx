@@ -110,6 +110,7 @@ interface MtfBarProps {
   };
   alignmentScore?: number;
   selectedLabel?: string;
+  onTimeframeChange?: (tf: string) => void;
 }
 
 const TREND_COLOR: Record<string, string> = {
@@ -124,11 +125,15 @@ const TREND_TEXT: Record<string, string> = {
   neutral: 'cx-text-muted',
 };
 
-const TrendDot: React.FC<{ trend?: MtfTrend; label: string }> = ({ trend, label }) => {
+const TrendDot: React.FC<{ trend?: MtfTrend; label: string; onClick?: () => void }> = ({ trend, label, onClick }) => {
   const t = String(trend || 'neutral').toLowerCase();
   const dot = TREND_COLOR[t] || TREND_COLOR.neutral;
   return (
-    <div className="flex flex-col items-center gap-1" title={`${label}: ${t}`}>
+    <div 
+      className={`flex flex-col items-center gap-1 ${onClick ? 'cursor-pointer hover:scale-110 transition-transform' : ''}`}
+      title={`${label}: ${t}${onClick ? ' (Click to switch timeframe)' : ''}`}
+      onClick={onClick}
+    >
       <div className={`h-2.5 w-2.5 rounded-full ${dot}`} />
       <span className={`text-[9px] font-black uppercase tracking-wider ${TREND_TEXT[t] || TREND_TEXT.neutral}`}>
         {label}
@@ -143,7 +148,7 @@ const TrendDot: React.FC<{ trend?: MtfTrend; label: string }> = ({ trend, label 
  * alignment at a glance. The user no longer has to open the Details panel to see
  * whether the higher timeframes support the current setup.
  */
-export const MtfBar: React.FC<MtfBarProps> = ({ timeframes, alignmentScore, selectedLabel }) => {
+export const MtfBar: React.FC<MtfBarProps> = ({ timeframes, alignmentScore, selectedLabel, onTimeframeChange }) => {
   const alignment = Number(alignmentScore || 0);
   const alignmentColor =
     alignment >= 75 ? 'text-emerald-300' : alignment >= 40 ? 'text-amber-300' : 'text-rose-300';
@@ -152,9 +157,9 @@ export const MtfBar: React.FC<MtfBarProps> = ({ timeframes, alignmentScore, sele
     <div className="flex items-center gap-4 rounded-lg border cx-border cx-bg-card px-3 py-2">
       <span className="text-[9px] font-black uppercase tracking-widest text-cyan-300">MTF</span>
       <div className="flex items-center gap-3">
-        <TrendDot trend={timeframes.month} label="MN" />
-        <TrendDot trend={timeframes.week} label="W1" />
-        <TrendDot trend={timeframes.day} label="D1" />
+        <TrendDot trend={timeframes.month} label="MN" onClick={onTimeframeChange ? () => onTimeframeChange('1M') : undefined} />
+        <TrendDot trend={timeframes.week} label="W1" onClick={onTimeframeChange ? () => onTimeframeChange('1W') : undefined} />
+        <TrendDot trend={timeframes.day} label="D1" onClick={onTimeframeChange ? () => onTimeframeChange('1D') : undefined} />
         <TrendDot trend={timeframes.selected} label={selectedLabel || 'TF'} />
       </div>
       {alignmentScore != null && (
@@ -194,7 +199,12 @@ export const QuickSymbolPills: React.FC<QuickSymbolPillsProps> = ({ symbols, act
                 : 'cx-bg-card cx-text-muted hover:bg-white/[0.08] hover:cx-text'
             }`}
           >
-            {s.symbol.replace('USD', '/USD')}
+            {(() => {
+              const sym = s.symbol;
+              if (sym.startsWith("USD") && sym.length > 3) return `USD/${sym.slice(3)}`;
+              if (sym.endsWith("USD")) return `${sym.slice(0, -3)}/USD`;
+              return sym;
+            })()}
           </button>
         );
       })}
