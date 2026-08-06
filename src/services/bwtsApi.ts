@@ -755,6 +755,14 @@ export const bwtsApi = {
       '/api/telegram/register-webhook',
       { public_base_url: publicBaseUrl },
     ),
+
+  // ── Browser Push Notifications ──────────────────────────────────────
+  savePushSubscription: (subscription: { endpoint: string; keys: { p256dh: string; auth: string }; expiration_time: number | null }) =>
+    post<{ ok: boolean }>('/api/alerts/push/subscribe', subscription as Record<string, unknown>),
+  removePushSubscription: (endpoint: string) =>
+    post<{ ok: boolean }>('/api/alerts/push/unsubscribe', { endpoint }),
+  getPushSubscriptions: () =>
+    get<{ subscriptions: Array<{ endpoint: string; created_at: string; expiration_time: string | null }> }>('/api/alerts/push/subscriptions'),
 };
 
 export interface AlertPreferences {

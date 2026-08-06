@@ -1,7 +1,8 @@
 import React from 'react';
-import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
+import { Bell, LogOut, Menu, Moon, Sun, X } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useNotifications } from '../contexts/NotificationContext';
 import ConfluenceXLogo from './ConfluenceXLogo';
 
 interface HeaderProps {
@@ -16,6 +17,7 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({ showMenuButton = false, onMenuToggle, menuOpen = false }) => {
   const { isDark, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
+  const { unreadCount } = useNotifications();
 
   return (
     <header className="flex h-16 items-center justify-between border-b border-gray-200/50 px-4 sm:px-6 backdrop-blur-xl glass dark:border-gray-700/50 dark:glass-dark">
@@ -43,6 +45,20 @@ const Header: React.FC<HeaderProps> = ({ showMenuButton = false, onMenuToggle, m
       </div>
 
       <div className="flex items-center gap-1">
+        {/* Notification bell */}
+        <button
+          onClick={() => window.location.assign('/alerts')}
+          className="relative rounded-xl p-2.5 transition-all duration-200 hover:bg-gray-100 dark:hover:bg-gray-700/80"
+          title="Alerts"
+          aria-label={`Alerts${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
+        >
+          <Bell className="h-5 w-5 cx-text-faint hover:text-cyan-400" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-cyan-400 px-1 text-[9px] font-black text-black">
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+          )}
+        </button>
         <button
           onClick={toggleTheme}
           className="rounded-xl p-2.5 transition-all duration-200 hover:bg-gray-100 dark:hover:bg-gray-700/80"

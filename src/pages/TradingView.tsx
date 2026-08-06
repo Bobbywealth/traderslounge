@@ -1994,10 +1994,10 @@ const TradingView: React.FC = () => {
   return (
     <div ref={workspaceRef} className={`relative h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 cx-text-strong flex flex-col ${fullscreenFallback ? 'fixed inset-0 z-[100]' : ''}`}>
       {/* Enhanced Top Controls */}
-      <div className="relative bg-gray-800 border-b border-gray-700 px-4 py-3">
-        <div className="flex items-center justify-between">
+      <div className="relative bg-gray-800 border-b border-gray-700 px-2 sm:px-4 py-2 sm:py-3">
+        <div className="flex items-center justify-between gap-2">
           {/* Left Section - Logo & Symbol Search */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center gap-2 sm:space-x-4 min-w-0 overflow-x-auto scrollbar-none">
             <ConfluenceXLogo size="sm" />
 
             {/* Quick symbol pills - lets users hop between pairs without typing */}
@@ -2082,12 +2082,12 @@ const TradingView: React.FC = () => {
           </div>
 
           {/* Center Section - Timeframes */}
-          <div className="flex items-center space-x-1">
+          <div className="flex items-center space-x-1 overflow-x-auto scrollbar-none">
             {timeframes.map(tf => (
               <button
                 key={tf.value}
                 onClick={() => setTimeframe(tf.value)}
-                className={`px-3 py-1 text-sm rounded transition-colors ${
+                className={`px-2 sm:px-3 py-1 text-xs sm:text-sm rounded whitespace-nowrap transition-colors ${
                   timeframe === tf.value
                     ? 'bg-emerald-500 cx-text-strong'
                     : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -2099,7 +2099,7 @@ const TradingView: React.FC = () => {
           </div>
 
           {/* Right Section - Controls */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center gap-1 sm:space-x-4 flex-none">
             {/* TradeLocker Connection removed: read-only product, no broker */}
 
             {/* Connection Status */}
@@ -2293,7 +2293,7 @@ const TradingView: React.FC = () => {
       </div>
 
       {/* Manual drawing toolbar. Drawings persist independently per symbol and timeframe. */}
-      <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b cx-border bg-[#080d18] px-4 py-1.5">
+      <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b cx-border bg-[#080d18] px-2 sm:px-4 py-1.5 scrollbar-none">
         <button
           onClick={() => setDrawingRailCollapsed((c) => !c)}
           title={drawingRailCollapsed ? 'Expand drawing rail' : 'Collapse drawing rail'}
@@ -2388,7 +2388,7 @@ const TradingView: React.FC = () => {
       />
 
       {/* Chart + Right Panel */}
-      <div className="flex-1 min-w-0 min-h-0 flex overflow-hidden">
+      <div className="flex-1 min-w-0 min-h-0 flex overflow-hidden relative">
       {/* Chart Area */}
       <div className="flex-1 min-w-0 min-h-0 overflow-hidden relative bg-gray-900">
         <div className="flex h-full min-h-0 flex-col">
@@ -2668,9 +2668,15 @@ const TradingView: React.FC = () => {
         )}
       </div>
 
-      {/* Right Analysis Panel */}
+      {/* Right Analysis Panel - overlays on mobile, side panel on desktop */}
       {rightPanelTab && (
-        <div className="w-72 shrink-0 overflow-y-auto border-l cx-border bg-gray-800 p-3 space-y-3">
+        <>
+          {/* Mobile backdrop */}
+          <div
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
+            onClick={() => { setRightPanelTab(null); setShowTechnicalControls(false); setShowChartContext(false); setShowSetupGuide(false); }}
+          />
+          <div className="fixed right-0 top-0 bottom-0 z-50 w-80 max-w-[85vw] overflow-y-auto border-l cx-border bg-gray-800 p-3 space-y-3 shadow-2xl md:static md:w-72 md:max-w-none md:shadow-none md:z-auto shrink-0">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-black uppercase tracking-widest text-cyan-300">
               {rightPanelTab === 'tools' ? 'OVERLAYS & TOOLS' : rightPanelTab === 'details' ? 'MARKET DETAILS' : 'SETUP GUIDE'}
@@ -2811,7 +2817,8 @@ const TradingView: React.FC = () => {
               </SetupGuideHero>
             </div>
           )}
-        </div>
+          </div>
+        </>
       )}
       </div>
 

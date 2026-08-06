@@ -148,3 +148,20 @@ body {
 :root.light .cx-input { background: var(--cx-bg-input); }
 :root.light .cx-progress { background: #e2e8f0; }
 :root.light .glass-dark { background: rgba(255,255,255,0.9); border-color: var(--cx-border-strong); }
+
+/* ===== Mobile Utilities ===== */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Touch-friendly targets on mobile */
+@media (max-width: 767px) {
+  button, a, [role="switch"], [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}

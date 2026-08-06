@@ -25,6 +25,7 @@ import AIAssistant from './components/AIAssistant';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { BrokerProvider } from './contexts/BrokerContext';
 import ErrorBoundary from './components/ErrorBoundary';
+import { NotificationProvider } from './contexts/NotificationContext';
 
 const AppContent: React.FC = () => {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -161,7 +162,9 @@ function App() {
       <AuthProvider>
         <ErrorBoundary>
           <Router>
-            <AppContent />
+            <NotificationProvider>
+              <AppContent />
+            </NotificationProvider>
           </Router>
         </ErrorBoundary>
       </AuthProvider>

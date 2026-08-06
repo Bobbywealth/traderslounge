@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Bell,
+  BellRing,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -16,6 +17,7 @@ import bwtsApi, {
   type AlertPreferences,
   type TelegramStatus,
 } from '../services/bwtsApi';
+import { isPushSupported, getPushStatus, requestPushPermissionAndSubscribe, unsubscribeFromPush } from '../services/pushNotificationService';
 import DataAttribution from '../components/DataAttribution';
 
 const ALERT_TYPE_LABELS: Record<string, string> = {
@@ -363,7 +365,7 @@ const Alerts: React.FC = () => {
             <div className="rounded-2xl border cx-border cx-bg-card p-5">
               <h2 className="text-sm font-black cx-text-strong">Delivery channels</h2>
               <p className="mt-1 text-xs leading-relaxed cx-text-muted">
-                In-app feed is on by default. Telegram and email are optional.
+                In-app feed is on by default. Browser push, Telegram, and email are optional.
               </p>
               <div className="mt-3 space-y-2">
                 {Object.entries(CHANNEL_LABELS).map(([channel, label]) => (
@@ -376,6 +378,10 @@ const Alerts: React.FC = () => {
                   />
                 ))}
               </div>
+
+              {/* Browser Push Notifications */}
+              <BrowserPushToggle />
+
               {prefs.delivery_channels.includes('telegram') && (
                 <TelegramConnect
                   status={telegramStatus}
@@ -494,6 +500,97 @@ const Alerts: React.FC = () => {
         </>
       )}
     </div>
+  );
+};
+
+// ── Browser Push Notifications Toggle ───────────────────────────────
+const BrowserPushToggle: React.FC = () => {
+  const [supported, setSupported] = useState(false);
+  const [subscribed, setSubscribed] = useState(false);
+  const [permission, setPermission] = useState<NotificationPermission>('default');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isPushSupported()) return;
+    setSupported(true);
+    getPushStatus().then((status) => {
+      setSubscribed(status.subscribed);
+      setPermission(status.permission);
+    });
+  }, []);
+
+  const handleToggle = async () => {
+    setLoading(true);
+    try {
+      if (subscribed) {
+        await unsubscribeFromPush();
+        setSubscribed(false);
+      } else {
+        const sub = await requestPushPermissionAndSubscribe();
+        if (sub) {
+          setSubscribed(true);
+          setPermission('granted');
+        } else {
+          const status = await getPushStatus();
+          setPermission(status.permission);
+        }
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!supported) {
+    return (
+      <div className="mt-3 rounded-md border border-slate-700/50 bg-slate-800/30 p-3 text-xs leading-relaxed text-slate-400">
+        Browser push notifications are not supported in this browser. Use Telegram or email instead.
+      </div>
+    );
+  }
+
+  if (permission === 'denied') {
+    return (
+      <div className="mt-3 rounded-md border border-amber-400/20 bg-amber-400/[0.06] p-3 text-xs leading-relaxed text-amber-200">
+        Push notifications were blocked. To enable them, click the lock icon in your browser's address bar and allow notifications for this site.
+      </div>
+    );
+  }
+
+  return (
+    <label className="mt-3 flex items-start justify-between gap-4 rounded-xl border cx-border cx-bg-card p-3 transition hover:cx-bg-card-hover">
+      <div className="min-w-0">
+        <div className="text-sm font-bold cx-text-strong flex items-center gap-2">
+          <BellRing className="h-4 w-4 text-cyan-300" />
+          Browser push notifications
+        </div>
+        <p className="mt-1 text-xs leading-relaxed cx-text-muted">
+          Get alerts on your device even when ConfluenceX is in the background.
+        </p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={subscribed}
+        onClick={handleToggle}
+        disabled={loading}
+        data-testid="browser-push-toggle"
+        className={`relative h-6 w-11 flex-none rounded-full border transition ${
+          subscribed
+            ? 'border-cyan-400/40 bg-cyan-400/30'
+            : 'cx-border cx-bg-card'
+        } ${loading ? 'opacity-50 cursor-wait' : ''}`}
+      >
+        {loading ? (
+          <Loader2 className="absolute top-1 left-2.5 h-3.5 w-3.5 animate-spin text-cyan-300" />
+        ) : (
+          <span
+            className={`absolute top-0.5 h-4 w-4 rounded-full transition-all ${
+              subscribed ? 'left-6 bg-cyan-300' : 'left-0.5 bg-slate-300'
+            }`}
+          />
+        )}
+      </button>
+    </label>
   );
 };
 
