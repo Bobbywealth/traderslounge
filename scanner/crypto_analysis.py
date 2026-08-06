@@ -694,25 +694,95 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         issues.append("volume unavailable or zero")
 
     # Direction is determined from independent broad signals before scoring.
+    # Macro confirmation stack (MN1 -> W1 -> D1 -> H4 -> H1) drives
+    # directional bias.  Higher timeframes carry more weight so a single
+    # lower-timeframe pullback never overrides the macro trend.  Sub-H1
+    # timeframes (M15, M5, M1) are used strictly for entry triggers and
+    # risk refinement, not for directional voting.
+    #
+    # Hysteresis: bias thresholds are +/-0.25 (instead of +/-0.15) to
+    # eliminate intra-candle noise and whipsaws.
+    macro_tf_order = ("mn1", "w1", "d1", "h4", "h1")
+    macro_weights = {"mn1": 3.0, "w1": 2.5, "d1": 2.0, "h4": 1.5, "h1": 1.0}
     trends, votes = {}, []
-    for name in ("mn1", "w1", "d1", "h4", "h1", "selected" if selected else primary_name):
+    for name in macro_tf_order:
         if frames.get(name):
-            trend, sign, labels = _trend(frames[name])
+            trend, sign_raw, labels = _trend(frames[name])
             trends[name] = {"trend": trend, "labels": labels}
-            votes.append(sign)
+            w = macro_weights.get(name, 1.0)
+            votes.append(sign_raw * w)
     fast, slow = (ema(closes, 20), ema(closes, 50)) if closes else ([], [])
     if fast and slow:
-        votes.append(1.0 if fast[-1] > slow[-1] else -1.0)
-    raw_bias = sum(votes) / len(votes) if votes else 0.0
-    direction = "BUY" if raw_bias > .15 else "SELL" if raw_bias < -.15 else "NEUTRAL"
+        votes.append(1.5 if fast[-1] > slow[-1] else -1.5)
+    raw_bias = sum(votes) / sum(abs(v) for v in votes) if votes else 0.0
+    direction = "BUY" if raw_bias > .25 else "SELL" if raw_bias < -.25 else "NEUTRAL"
     sign = 1 if direction == "BUY" else -1 if direction == "SELL" else 0
 
+    # Closed-candle confirmation: the last 2 closed H1 candles must agree
+    # with the computed direction before we trust it.  If they disagree,
+    # downgrade to NEUTRAL to avoid premature entry.
+    h1_bars = frames.get("h1") or []
+    if direction in ("BUY", "SELL") and len(h1_bars) >= 2:
+        c1, c2 = h1_bars[-2], h1_bars[-1]
+        c1_bull = (c1.close - c1.open) > 0
+        c2_bull = (c2.close - c2.open) > 0
+        if sign > 0 and not (c1_bull and c2_bull):
+            direction = "NEUTRAL"
+            sign = 0
+        elif sign < 0 and (c1_bull or c2_bull):
+            direction = "NEUTRAL"
+            sign = 0
+
+    # Sub-H1 timeframes (M15, M5, M1) are collected for entry-zone
+    # analysis only and do NOT participate in directional voting.
+    sub_h1_trends = {}
+    for name in ("m15", "m5", "m1"):
+        if frames.get(name):
+            trend, _sign, labels = _trend(frames[name])
+            sub_h1_trends[name] = {"trend": trend, "labels": labels}
+
+    # Session kill-zone detection (Eastern Time).
+    from datetime import timezone, timedelta
+    _ET = timezone(timedelta(hours=-4))  # EDT
+    _ref_time = None
+    if reference_time:
+        try:
+            _ref_time = datetime.fromtimestamp(reference_time, tz=timezone.utc).astimezone(_ET)
+        except (OSError, ValueError, TypeError):
+            _ref_time = None
+    _hour = _ref_time.hour if _ref_time else -1
+    _session = "asian"  # default
+    if 2 <= _hour < 5:
+        _session = "london_open"
+    elif 5 <= _hour < 8:
+        _session = "london"
+    elif 8 <= _hour < 12:
+        _session = "ny_open"
+    elif 12 <= _hour < 17:
+        _session = "new_york"
+    elif 17 <= _hour < 21:
+        _session = "overlap_close"
+    _in_kill_zone = _session in ("london_open", "ny_open")
+
     scores = dict((key, 0) for key in CAPS)
-    indicators, zones = {"raw_bias": raw_bias, "directional_strength": abs(raw_bias)*100}, {"fair_value_gaps": [], "order_blocks": [], "volume_profile": []}
+    indicators, zones = {
+        "raw_bias": raw_bias,
+        "directional_strength": abs(raw_bias)*100,
+        "session": _session,
+        "in_kill_zone": _in_kill_zone,
+        "macro_timeframes": list(macro_tf_order),
+        "sub_h1_trends": sub_h1_trends,
+    }, {"fair_value_gaps": [], "order_blocks": [], "volume_profile": []}
     if bars:
-        # Structure: MTF agreement and latest price position.
+        # Structure: macro MTF agreement (MN1 -> H1) and latest price position.
+        # Only macro timeframes count for alignment; sub-H1 is entry-only.
         aligned = sum(1 for info in trends.values() if info["trend"] == ("bullish" if sign > 0 else "bearish"))
-        scores["structure"] = _clamp(4 + aligned * 4 if sign else 0, 0, CAPS["structure"])
+        struct_base = 4 + aligned * 4 if sign else 0
+        # Kill-zone bonus: setups during London/NY open get a structure boost
+        # because institutional volume confirms the move.
+        if _in_kill_zone and sign:
+            struct_base += 3
+        scores["structure"] = _clamp(struct_base, 0, CAPS["structure"])
         swings = detect_swings(bars, 2)
         recent_highs = [s.price for s in swings if s.type == "high"][-3:]
         recent_lows = [s.price for s in swings if s.type == "low"][-3:]
@@ -733,7 +803,12 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         ref_high = min(recent_highs) if recent_highs else max(c.high for c in look)
         bull_sweep = any(c.low < ref_low and c.close > ref_low for c in look)
         bear_sweep = any(c.high > ref_high and c.close < ref_high for c in look)
-        scores["liquidity"] = 12 if (sign > 0 and bull_sweep) or (sign < 0 and bear_sweep) else 4 if sign else 0
+        liq_base = 12 if (sign > 0 and bull_sweep) or (sign < 0 and bear_sweep) else 4 if sign else 0
+        # Kill-zone liquidity boost: institutional volume during London/NY open
+        # makes liquidity sweeps more reliable.
+        if _in_kill_zone and liq_base >= 8:
+            liq_base += 3
+        scores["liquidity"] = _clamp(liq_base, 0, CAPS["liquidity"])
         opposite = next((c for c in reversed(bars[-12:-1]) if (c.close-c.open)*sign < 0), None)
         if opposite and sign:
             zones["order_blocks"].append({"type": "bullish" if sign > 0 else "bearish", "low": opposite.low, "high": opposite.high})
@@ -951,7 +1026,7 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
     expected_trend = "bullish" if sign > 0 else "bearish" if sign < 0 else "neutral"
     opposing_frames = [name for name in ("mn1", "w1", "d1", "h4") if bias[name]["trend"] not in ("neutral", expected_trend)]
     aligned_frames = [name for name in ("mn1", "w1", "d1", "h4") if bias[name]["trend"] == expected_trend]
-    market_context = {"macro_bias": macro_bias, "timeframes": bias, "aligned_frames": aligned_frames, "opposing_frames": opposing_frames, "alignment_score": round(len(aligned_frames)/4*100)}
+    market_context = {"macro_bias": macro_bias, "timeframes": bias, "aligned_frames": aligned_frames, "opposing_frames": opposing_frames, "alignment_score": round(len(aligned_frames)/4*100), "session": _session, "in_kill_zone": _in_kill_zone, "sub_h1_trends": sub_h1_trends}
 
     atr_now = indicators.get("atr") or (price*.01 if price else 1)
     sr_for_direction = next((zone for zone in zones.get("support_resistance", []) if zone["type"] == ("support" if sign > 0 else "resistance") and zone["distance_atr"] <= .6 and zone["strength_score"] >= 4), None) if sign else None
@@ -1041,7 +1116,7 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         "status": "AVOID" if avoid else "READY" if technical_ready else "WAIT", "checks": technical_checks,
         "location_ready": bool(location_signals), "location_signals": location_signals, "confirmation_signals": confirmation_signals,
         "nearest_sr": sr_for_direction, "nearest_fibonacci": fib_data.get("nearest"),
-        "session": {"name": "London/New York liquidity" if preferred_session else "off-peak or weekend", "preferred": preferred_session, "utc_hour": moment.hour if moment else None},
+        "session": {"name": _session, "preferred": preferred_session, "utc_hour": moment.hour if moment else None, "in_kill_zone": _in_kill_zone},
         "regime": {"low_volume": low_volume, "unstable_volatility": unstable_volatility, "adr_exhausted": adr_exhausted, "ema20_distance_atr": ema20_distance, "chasing": chasing, "monthly_weekly_conflict": macro_conflict},
         "avoid_reasons": avoid_reasons,
         "wait_for": wait_for_labels,
