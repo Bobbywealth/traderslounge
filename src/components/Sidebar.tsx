@@ -100,7 +100,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const isOverlay = mode === 'overlay';
 
   const renderItem = (item: NavItem) => {
-    const isSignalsView = location.pathname === '/' && new URLSearchParams(location.search).get('tab') === 'signals';
+    const isSignalsView = (location.pathname === '/signals') || (location.pathname === '/' && new URLSearchParams(location.search).get('tab') === 'signals');
     const isActive = item.name === 'Signals' ? isSignalsView : location.pathname === item.href && !(item.href === '/' && isSignalsView);
     return (
       <Link
