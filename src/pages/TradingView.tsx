@@ -721,7 +721,7 @@ const TradingView: React.FC = () => {
 
   const selectSymbol = (symbol: SymbolInfo) => {
     setSelectedSymbol(symbol.symbol);
-    setSearchTerm(symbol.symbol);
+    setSearchTerm(''); // Clear search term after selection
     setShowSuggestions(false);
     loadSymbolData(symbol.symbol);
   };
@@ -1651,19 +1651,19 @@ const TradingView: React.FC = () => {
         const y = priceSeries.priceToCoordinate(Number(anchor.price));
         if (y == null) return;
         const xFromTime = anchor.time ? chart.timeScale().timeToCoordinate(Number(anchor.time) as UTCTimestamp) : null;
-        // Only draw the anchor dot when the swing point is actually visible
-        // on the chart. Clamping off-screen times to the edges creates confusing
-        // clutter — better to hide them entirely.
-        if (xFromTime == null || Number(xFromTime) < 0 || Number(xFromTime) > container.clientWidth) return;
-        const x = Number(xFromTime);
+        const isVisible = xFromTime != null && Number(xFromTime) >= 0 && Number(xFromTime) <= container.clientWidth;
+        const x = isVisible ? Number(xFromTime) : Math.max(12, Math.min(container.clientWidth - 12, Number(xFromTime || (index === 0 ? 18 : 86))));
         const circle = document.createElementNS(SVG_NS, 'circle');
         circle.setAttribute('cx', String(x)); circle.setAttribute('cy', String(y)); circle.setAttribute('r', '5');
         circle.setAttribute('fill', '#fbbf24'); circle.setAttribute('stroke', '#080d18'); circle.setAttribute('stroke-width', '3'); svg.appendChild(circle);
-        const text = document.createElementNS(SVG_NS, 'text');
-        text.setAttribute('x', String(x + 8)); text.setAttribute('y', String(Math.max(13, Number(y) - 8)));
-        text.setAttribute('fill', '#fde68a'); text.setAttribute('font-size', '10'); text.setAttribute('font-weight', '900');
-        text.setAttribute('paint-order', 'stroke'); text.setAttribute('stroke', '#080d18'); text.setAttribute('stroke-width', '4');
-        text.textContent = `${anchor.label} ${Number(anchor.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}`; svg.appendChild(text);
+        // Only show the price label when the swing point is actually on-screen.
+        if (isVisible) {
+          const text = document.createElementNS(SVG_NS, 'text');
+          text.setAttribute('x', String(x + 8)); text.setAttribute('y', String(Math.max(13, Number(y) - 8)));
+          text.setAttribute('fill', '#fde68a'); text.setAttribute('font-size', '10'); text.setAttribute('font-weight', '900');
+          text.setAttribute('paint-order', 'stroke'); text.setAttribute('stroke', '#080d18'); text.setAttribute('stroke-width', '4');
+          text.textContent = `${anchor.label} ${Number(anchor.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}`; svg.appendChild(text);
+        }
       });
       container.appendChild(svg);
     };
@@ -1898,7 +1898,8 @@ const TradingView: React.FC = () => {
   // Handle symbol change
   const handleSymbolChange = (newSymbol: string) => {
     setSelectedSymbol(newSymbol);
-    setSearchTerm(newSymbol);
+    setSearchTerm(''); // Clear search term when switching symbols
+    setShowSuggestions(false);
     loadCandlesForSymbol(newSymbol, timeframe);
 
     // Load new technical analysis
@@ -2315,15 +2316,15 @@ const TradingView: React.FC = () => {
         ] as const).map(([tool, Icon, label]) => <button key={tool} onClick={() => setDrawingTool(tool)} title={label} className={`rounded-md p-2 transition ${drawingTool === tool ? 'bg-cyan-400/15 text-cyan-300' : 'cx-text-faint hover:cx-bg-card-hover hover:cx-text'}`}><Icon className="h-4 w-4"/></button>)}
         <div className="mx-2 h-5 w-px bg-white/10"/>
         <input type="color" value={selectedDrawing?.color || drawingColor} onChange={(event) => { setDrawingColor(event.target.value); if (selectedDrawing) updateSelectedDrawing({color:event.target.value}); }} title="Drawing color" className="h-7 w-7 cursor-pointer rounded border-0 bg-transparent p-0"/>
-        <button onClick={() => selectedDrawing && updateSelectedDrawing({locked:!selectedDrawing.locked})} disabled={!selectedDrawing} title={selectedDrawing?.locked ? 'Unlock drawing' : 'Lock drawing'} className={`rounded-md p-2 disabled:opacity-25 ${selectedDrawing?.locked ? 'bg-amber-400/10 text-amber-300' : 'cx-text-faint hover:cx-text'}`}>{selectedDrawing?.locked ? <Lock className="h-4 w-4"/> : <Unlock className="h-4 w-4"/>}</button>
-        <button onClick={duplicateSelectedDrawing} disabled={!selectedDrawing} title="Duplicate drawing" className="rounded-md p-2 cx-text-faint hover:cx-text disabled:opacity-25"><Copy className="h-4 w-4"/></button>
-        <button onClick={() => selectedDrawing && updateSelectedDrawing({lineStyle:selectedDrawing.lineStyle === 'dashed' ? 'solid' : 'dashed'})} disabled={!selectedDrawing || selectedDrawing.type === 'text'} title="Toggle solid / dashed" className="rounded-md px-2 py-1.5 text-[10px] font-black cx-text-faint hover:cx-text disabled:opacity-25">{selectedDrawing?.lineStyle === 'dashed' ? 'DASH' : 'SOLID'}</button>
-        <button onClick={() => selectedDrawing && updateSelectedDrawing({showPrice:!selectedDrawing.showPrice})} disabled={!selectedDrawing || selectedDrawing.type === 'text'} title="Toggle price labels" className={`rounded-md p-2 disabled:opacity-25 ${selectedDrawing?.showPrice ? 'text-cyan-300' : 'cx-text-faint'}`}><Tag className="h-4 w-4"/></button>
-        <button onClick={() => setMagnetDrawing((value)=>!value)} title="Magnet to candle OHLC" className={`rounded-md p-2 ${magnetDrawing ? 'bg-cyan-400/10 text-cyan-300' : 'cx-text-faint'}`}><Magnet className="h-4 w-4"/></button>
-        <button onClick={deleteSelectedDrawing} disabled={!selectedDrawingId || selectedDrawing?.locked} title="Delete selected" className="rounded-md p-2 cx-text-faint hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25"><Trash2 className="h-4 w-4"/></button>
-        <button onClick={undoDrawing} disabled={!drawingUndoRef.current.length} title="Undo" className="rounded-md p-2 cx-text-faint hover:cx-bg-card-hover hover:cx-text disabled:opacity-25"><Undo2 className="h-4 w-4"/></button>
-        <button onClick={clearDrawings} disabled={!drawings.length} title="Clear drawings" className="rounded-md px-2 py-1.5 text-[10px] font-black cx-text-faint hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25">CLEAR</button>
-        <button onClick={() => setShowManualDrawings((visible) => !visible)} title="Show / hide drawings" className="ml-auto rounded-md p-2 cx-text-faint hover:cx-bg-card-hover hover:cx-text">{showManualDrawings ? <Eye className="h-4 w-4"/> : <EyeOff className="h-4 w-4"/>}</button>
+        <button onClick={() => selectedDrawing && updateSelectedDrawing({locked:!selectedDrawing.locked})} disabled={!selectedDrawing} title={!selectedDrawing ? 'Select a drawing first' : selectedDrawing?.locked ? 'Unlock drawing' : 'Lock drawing'} className={`rounded-md p-2 disabled:opacity-25 ${selectedDrawing?.locked ? 'bg-amber-400/10 text-amber-300' : 'cx-text-faint hover:cx-text'}`}>{selectedDrawing?.locked ? <Lock className="h-4 w-4"/> : <Unlock className="h-4 w-4"/>}</button>
+        <button onClick={duplicateSelectedDrawing} disabled={!selectedDrawing} title={!selectedDrawing ? 'Select a drawing first' : 'Duplicate drawing'} className="rounded-md p-2 cx-text-faint hover:cx-text disabled:opacity-25"><Copy className="h-4 w-4"/></button>
+        <button onClick={() => selectedDrawing && updateSelectedDrawing({lineStyle:selectedDrawing.lineStyle === 'dashed' ? 'solid' : 'dashed'})} disabled={!selectedDrawing || selectedDrawing.type === 'text'} title={!selectedDrawing ? 'Select a drawing first' : selectedDrawing.type === 'text' ? 'Not available for text' : 'Toggle solid / dashed'} className="rounded-md px-2 py-1.5 text-[10px] font-black cx-text-faint hover:cx-text disabled:opacity-25">{selectedDrawing?.lineStyle === 'dashed' ? 'DASH' : 'SOLID'}</button>
+        <button onClick={() => selectedDrawing && updateSelectedDrawing({showPrice:!selectedDrawing.showPrice})} disabled={!selectedDrawing || selectedDrawing.type === 'text'} title={!selectedDrawing ? 'Select a drawing first' : selectedDrawing.type === 'text' ? 'Not available for text' : 'Toggle price labels'} className={`rounded-md p-2 disabled:opacity-25 ${selectedDrawing?.showPrice ? 'text-cyan-300' : 'cx-text-faint'}`}><Tag className="h-4 w-4"/></button>
+        <button onClick={() => setMagnetDrawing((value)=>!value)} title="Magnet to candle OHLC" className={`rounded-md p-2 ${magnetDrawing ? 'bg-cyan-400/20 text-cyan-300 border border-cyan-400/30' : 'cx-text-faint hover:cx-bg-card-hover hover:cx-text'}`}><Magnet className="h-4 w-4"/></button>
+        <button onClick={deleteSelectedDrawing} disabled={!selectedDrawingId || selectedDrawing?.locked} title={!selectedDrawingId ? 'Select a drawing first' : selectedDrawing?.locked ? 'Drawing is locked' : 'Delete selected'} className="rounded-md p-2 cx-text-faint hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25"><Trash2 className="h-4 w-4"/></button>
+        <button onClick={undoDrawing} disabled={!drawingUndoRef.current.length} title={!drawingUndoRef.current.length ? 'No actions to undo' : 'Undo'} className="rounded-md p-2 cx-text-faint hover:cx-bg-card-hover hover:cx-text disabled:opacity-25"><Undo2 className="h-4 w-4"/></button>
+        <button onClick={clearDrawings} disabled={!drawings.length} title={!drawings.length ? 'No drawings to clear' : 'Clear all drawings'} className="rounded-md px-2 py-1.5 text-[10px] font-black cx-text-faint hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25">CLEAR</button>
+        <button onClick={() => setShowManualDrawings((visible) => !visible)} title="Show / hide drawings" className={`ml-auto rounded-md p-2 ${showManualDrawings ? 'bg-cyan-400/20 text-cyan-300 border border-cyan-400/30' : 'cx-text-faint hover:cx-bg-card-hover hover:cx-text'}`}>{showManualDrawings ? <Eye className="h-4 w-4"/> : <EyeOff className="h-4 w-4"/>}</button>
         <span className="text-[9px] font-bold cx-text-faint">{drawings.length} · {selectedSymbol} {timeframe}</span>
           </>
         )}
@@ -2802,9 +2803,11 @@ const TradingView: React.FC = () => {
           {rightPanelTab === 'guide' && showSetupGuide && (
             <div className="text-xs">
               <SetupGuideHero
+                setupReady={setupReady}
+                setupHardBlocked={setupHardBlocked}
+                setupTimingStatus={setupTimingStatus}
+                v2Score={Number(cryptoAnalysis?.total_score || 0)}
                 direction={setupPlan?.direction || 'NEUTRAL'}
-                score={Number(cryptoAnalysis?.total_score || 0)}
-                timingStatus={setupTimingStatus}
                 calendarStatus={setupCalendarStatus}
                 onClose={() => { setShowSetupGuide(false); setRightPanelTab(null); }}
               >
