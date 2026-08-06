@@ -351,9 +351,18 @@ def _build_setup_zones(*, price, atr_value, zones, indicators, direction, market
 
 
 def _significant_leg(candles, atr_value):
-    """Choose the latest swing leg large enough to matter on this timeframe."""
+    """Choose the latest swing leg large enough to matter on this timeframe.
+
+    Returns a dict with low, high, direction, and swing anchor metadata
+    (start/end with time, price, type) for rendering on the chart.
+    """
     if len(candles) < 12:
-        return latest_leg(candles)
+        leg = latest_leg(candles)
+        if leg is None:
+            return None
+        low, high, direction = leg
+        return {"low": low, "high": high, "direction": direction,
+                "swing_start": None, "swing_end": None}
     swings = detect_swings(candles, max(2, min(7, len(candles)//60)))
     minimum = (atr_value or 0) * 2.0
     intervals = [candles[i].time-candles[i-1].time for i in range(1, min(len(candles), 40)) if candles[i].time > candles[i-1].time]
@@ -364,8 +373,42 @@ def _significant_leg(candles, atr_value):
             duration = abs((getattr(end, "time", 0) or 0)-(getattr(start, "time", 0) or 0))
             if start.type != end.type and abs(end.price-start.price) >= minimum and duration >= minimum_duration:
                 low, high = sorted((float(start.price), float(end.price)))
-                return low, high, "up" if end.price > start.price else "down"
-    return latest_leg(candles)
+                # Always map: start = low anchor, end = high anchor
+                if start.price < end.price:
+                    swing_start, swing_end = start, end
+                else:
+                    swing_start, swing_end = end, start
+                return {"low": low, "high": high,
+                        "direction": "up" if end.price > start.price else "down",
+                        "swing_start": {"time": swing_start.time, "price": swing_start.price, "type": swing_start.type},
+                        "swing_end": {"time": swing_end.time, "price": swing_end.price, "type": swing_end.type}}
+    leg = latest_leg(candles)
+    if leg is None:
+        return None
+    low, high, direction = leg
+    return {"low": low, "high": high, "direction": direction,
+            "swing_start": None, "swing_end": None}
+
+
+def _leg_from_harmonic(harmonic):
+    """Build a leg dict from a harmonic pattern's X→A swing."""
+    points = harmonic.get("points")
+    if not points:
+        return None
+    x_pt = points.get("X")
+    a_pt = points.get("A")
+    if not x_pt or not a_pt:
+        return None
+    low = min(float(x_pt.price), float(a_pt.price))
+    high = max(float(x_pt.price), float(a_pt.price))
+    direction = "up" if a_pt.price > x_pt.price else "down"
+    # X is always the start of the leg, A is the end
+    return {
+        "low": low, "high": high, "direction": direction,
+        "swing_start": {"time": x_pt.time, "price": x_pt.price, "type": x_pt.type},
+        "swing_end": {"time": a_pt.time, "price": a_pt.price, "type": a_pt.type},
+        "source": "harmonic",
+    }
 
 
 def _candle_patterns(candles):
@@ -539,9 +582,23 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         indicators.update({**{f"ema_{p}": ema_values[p] for p in ema_periods}, **{f"sma_{p}": sma_values[p] for p in sma_periods}, "ema_stack_aligned": ema_stack, "sma_stack_aligned": sma_stack, "golden_cross": golden_cross, "death_cross": death_cross})
         scores["moving_averages"] = _clamp((4 if ema_stack else 1) + (3 if sma_stack else 0) + (2 if dynamic_support else 0) + (1 if (golden_cross and sign > 0) or (death_cross and sign < 0) else 0), 0, 10) if sign else 0
 
+        # Detect harmonics early so the fib can use the X→A leg when available.
+        harmonic = detect_harmonic(bars)
+        harmonic_leg = _leg_from_harmonic(harmonic) if harmonic else None
+
         leg = _significant_leg(bars, level_atr)
+        # Prefer the harmonic X→A leg when a pattern is detected — it defines
+        # the structural swing that traders expect the fib to measure.
+        if harmonic_leg and leg:
+            leg = harmonic_leg
+        elif harmonic_leg and not leg:
+            leg = harmonic_leg
         if leg:
-            low, high, leg_dir = leg
+            low = leg["low"]
+            high = leg["high"]
+            leg_dir = leg["direction"]
+            swing_start_data = leg.get("swing_start")
+            swing_end_data = leg.get("swing_end")
             retrace = retracement_pct(price, low, high, leg_dir)
             span = high - low
             retracement_ratios = (.236, .382, .5, .618, .65, .786)
@@ -563,12 +620,22 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
             golden_low, golden_high = sorted((fibs["0.618"], fibs["0.65"]))
             in_golden_pocket = golden_low <= price <= golden_high
             nearest_ratio, nearest_level = min(fibs.items(), key=lambda item: abs(item[1]-price))
-            zones["fibonacci"] = {
+            fib_zone = {
                 "leg": leg_dir, "swing_low": low, "swing_high": high, "leg_size_atr": span/(level_atr or span),
                 "retracement": retrace, "levels": fibs, "golden_pocket": {"low": golden_low, "high": golden_high, "contains_price": in_golden_pocket},
                 "nearest": {"ratio": nearest_ratio, "level": nearest_level, "distance_atr": abs(price-nearest_level)/(level_atr or span)},
                 "sr_confluence": confluence,
             }
+            # Add swing anchor metadata for the frontend overlay.
+            if swing_start_data:
+                fib_zone["swing_start_time"] = swing_start_data["time"]
+                fib_zone["swing_start_price"] = swing_start_data["price"]
+                fib_zone["swing_start_type"] = swing_start_data["type"]
+            if swing_end_data:
+                fib_zone["swing_end_time"] = swing_end_data["time"]
+                fib_zone["swing_end_price"] = swing_end_data["price"]
+                fib_zone["swing_end_type"] = swing_end_data["type"]
+            zones["fibonacci"] = fib_zone
             aligned_leg = sign and ((leg_dir == "up") == (sign > 0))
             scores["fibonacci"] = _clamp((4 if aligned_leg else 0) + (3 if .382 <= retrace <= .786 else 0) + (2 if confluence else 0) + (1 if in_golden_pocket else 0), 0, 10)
 
@@ -579,7 +646,7 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
             scores["liquidity"] = _clamp(scores["liquidity"] + 3, 0, CAPS["liquidity"])
         confirmed_bars = bars
         candle_patterns = _candle_patterns(confirmed_bars)
-        harmonic = detect_harmonic(confirmed_bars)
+        # harmonic already detected above for fib leg selection
         if harmonic:
             zones["harmonic"] = {"name": harmonic.get("name"), "direction": harmonic.get("direction"), "prz": harmonic.get("prz")}
         pattern_ok = any(("bullish" in p or p == "hammer") if sign > 0 else ("bearish" in p or p == "shooting_star") for p in candle_patterns)
