@@ -61,6 +61,8 @@ from .alert_preferences import (
     evaluate_rules,
 )
 from .telegram_bot import TelegramBot
+from .push_subscriptions import PushSubscription, PushSubscriptionStore
+from .push_delivery import send_alert_push, is_configured as push_is_configured
 from .validation_metrics import calibration_report, grouped_calibration, walk_forward_report
 from .v2_backtester import run_v2_backtest
 from .trade_repo import ClosedTradeRepository, PositionRepository
@@ -93,6 +95,9 @@ RATE_LIMITS: dict[str, tuple[int, float]] = {
     "/api/scans/refresh": (10, 10.0 / 60.0),
     "/api/alerts/preferences": (60, 60.0 / 60.0),
     "/api/alerts/feed": (60, 60.0 / 60.0),
+    "/api/alerts/push/subscribe": (30, 30.0 / 60.0),
+    "/api/alerts/push/unsubscribe": (30, 30.0 / 60.0),
+    "/api/alerts/push/subscriptions": (30, 30.0 / 60.0),
 }
 
 # Endpoints that require a valid Authorization: Bearer token, in
@@ -106,6 +111,9 @@ PROTECTED_ROUTES: frozenset[str] = frozenset({
     "/api/scans/refresh",
     "/api/alerts/preferences",
     "/api/alerts/feed",
+    "/api/alerts/push/subscribe",
+    "/api/alerts/push/unsubscribe",
+    "/api/alerts/push/subscriptions",
 })
 
 # Operational endpoints that require admin role
@@ -258,6 +266,8 @@ class ApiState:
     # TELEGRAM_BOT_TOKEN env var is not configured. When present,
     # ``/api/telegram/*`` and the alert dispatcher route through it.
     telegram_bot: Optional[TelegramBot] = None
+    # Browser push subscription store.
+    push_subscription_store: Optional[PushSubscriptionStore] = None
     market_event_repo: Optional[Any] = None
     trade_setup_repo: Optional[Any] = None
     trade_outcome_repo: Optional[Any] = None
@@ -491,6 +501,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 return self._alerts_get_preferences()
             if path == "/api/alerts/feed":
                 return self._alerts_feed(query)
+            if path == "/api/alerts/push/subscriptions":
+                return self._push_list_subscriptions()
             if path == "/api/telegram/status":
                 return self._telegram_status()
             if path == "/api/validation/report":
@@ -530,6 +542,10 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._ai_chart_analyze(body)
         if path == "/api/alerts/preferences":
             return self._alerts_set_preferences(body)
+        if path == "/api/alerts/push/subscribe":
+            return self._push_subscribe(body)
+        if path == "/api/alerts/push/unsubscribe":
+            return self._push_unsubscribe(body)
         if path == "/api/telegram/webhook":
             return self._telegram_webhook(body)
         if path == "/api/telegram/link-token":
@@ -1365,6 +1381,83 @@ class _ApiHandler(BaseHTTPRequestHandler):
         # UI renders the empty state correctly without 503-ing.
         self._json(200, {"events": events, "count": len(events)})
 
+    # --- Browser Push Notification routes -------------------------------
+
+    def _push_store(self) -> PushSubscriptionStore:
+        store = getattr(_STATE, "push_subscription_store", None)
+        if store is None:
+            store = PushSubscriptionStore()
+            if _STATE is not None:
+                _STATE.push_subscription_store = store
+        return store
+
+    def _push_subscribe(self, body: dict) -> None:
+        user = self._authenticate(self.headers)
+        if not user:
+            return self._error(401, "Unauthorized")
+        endpoint = (body or {}).get("endpoint")
+        keys = (body or {}).get("keys") or {}
+        p256dh = keys.get("p256dh")
+        auth = keys.get("auth")
+        if not endpoint or not p256dh or not auth:
+            return self._error(400, "endpoint, keys.p256dh, and keys.auth are required")
+        expiration_time = (body or {}).get("expiration_time")
+        sub = PushSubscription(
+            endpoint=str(endpoint),
+            p256dh=str(p256dh),
+            auth=str(auth),
+            user_id=int(user.id),
+            expiration_time=str(expiration_time) if expiration_time else None,
+        )
+        self._push_store().add(sub)
+        logger.info("Push subscription saved for user %s: %s", user.id, endpoint[:60])
+        self._json(200, {"ok": True})
+
+    def _push_unsubscribe(self, body: dict) -> None:
+        user = self._authenticate(self.headers)
+        if not user:
+            return self._error(401, "Unauthorized")
+        endpoint = (body or {}).get("endpoint")
+        if not endpoint:
+            return self._error(400, "endpoint is required")
+        removed = self._push_store().remove(int(user.id), str(endpoint))
+        self._json(200, {"ok": removed})
+
+    def _push_list_subscriptions(self) -> None:
+        user = self._authenticate(self.headers)
+        if not user:
+            return self._error(401, "Unauthorized")
+        subs = self._push_store().list_for_user(int(user.id))
+        self._json(200, {
+            "subscriptions": [
+                {
+                    "endpoint": s.endpoint,
+                    "created_at": s.created_at,
+                    "expiration_time": s.expiration_time,
+                }
+                for s in subs
+            ]
+        })
+
+    def _push_send_alert(self, user_id: int, alert_type: str, pair: str, title: str, body: str, severity: str = "info") -> None:
+        """Send a push notification to all of a user's subscribed browsers."""
+        if not push_is_configured():
+            return
+        store = self._push_store()
+        subs = store.list_for_user(user_id)
+        for sub in subs:
+            send_alert_push(
+                endpoint=sub.endpoint,
+                p256dh=sub.p256dh,
+                auth=sub.auth,
+                alert_type=alert_type,
+                pair=pair,
+                title=title,
+                body=body,
+                severity=severity,
+                url=f"/tradingview?symbol={pair}",
+            )
+
     # --- Telegram bot routes --------------------------------------------
 
     def _telegram_bot(self) -> Optional[TelegramBot]:
@@ -1488,6 +1581,21 @@ class _ApiHandler(BaseHTTPRequestHandler):
                         bot.dispatch_event(event, prefs)
                     except Exception:
                         logging.exception("telegram dispatch failed for user %s", uid)
+
+            # Dispatch browser push notifications
+            if "push" in prefs.delivery_channels or "in_app" in prefs.delivery_channels:
+                for event in deliverable:
+                    try:
+                        self._push_send_alert(
+                            user_id=int(uid),
+                            alert_type=event.get("alert_type", ""),
+                            pair=event.get("pair", ""),
+                            title=event.get("title", "ConfluenceX Alert"),
+                            body=event.get("body", ""),
+                            severity=event.get("severity", "info"),
+                        )
+                    except Exception:
+                        logging.exception("push dispatch failed for user %s", uid)
 
         try:
             if hasattr(_STATE, "last_analysis_by_pair"):

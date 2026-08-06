@@ -73,6 +73,7 @@ class DeliveryChannel(str, Enum):
     IN_APP = "in_app"
     TELEGRAM = "telegram"
     EMAIL = "email"
+    PUSH = "push"
 
 
 class TradingSession(str, Enum):

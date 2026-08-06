@@ -42,6 +42,7 @@ const ALERT_TYPE_DESCRIPTIONS: Record<string, string> = {
 
 const CHANNEL_LABELS: Record<string, string> = {
   in_app: 'In-app feed',
+  push: 'Browser push',
   telegram: 'Telegram',
   email: 'Email',
 };
