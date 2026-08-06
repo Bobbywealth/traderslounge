@@ -43,6 +43,7 @@ const groups: NavGroup[] = [
     label: 'Find trades',
     items: [
       { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+      { name: 'Signals', href: '/signals', icon: Zap },
       { name: 'Chart', href: '/tradingview', icon: BarChart3 },
     ],
   },
@@ -83,7 +84,6 @@ export const botNavigationItems: NavItem[] = [
  */
 export const foldedNavigationItems: NavItem[] = [
   { name: 'Hot Scanner', href: '/scanner', icon: Activity },
-  { name: 'Signals', href: '/signals', icon: Zap },
   { name: 'Market Analysis', href: '/analysis', icon: Search },
   { name: 'Full Analysis', href: '/tradingview?symbol=BTCUSD&panel=full', icon: ArrowLeftRight },
 ];
@@ -100,7 +100,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   const isOverlay = mode === 'overlay';
 
   const renderItem = (item: NavItem) => {
-    const isActive = location.pathname === item.href;
+    const isSignalsView = location.pathname === '/' && new URLSearchParams(location.search).get('tab') === 'signals';
+    const isActive = item.name === 'Signals' ? isSignalsView : location.pathname === item.href && !(item.href === '/' && isSignalsView);
     return (
       <Link
         key={item.name}
