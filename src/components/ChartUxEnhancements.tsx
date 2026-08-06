@@ -186,14 +186,14 @@ interface QuickSymbolPillsProps {
 export const QuickSymbolPills: React.FC<QuickSymbolPillsProps> = ({ symbols, activeSymbol, onSelect }) => {
   const visible = symbols.slice(0, 6);
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-0.5">
       {visible.map((s) => {
         const isActive = s.symbol === activeSymbol;
         return (
           <button
             key={s.symbol}
             onClick={() => onSelect(s.symbol)}
-            className={`rounded-full px-2.5 py-1 text-[10px] font-black tracking-wider transition ${
+            className={`rounded px-1.5 py-0.5 text-[9px] font-black tracking-wide transition ${
               isActive
                 ? 'bg-emerald-400/15 text-emerald-300 ring-1 ring-emerald-400/30'
                 : 'cx-bg-card cx-text-muted hover:bg-white/[0.08] hover:cx-text'

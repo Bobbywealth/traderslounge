@@ -1999,7 +1999,7 @@ const TradingView: React.FC = () => {
   return (
     <div ref={workspaceRef} className={`relative h-full w-full min-w-0 min-h-0 overflow-hidden bg-gray-900 cx-text-strong flex flex-col ${fullscreenFallback ? 'fixed inset-0 z-[100]' : ''}`}>
       {/* Enhanced Top Controls */}
-      <div className="relative bg-gray-800 border-b border-gray-700 px-2 sm:px-4 py-2 sm:py-3">
+      <div className="relative bg-gray-800 border-b border-gray-700 px-2 sm:px-3 py-1 sm:py-1.5">
         <div className="flex items-center justify-between gap-2">
           {/* Left Section - Logo & Symbol Search */}
           <div className="flex items-center gap-2 sm:space-x-4 min-w-0 overflow-x-auto scrollbar-none">
