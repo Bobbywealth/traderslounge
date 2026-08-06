@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts';
 import { createVolumePane, createRsiPane, computeVolume, computeRsi, detectDivergence, divergenceStyle, type Divergence } from '../components/chartPanes';
 import { computeEma, computeBollinger, mergeLineWithTime } from '../components/chartIndicators';
-import { V2ScoreBadge, MtfBar, QuickSymbolPills, TradeLevels, TechnicalAnalysisTable, SetupGuideHero, CandlePatternMarkers, detectCandlePatterns } from '../components/ChartUxEnhancements';
+import { V2ScoreBadge, MtfBar, TradeLevels, TechnicalAnalysisTable, SetupGuideHero, CandlePatternMarkers, detectCandlePatterns } from '../components/ChartUxEnhancements';
 import {
   Settings,
   Maximize2,
@@ -2005,12 +2005,6 @@ const TradingView: React.FC = () => {
           <div className="flex items-center gap-2 sm:space-x-4 min-w-0 overflow-x-auto scrollbar-none">
             <ConfluenceXLogo size="sm" />
 
-            {/* Quick symbol pills - lets users hop between pairs without typing */}
-            <QuickSymbolPills
-              symbols={availableSymbols.length > 0 ? availableSymbols : BWTS_SYMBOLS}
-              activeSymbol={selectedSymbol}
-              onSelect={(symbol) => handleSymbolChange(symbol)}
-            />
 
             {/* Symbol Search */}
             <div className="relative">
