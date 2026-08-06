@@ -527,8 +527,29 @@ def _fibonacci_levels(low, high, leg_dir):
     return fibs
 
 
-def _build_fibonacci_zone(candles, price, atr_value, sr_zones=None, timeframe=None):
-    leg = _significant_leg(candles, atr_value)
+def _leg_from_harmonic(harmonic):
+    """Build a leg dict from a harmonic pattern's X→A swing."""
+    points = harmonic.get("points")
+    if not points:
+        return None
+    x_pt = points.get("X")
+    a_pt = points.get("A")
+    if not x_pt or not a_pt:
+        return None
+    low = min(float(x_pt.price), float(a_pt.price))
+    high = max(float(x_pt.price), float(a_pt.price))
+    direction = "up" if a_pt.price > x_pt.price else "down"
+    return {
+        "low": low, "high": high, "direction": direction,
+        "start_time": x_pt.time, "end_time": a_pt.time,
+        "start_price": float(x_pt.price), "end_price": float(a_pt.price),
+        "start_type": x_pt.type, "end_type": a_pt.type,
+        "selection_reason": f"harmonic {harmonic.get('name', '')} X→A leg",
+    }
+
+
+def _build_fibonacci_zone(candles, price, atr_value, sr_zones=None, timeframe=None, preferred_leg=None):
+    leg = preferred_leg or _significant_leg(candles, atr_value)
     if not leg or price is None:
         return None
     low, high, leg_dir = leg["low"], leg["high"], leg["direction"]
@@ -779,7 +800,11 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         indicators.update({**{f"ema_{p}": ema_values[p] for p in ema_periods}, **{f"sma_{p}": sma_values[p] for p in sma_periods}, "ema_stack_aligned": ema_stack, "sma_stack_aligned": sma_stack, "golden_cross": golden_cross, "death_cross": death_cross})
         scores["moving_averages"] = _clamp((4 if ema_stack else 1) + (3 if sma_stack else 0) + (2 if dynamic_support else 0) + (1 if (golden_cross and sign > 0) or (death_cross and sign < 0) else 0), 0, 10) if sign else 0
 
-        fib_zone = _build_fibonacci_zone(bars, price, level_atr, sr_zones, primary_name)
+        # Detect harmonics early so the fib can use the X→A leg when available.
+        harmonic = detect_harmonic(bars)
+        harmonic_leg = _leg_from_harmonic(harmonic) if harmonic else None
+
+        fib_zone = _build_fibonacci_zone(bars, price, level_atr, sr_zones, primary_name, preferred_leg=harmonic_leg)
         if fib_zone:
             zones["fibonacci"] = fib_zone
             leg_dir = fib_zone["leg"]
@@ -824,7 +849,7 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
             scores["liquidity"] = _clamp(scores["liquidity"] + 3, 0, CAPS["liquidity"])
         confirmed_bars = bars
         candle_patterns = _candle_patterns(confirmed_bars)
-        harmonic = detect_harmonic(confirmed_bars)
+        # harmonic already detected above for fib leg selection
         if harmonic:
             zones["harmonic"] = {"name": harmonic.get("name"), "direction": harmonic.get("direction"), "prz": harmonic.get("prz")}
         pattern_ok = any(("bullish" in p or p == "hammer") if sign > 0 else ("bearish" in p or p == "shooting_star") for p in candle_patterns)
