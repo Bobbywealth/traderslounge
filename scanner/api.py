@@ -444,7 +444,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
 
             # Legacy protected paths check (signals/positions/journal)
             protected_paths = ['/api/signals', '/api/positions', '/api/journal', '/api/alerts',
-                               '/api/alerts/preferences', '/api/alerts/feed']
+                               '/api/alerts/preferences', '/api/alerts/feed', '/api/alerts/activity']
             if path in protected_paths or path.startswith("/api/signals/"):
                 result = self._require_auth(self.headers)
                 if isinstance(result, tuple):
@@ -501,6 +501,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 return self._alerts_get_preferences()
             if path == "/api/alerts/feed":
                 return self._alerts_feed(query)
+            if path == "/api/alerts/activity":
+                return self._alerts_activity()
             if path == "/api/alerts/push/subscriptions":
                 return self._push_list_subscriptions()
             if path == "/api/telegram/status":
@@ -1380,6 +1382,113 @@ class _ApiHandler(BaseHTTPRequestHandler):
         # If no persistent repo is wired, return an empty feed so the
         # UI renders the empty state correctly without 503-ing.
         self._json(200, {"events": events, "count": len(events)})
+
+    def _alerts_activity(self) -> None:
+        """Live activity feed: reshapes the dashboard cache into an
+        activity-focused payload for the Alerts page.  Returns scanner
+        status, per-pair active setups, lifecycle transitions, and
+        economic-calendar gate status without triggering a fresh scan."""
+        user = self._authenticate(self.headers)
+        if not user:
+            return self._error(401, "Unauthorized")
+
+        dashboard = None
+        with _STATE.cache_lock:
+            dashboard = _STATE.dashboard_cache.get("payload")
+
+        if dashboard is None:
+            try:
+                dashboard = self._build_dashboard_payload()
+                with _STATE.cache_lock:
+                    _STATE.dashboard_cache["payload"] = dashboard
+                    _STATE.dashboard_cache["built_at"] = time.monotonic()
+            except Exception:
+                logging.exception("alerts/activity: dashboard build failed")
+                return self._json(200, {
+                    "scanner_running": False,
+                    "pairs": [],
+                    "transitions": [],
+                    "calendar": None,
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                })
+
+        health = dashboard.get("scanner_health") or {}
+        config = dashboard.get("config") or {}
+        econ = dashboard.get("economic_event_risk") or {}
+        markets = dashboard.get("markets") or []
+
+        pairs_activity = []
+        all_transitions = []
+
+        for m in markets:
+            sig = m.get("signal") or {}
+            analysis = m.get("analysis") or {}
+            ls = m.get("lifecycle_state") or {}
+            transitions = m.get("recent_transitions") or []
+            plan = analysis.get("trade_plan") or {}
+            timing = analysis.get("trade_timing") or {}
+            calendar = analysis.get("economic_calendar") or {}
+            score_hist = m.get("score_history") or {}
+            scores = score_hist.get("scores") or []
+
+            pair_name = str(sig.get("pair") or "").upper()
+            direction = sig.get("direction") or analysis.get("direction") or "NEUTRAL"
+            score = sig.get("confidence_score") or analysis.get("total_score") or 0
+            tier = sig.get("tier") or (
+                "STRONG" if plan.get("status") in ("STRONG", "VALID")
+                else "WATCHLIST" if score >= 50
+                else "NO_TRADE"
+            )
+
+            pairs_activity.append({
+                "pair": pair_name,
+                "direction": direction,
+                "score": int(score),
+                "tier": tier,
+                "status": plan.get("status") or "WAIT",
+                "eligible": plan.get("eligible", False),
+                "timing_status": timing.get("status") or "UNKNOWN",
+                "lifecycle": ls.get("state") or "unknown",
+                "confirmed_direction": ls.get("confirmed_direction"),
+                "since_bar_time": ls.get("since_bar_time"),
+                "reason": ls.get("reason"),
+                "entry": plan.get("entry"),
+                "stop_loss": plan.get("stop"),
+                "tp1": plan.get("tp1"),
+                "net_rr": plan.get("net_rr"),
+                "calendar_status": calendar.get("status") or "UNKNOWN",
+                "blocking_reasons": plan.get("blocking_reasons") or [],
+                "latest_score": scores[-1] if scores else None,
+                "market_info": m.get("market_info") or {},
+            })
+
+            for t in transitions:
+                all_transitions.append({**t, "pair": pair_name})
+
+        all_transitions.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+
+        calendar_summary = {
+            "global_status": econ.get("status") or "UNKNOWN",
+            "event_title": econ.get("event_title"),
+            "currency": econ.get("currency"),
+            "impact": econ.get("impact"),
+            "minutes_to_event": econ.get("time_until_event_minutes"),
+            "affected_symbols": econ.get("affected_symbols") or [],
+            "next_eligible_time": econ.get("next_eligible_time"),
+            "next_event": econ.get("next_event"),
+        }
+
+        self._json(200, {
+            "scanner_running": health.get("status") == "running",
+            "scanner_health": health,
+            "scan_interval_seconds": config.get("scan_interval_seconds"),
+            "pairs_monitored": list(_STATE.config.pairs),
+            "pairs": pairs_activity,
+            "transitions": all_transitions[:30],
+            "calendar": calendar_summary,
+            "generated_at": dashboard.get("generated_at"),
+            "market_data_timestamp": dashboard.get("market_data_timestamp"),
+        })
 
     # --- Browser Push Notification routes -------------------------------
 

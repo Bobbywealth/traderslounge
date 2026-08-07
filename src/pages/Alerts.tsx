@@ -1,18 +1,30 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowRight,
+  ArrowRightLeft,
   Bell,
   BellRing,
   Check,
   CheckCircle2,
   ChevronDown,
+  Circle,
+  Clock,
   Info,
   Loader2,
+  Radio,
   Save,
   Send,
+  Shield,
+  TrendingDown,
+  TrendingUp,
   XCircle,
+  Zap,
 } from 'lucide-react';
 import bwtsApi, {
+  type ActivityFeed,
+  type ActivityPair,
+  type ActivityTransition,
   type AlertEvent,
   type AlertPreferences,
   type TelegramStatus,
@@ -448,6 +460,9 @@ const Alerts: React.FC = () => {
             </button>
           </div>
 
+          {/* Live Activity */}
+          <LiveActivity />
+
           {/* Recent feed */}
           <section className="rounded-2xl border cx-border cx-bg-card p-5">
             <h2 className="text-sm font-black cx-text-strong">Recent alerts</h2>
@@ -748,6 +763,375 @@ const TelegramConnect: React.FC<TelegramConnectProps> = ({ status, chatId, onLin
           </a>
         </div>
       )}
+    </div>
+  );
+};
+
+// ── Live Activity ──────────────────────────────────────────────────
+
+const LIFECYCLE_COLORS: Record<string, string> = {
+  observing: 'bg-slate-400',
+  developing: 'bg-amber-400',
+  near_trigger: 'bg-orange-400',
+  ready: 'bg-emerald-400',
+  active: 'bg-cyan-400',
+  tp1_reached: 'bg-green-400',
+  tp2_reached: 'bg-green-500',
+  tp3_reached: 'bg-green-600',
+  break_even: 'bg-blue-400',
+  stopped: 'bg-rose-400',
+  expired: 'bg-slate-500',
+  invalidated: 'bg-rose-500',
+  blocked_by_news: 'bg-amber-500',
+  blocked_by_data: 'bg-amber-600',
+  blocked_by_spread: 'bg-amber-700',
+  blocked_by_risk: 'bg-red-500',
+  closed: 'bg-slate-500',
+  unknown: 'bg-slate-600',
+};
+
+const TIER_COLORS: Record<string, string> = {
+  STRONG: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
+  VALID: 'border-cyan-400/30 bg-cyan-400/10 text-cyan-300',
+  WATCHLIST: 'border-amber-400/30 bg-amber-400/10 text-amber-300',
+  NO_TRADE: 'border-slate-500/30 bg-slate-500/10 text-slate-400',
+};
+
+const CALENDAR_TONE: Record<string, { chip: string; icon: React.ComponentType<{ className?: string }> }> = {
+  CLEAR: { chip: 'border-emerald-400/20 bg-emerald-400/[0.06] text-emerald-300', icon: CheckCircle2 },
+  CAUTION: { chip: 'border-amber-400/20 bg-amber-400/[0.06] text-amber-300', icon: AlertTriangle },
+  BLOCKED: { chip: 'border-rose-400/20 bg-rose-400/[0.06] text-rose-300', icon: XCircle },
+  POST_NEWS: { chip: 'border-violet-400/20 bg-violet-400/[0.06] text-violet-300', icon: Clock },
+  UNKNOWN: { chip: 'border-slate-500/20 bg-slate-500/[0.06] text-slate-400', icon: Info },
+};
+
+const formatTimeSince = (iso: string | null): string => {
+  if (!iso) return '';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 0) return 'just now';
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ${mins % 60}m ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ${hrs % 24}h ago`;
+};
+
+const LiveActivity: React.FC = () => {
+  const [data, setData] = useState<ActivityFeed | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedPair, setExpandedPair] = useState<string | null>(null);
+  const timerRef = useRef<number | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const result = await bwtsApi.activityFeed();
+      setData(result);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    timerRef.current = window.setInterval(load, 30_000);
+    return () => {
+      if (timerRef.current !== null) window.clearInterval(timerRef.current);
+    };
+  }, [load]);
+
+  if (loading && !data) {
+    return (
+      <section className="rounded-2xl border cx-border cx-bg-card p-5">
+        <div className="flex items-center gap-2 text-sm cx-text-muted">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading live activity…
+        </div>
+      </section>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <section className="rounded-2xl border border-rose-400/20 bg-rose-400/[0.04] p-5">
+        <div className="flex items-center gap-2 text-sm text-rose-300">
+          <XCircle className="h-4 w-4" /> Could not load activity: {error}
+        </div>
+      </section>
+    );
+  }
+
+  if (!data) return null;
+
+  const { scanner_running, pairs, transitions, calendar, generated_at } = data;
+
+  // Sort pairs: actionable first (STRONG/VALID), then by score descending
+  const sortedPairs = [...pairs].sort((a, b) => {
+    const tierOrder: Record<string, number> = { STRONG: 0, VALID: 1, WATCHLIST: 2, NO_TRADE: 3 };
+    const ta = tierOrder[a.tier] ?? 4;
+    const tb = tierOrder[b.tier] ?? 4;
+    if (ta !== tb) return ta - tb;
+    return b.score - a.score;
+  });
+
+  return (
+    <section className="rounded-2xl border cx-border cx-bg-card p-5">
+      {/* Header with scanner status */}
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-black cx-text-strong flex items-center gap-2">
+            <Radio className="h-4 w-4 text-cyan-300" />
+            Live Activity
+          </h2>
+          <p className="mt-1 text-xs leading-relaxed cx-text-muted">
+            Real-time engine status, active setups, and lifecycle transitions across {pairs.length} pairs.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wider ${
+            scanner_running
+              ? 'border border-emerald-400/30 bg-emerald-400/10 text-emerald-300'
+              : 'border border-rose-400/30 bg-rose-400/10 text-rose-300'
+          }`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${scanner_running ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+            {scanner_running ? 'RUNNING' : 'STOPPED'}
+          </span>
+          <span className="text-[10px] cx-text-faint">
+            Updated {formatTimeSince(generated_at)}
+          </span>
+        </div>
+      </div>
+
+      {/* Calendar gate banner */}
+      {calendar && calendar.global_status !== 'UNKNOWN' && (
+        <CalendarBanner calendar={calendar} />
+      )}
+
+      {/* Active setups grid */}
+      <div className="mt-4 space-y-2">
+        {sortedPairs.map((p) => (
+          <PairCard
+            key={p.pair}
+            pair={p}
+            expanded={expandedPair === p.pair}
+            onToggle={() => setExpandedPair(expandedPair === p.pair ? null : p.pair)}
+          />
+        ))}
+        {sortedPairs.length === 0 && (
+          <div className="rounded-xl border border-dashed cx-border-strong py-8 text-center text-xs cx-text-faint">
+            No pairs configured. Add pairs in the scanner config to see live activity.
+          </div>
+        )}
+      </div>
+
+      {/* Recent transitions */}
+      {transitions.length > 0 && (
+        <div className="mt-4">
+          <h3 className="text-xs font-black cx-text-strong flex items-center gap-1.5">
+            <ArrowRightLeft className="h-3.5 w-3.5 text-cyan-300" />
+            Recent transitions
+          </h3>
+          <div className="mt-2 space-y-1.5">
+            {transitions.slice(0, 10).map((t, i) => (
+              <TransitionRow key={`${t.pair}-${t.timestamp}-${i}`} transition={t} />
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+};
+
+const CalendarBanner: React.FC<{ calendar: ActivityFeed['calendar'] }> = ({ calendar }) => {
+  const tone = CALENDAR_TONE[calendar.global_status] || CALENDAR_TONE.UNKNOWN;
+  const Icon = tone.icon;
+
+  return (
+    <div className={`mt-3 flex items-start gap-3 rounded-xl border p-3 ${tone.chip}`}>
+      <Icon className="mt-0.5 h-4 w-4 flex-none" />
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-bold">
+          Calendar: {calendar.global_status}
+          {calendar.minutes_to_event != null && calendar.minutes_to_event > 0 && (
+            <span className="ml-2 font-mono">{calendar.minutes_to_event}m to event</span>
+          )}
+        </div>
+        {calendar.event_title && (
+          <div className="mt-0.5 text-[11px] opacity-80">
+            {calendar.event_title}
+            {calendar.currency && <span className="ml-1.5 opacity-60">({calendar.currency})</span>}
+            {calendar.impact && <span className="ml-1.5 opacity-60">· {calendar.impact}</span>}
+          </div>
+        )}
+        {calendar.affected_symbols.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {calendar.affected_symbols.map((s) => (
+              <span key={s} className="rounded border border-current/10 px-1.5 py-0.5 text-[10px] font-mono opacity-70">{s}</span>
+            ))}
+          </div>
+        )}
+        {calendar.next_event && (
+          <div className="mt-1 text-[10px] opacity-60">
+            Next: {calendar.next_event.title} — {new Date(calendar.next_event.scheduled_at).toLocaleString()}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const PairCard: React.FC<{
+  pair: ActivityPair;
+  expanded: boolean;
+  onToggle: () => void;
+}> = ({ pair, expanded, onToggle }) => {
+  const lifecycleColor = LIFECYCLE_COLORS[pair.lifecycle] || LIFECYCLE_COLORS.unknown;
+  const tierColor = TIER_COLORS[pair.tier] || TIER_COLORS.NO_TRADE;
+  const DirectionIcon = pair.direction === 'BUY' ? TrendingUp : pair.direction === 'SELL' ? TrendingDown : Circle;
+  const directionColor = pair.direction === 'BUY' ? 'text-emerald-400' : pair.direction === 'SELL' ? 'text-rose-400' : 'text-slate-400';
+
+  return (
+    <div
+      className={`rounded-xl border cx-border transition ${
+        pair.tier === 'STRONG' || pair.tier === 'VALID'
+          ? 'border-cyan-400/20 bg-cyan-400/[0.03]'
+          : 'cx-bg-card'
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-3 p-3 text-left"
+      >
+        {/* Lifecycle dot */}
+        <span className={`h-2.5 w-2.5 flex-none rounded-full ${lifecycleColor}`} />
+
+        {/* Pair name + direction */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-black cx-text-strong font-mono">{pair.pair}</span>
+            <span className={directionColor}>
+              <DirectionIcon className="h-3.5 w-3.5" />
+            </span>
+            <span className={`text-[10px] font-bold ${directionColor}`}>
+              {pair.direction}
+            </span>
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wider cx-text-faint">
+            <span className="font-mono">{pair.lifecycle}</span>
+            {pair.timing_status !== 'UNKNOWN' && (
+              <span className="flex items-center gap-0.5">
+                <Clock className="h-2.5 w-2.5" />
+                {pair.timing_status}
+              </span>
+            )}
+            {pair.calendar_status !== 'UNKNOWN' && (
+              <span className="flex items-center gap-0.5">
+                <Shield className="h-2.5 w-2.5" />
+                {pair.calendar_status}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Score + tier badge */}
+        <div className="flex items-center gap-2">
+          <span className="text-right">
+            <div className="text-lg font-black font-mono cx-text-strong">{pair.score}</div>
+            <div className="text-[9px] uppercase tracking-wider cx-text-faint">score</div>
+          </span>
+          <span className={`rounded-md border px-2 py-0.5 text-[10px] font-black ${tierColor}`}>
+            {pair.tier}
+          </span>
+        </div>
+      </button>
+
+      {/* Expanded details */}
+      {expanded && (
+        <div className="border-t cx-border px-3 pb-3 pt-2 space-y-2">
+          {/* Trade plan summary */}
+          {pair.entry && (
+            <div className="grid grid-cols-3 gap-2 text-[11px]">
+              <div>
+                <span className="cx-text-faint">Entry</span>
+                <div className="font-mono font-bold cx-text-strong">{pair.entry}</div>
+              </div>
+              <div>
+                <span className="cx-text-faint">Stop</span>
+                <div className="font-mono font-bold text-rose-300">{pair.stop_loss}</div>
+              </div>
+              <div>
+                <span className="cx-text-faint">TP1</span>
+                <div className="font-mono font-bold text-emerald-300">{pair.tp1}</div>
+              </div>
+            </div>
+          )}
+          {pair.net_rr && (
+            <div className="text-[11px]">
+              <span className="cx-text-faint">Net R:R</span>{' '}
+              <span className="font-mono font-bold text-cyan-300">{pair.net_rr.toFixed(1)}R</span>
+            </div>
+          )}
+
+          {/* Lifecycle reason */}
+          {pair.reason && (
+            <div className="text-[11px] cx-text-muted">
+              <span className="cx-text-faint">Reason:</span> {pair.reason}
+            </div>
+          )}
+
+          {/* Blocking reasons */}
+          {pair.blocking_reasons.length > 0 && (
+            <div className="space-y-1">
+              {pair.blocking_reasons.map((br, i) => (
+                <div key={i} className="flex items-start gap-1.5 text-[11px] text-amber-300">
+                  <AlertTriangle className="mt-0.5 h-3 w-3 flex-none" />
+                  {br.message || br.code || 'Blocked'}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Eligibility badge */}
+          <div className="flex items-center gap-2">
+            {pair.eligible ? (
+              <span className="inline-flex items-center gap-1 rounded-md border border-emerald-400/20 bg-emerald-400/[0.06] px-1.5 py-0.5 text-[10px] text-emerald-300">
+                <Zap className="h-3 w-3" /> Eligible for alerts
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 rounded-md border cx-border px-1.5 py-0.5 text-[10px] cx-text-faint">
+                Not eligible
+              </span>
+            )}
+            <span className="text-[10px] cx-text-faint">
+              Status: {pair.status}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const TransitionRow: React.FC<{ transition: ActivityTransition }> = ({ transition }) => {
+  const fromColor = LIFECYCLE_COLORS[transition.from_state || ''] || 'bg-slate-500';
+  const toColor = LIFECYCLE_COLORS[transition.to_state] || LIFECYCLE_COLORS.unknown;
+
+  return (
+    <div className="flex items-start gap-2.5 rounded-lg cx-bg-elev px-3 py-2">
+      <span className="mt-1 text-[10px] font-mono font-black cx-text-strong flex-none w-16">{transition.pair}</span>
+      <div className="flex items-center gap-1.5 flex-none">
+        <span className={`h-2 w-2 rounded-full ${fromColor}`} />
+        <span className="text-[10px] font-mono cx-text-muted">{transition.from_state || '—'}</span>
+        <ArrowRight className="h-3 w-3 cx-text-faint" />
+        <span className={`h-2 w-2 rounded-full ${toColor}`} />
+        <span className="text-[10px] font-mono font-bold cx-text-strong">{transition.to_state}</span>
+      </div>
+      <span className="text-[10px] cx-text-faint ml-auto flex-none">{formatTimeSince(transition.timestamp)}</span>
     </div>
   );
 };

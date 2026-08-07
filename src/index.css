@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./styles/tokens.css";
+@import "./styles/futuristic.css";
 
 /* ===== ConfluenceX Surface Reset ===== */
 html, body, #root { min-height: 100%; }

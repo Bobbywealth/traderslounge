@@ -747,6 +747,7 @@ export const bwtsApi = {
   alertPreferences: () => get<AlertPreferences>('/api/alerts/preferences'),
   saveAlertPreferences: (prefs: Partial<AlertPreferences>) => post<AlertPreferences>('/api/alerts/preferences', prefs as Record<string, unknown>),
   alertFeed: (limit = 50) => get<{ events: AlertEvent[]; count: number }>('/api/alerts/feed', { limit }),
+  activityFeed: () => get<ActivityFeed>('/api/alerts/activity'),
 
   telegramStatus: () => get<TelegramStatus>('/api/telegram/status'),
   telegramLinkToken: () => post<TelegramLinkToken>('/api/telegram/link-token', {}),
@@ -813,6 +814,62 @@ export interface TelegramWebhookInfo {
   pending_update_count?: number;
   has_custom_certificate?: boolean;
   allowed_updates?: string[];
+}
+
+// ── Live Activity types ──────────────────────────────────────────────
+
+export interface ActivityPair {
+  pair: string;
+  direction: 'BUY' | 'SELL' | 'NEUTRAL';
+  score: number;
+  tier: string;
+  status: string;
+  eligible: boolean;
+  timing_status: string;
+  lifecycle: string;
+  confirmed_direction: string | null;
+  since_bar_time: string | null;
+  reason: string | null;
+  entry: number | null;
+  stop_loss: number | null;
+  tp1: number | null;
+  net_rr: number | null;
+  calendar_status: string;
+  blocking_reasons: Array<{ code?: string; message?: string; severity?: string }>;
+  latest_score: { score: number; at: string; tier: string } | null;
+  market_info: Record<string, unknown>;
+}
+
+export interface ActivityTransition {
+  pair: string;
+  from_state: string | null;
+  to_state: string;
+  reason_code: string;
+  human_readable: string;
+  timestamp: string;
+}
+
+export interface ActivityCalendar {
+  global_status: string;
+  event_title: string | null;
+  currency: string | null;
+  impact: string | null;
+  minutes_to_event: number | null;
+  affected_symbols: string[];
+  next_eligible_time: string | null;
+  next_event: { title: string; scheduled_at: string; impact: string } | null;
+}
+
+export interface ActivityFeed {
+  scanner_running: boolean;
+  scanner_health: Record<string, unknown>;
+  scan_interval_seconds: number;
+  pairs_monitored: string[];
+  pairs: ActivityPair[];
+  transitions: ActivityTransition[];
+  calendar: ActivityCalendar;
+  generated_at: string;
+  market_data_timestamp: string;
 }
 
 export default bwtsApi;

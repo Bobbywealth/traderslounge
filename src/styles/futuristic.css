@@ -1,0 +1,520 @@
+/* ================================================================
+   ConfluenceX Futuristic Animation System
+   ================================================================
+   A set of CSS-only and lightweight animations for a cyberpunk
+   trading cockpit aesthetic.  All animations respect
+   prefers-reduced-motion.
+   ================================================================ */
+
+/* ── Animated Grid Background ─────────────────────────────── */
+.cx-grid-bg {
+  position: relative;
+  overflow: hidden;
+}
+.cx-grid-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(34, 211, 238, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34, 211, 238, 0.04) 1px, transparent 1px);
+  background-size: 60px 60px;
+  animation: grid-scroll 20s linear infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+@keyframes grid-scroll {
+  0% { transform: translate(0, 0); }
+  100% { transform: translate(60px, 60px); }
+}
+
+/* ── Glow Border ─────────────────────────────────────────── */
+.cx-glow-border {
+  position: relative;
+  border-radius: var(--cx-radius-xl);
+  overflow: hidden;
+}
+.cx-glow-border::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from 0deg,
+    var(--cx-brand-cyan),
+    var(--cx-brand-violet),
+    var(--cx-brand-magenta),
+    var(--cx-brand-cyan)
+  );
+  animation: glow-spin 4s linear infinite;
+  z-index: -1;
+  opacity: 0.6;
+}
+.cx-glow-border::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: calc(var(--cx-radius-xl) - 2px);
+  background: var(--cx-bg-card);
+  z-index: -1;
+}
+@keyframes glow-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.cx-glow-border-static::before {
+  animation: none;
+  opacity: 0.35;
+}
+
+/* ── Neon Glow Pulse ─────────────────────────────────────── */
+.cx-neon-cyan {
+  box-shadow:
+    0 0 5px rgba(34, 211, 238, 0.3),
+    0 0 15px rgba(34, 211, 238, 0.15),
+    0 0 30px rgba(34, 211, 238, 0.08);
+  animation: neon-pulse-cyan 3s ease-in-out infinite alternate;
+}
+@keyframes neon-pulse-cyan {
+  0% {
+    box-shadow:
+      0 0 5px rgba(34, 211, 238, 0.3),
+      0 0 15px rgba(34, 211, 238, 0.15),
+      0 0 30px rgba(34, 211, 238, 0.08);
+  }
+  100% {
+    box-shadow:
+      0 0 8px rgba(34, 211, 238, 0.5),
+      0 0 25px rgba(34, 211, 238, 0.25),
+      0 0 50px rgba(34, 211, 238, 0.12);
+  }
+}
+
+.cx-neon-violet {
+  box-shadow:
+    0 0 5px rgba(139, 92, 246, 0.3),
+    0 0 15px rgba(139, 92, 246, 0.15),
+    0 0 30px rgba(139, 92, 246, 0.08);
+  animation: neon-pulse-violet 3s ease-in-out infinite alternate;
+}
+@keyframes neon-pulse-violet {
+  0% {
+    box-shadow:
+      0 0 5px rgba(139, 92, 246, 0.3),
+      0 0 15px rgba(139, 92, 246, 0.15),
+      0 0 30px rgba(139, 92, 246, 0.08);
+  }
+  100% {
+    box-shadow:
+      0 0 8px rgba(139, 92, 246, 0.5),
+      0 0 25px rgba(139, 92, 246, 0.25),
+      0 0 50px rgba(139, 92, 246, 0.12);
+  }
+}
+
+.cx-neon-buy {
+  box-shadow:
+    0 0 5px rgba(16, 185, 129, 0.3),
+    0 0 15px rgba(16, 185, 129, 0.15);
+  animation: neon-pulse-buy 2.5s ease-in-out infinite alternate;
+}
+@keyframes neon-pulse-buy {
+  0% { box-shadow: 0 0 5px rgba(16, 185, 129, 0.3), 0 0 15px rgba(16, 185, 129, 0.15); }
+  100% { box-shadow: 0 0 10px rgba(16, 185, 129, 0.5), 0 0 30px rgba(16, 185, 129, 0.2); }
+}
+
+.cx-neon-sell {
+  box-shadow:
+    0 0 5px rgba(239, 68, 68, 0.3),
+    0 0 15px rgba(239, 68, 68, 0.15);
+  animation: neon-pulse-sell 2.5s ease-in-out infinite alternate;
+}
+@keyframes neon-pulse-sell {
+  0% { box-shadow: 0 0 5px rgba(239, 68, 68, 0.3), 0 0 15px rgba(239, 68, 68, 0.15); }
+  100% { box-shadow: 0 0 10px rgba(239, 68, 68, 0.5), 0 0 30px rgba(239, 68, 68, 0.2); }
+}
+
+/* ── Holographic Card ────────────────────────────────────── */
+.cx-holo-card {
+  position: relative;
+  background: var(--cx-bg-card);
+  border: 1px solid var(--cx-border);
+  border-radius: var(--cx-radius-xl);
+  overflow: hidden;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.cx-holo-card::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: conic-gradient(
+    from 0deg,
+    transparent,
+    rgba(34, 211, 238, 0.06),
+    transparent,
+    rgba(139, 92, 246, 0.06),
+    transparent
+  );
+  animation: holo-rotate 8s linear infinite;
+  pointer-events: none;
+}
+@keyframes holo-rotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.cx-holo-card:hover {
+  transform: translateY(-2px) scale(1.005);
+  box-shadow: 0 8px 32px -8px rgba(34, 211, 238, 0.15);
+  border-color: var(--cx-border-strong);
+}
+
+/* ── Scanner Pulse Ring ──────────────────────────────────── */
+.cx-scanner-pulse {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cx-scanner-pulse::before,
+.cx-scanner-pulse::after {
+  content: "";
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2px solid var(--cx-brand-cyan);
+  opacity: 0;
+  animation: scanner-ring 2.5s ease-out infinite;
+}
+.cx-scanner-pulse::after {
+  animation-delay: 1.25s;
+}
+@keyframes scanner-ring {
+  0% { transform: scale(0.8); opacity: 0.6; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+/* ── Live Dot ────────────────────────────────────────────── */
+.cx-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cx-brand-cyan);
+  position: relative;
+  animation: live-blink 1.5s ease-in-out infinite;
+}
+.cx-live-dot::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: rgba(34, 211, 138, 0.3);
+  animation: live-ring 1.5s ease-out infinite;
+}
+@keyframes live-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+@keyframes live-ring {
+  0% { transform: scale(0.8); opacity: 0.6; }
+  100% { transform: scale(2); opacity: 0; }
+}
+
+.cx-live-dot-green {
+  background: #10b981;
+}
+.cx-live-dot-green::after {
+  background: rgba(16, 185, 129, 0.3);
+}
+
+.cx-live-dot-red {
+  background: #ef4444;
+}
+.cx-live-dot-red::after {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+.cx-live-dot-amber {
+  background: #f59e0b;
+}
+.cx-live-dot-amber::after {
+  background: rgba(245, 158, 11, 0.3);
+}
+
+/* ── Data Stream (vertical scrolling numbers) ────────────── */
+.cx-data-stream {
+  position: relative;
+  overflow: hidden;
+}
+.cx-data-stream::before {
+  content: "01001 10110 00111 11010 01101 10010 01011 11100 00101 10111 01001 11010 00110 10101 01110";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  font-family: monospace;
+  font-size: 10px;
+  color: rgba(34, 211, 238, 0.06);
+  line-height: 1.4;
+  letter-spacing: 0.3em;
+  white-space: nowrap;
+  animation: data-scroll 15s linear infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+@keyframes data-scroll {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+/* ── Typing Cursor ───────────────────────────────────────── */
+.cx-typing::after {
+  content: "▊";
+  color: var(--cx-brand-cyan);
+  animation: cursor-blink 0.8s step-end infinite;
+  margin-left: 2px;
+}
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ── Score Counter Animation ─────────────────────────────── */
+.cx-count-up {
+  display: inline-block;
+  animation: count-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes count-pop {
+  0% { transform: scale(0.5); opacity: 0; }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* ── Heat Bar ────────────────────────────────────────────── */
+.cx-heat-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--cx-bg-strong);
+  overflow: hidden;
+  position: relative;
+}
+.cx-heat-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--cx-brand-cyan), var(--cx-brand-violet), var(--cx-brand-magenta));
+  background-size: 200% 100%;
+  animation: heat-flow 2s linear infinite;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes heat-flow {
+  0% { background-position: 0% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* ── Scan Line ───────────────────────────────────────────── */
+.cx-scan-line {
+  position: relative;
+  overflow: hidden;
+}
+.cx-scan-line::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--cx-brand-cyan), transparent);
+  animation: scan-down 4s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+@keyframes scan-down {
+  0% { top: -2px; opacity: 0; }
+  10% { opacity: 0.5; }
+  90% { opacity: 0.5; }
+  100% { top: 100%; opacity: 0; }
+}
+
+/* ── Fade-in Animations ──────────────────────────────────── */
+.cx-fade-in {
+  animation: fade-in 0.5s ease both;
+}
+.cx-fade-in-up {
+  animation: fade-in-up 0.5s ease both;
+}
+.cx-fade-in-down {
+  animation: fade-in-down 0.4s ease both;
+}
+.cx-slide-in-left {
+  animation: slide-in-left 0.4s ease both;
+}
+.cx-slide-in-right {
+  animation: slide-in-right 0.4s ease both;
+}
+.cx-scale-in {
+  animation: scale-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-in-down {
+  from { opacity: 0; transform: translateY(-16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* ── Stagger Children ────────────────────────────────────── */
+.cx-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.cx-stagger > *:nth-child(2) { animation-delay: 60ms; }
+.cx-stagger > *:nth-child(3) { animation-delay: 120ms; }
+.cx-stagger > *:nth-child(4) { animation-delay: 180ms; }
+.cx-stagger > *:nth-child(5) { animation-delay: 240ms; }
+.cx-stagger > *:nth-child(6) { animation-delay: 300ms; }
+.cx-stagger > *:nth-child(7) { animation-delay: 360ms; }
+.cx-stagger > *:nth-child(8) { animation-delay: 420ms; }
+.cx-stagger > *:nth-child(9) { animation-delay: 480ms; }
+.cx-stagger > *:nth-child(10) { animation-delay: 540ms; }
+
+/* ── Gradient Border (static) ────────────────────────────── */
+.cx-gradient-border {
+  position: relative;
+  border: none !important;
+}
+.cx-gradient-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(34,211,238,0.3), rgba(139,92,246,0.2), rgba(217,70,239,0.15));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* ── Floating Particles (CSS-only) ───────────────────────── */
+.cx-particles {
+  position: relative;
+  overflow: hidden;
+}
+.cx-particles .cx-particle {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: var(--cx-brand-cyan);
+  opacity: 0;
+  animation: particle-float 6s ease-in-out infinite;
+}
+.cx-particles .cx-particle:nth-child(1) { left: 10%; animation-delay: 0s; animation-duration: 7s; }
+.cx-particles .cx-particle:nth-child(2) { left: 25%; animation-delay: 1s; animation-duration: 5s; }
+.cx-particles .cx-particle:nth-child(3) { left: 40%; animation-delay: 2s; animation-duration: 8s; }
+.cx-particles .cx-particle:nth-child(4) { left: 55%; animation-delay: 0.5s; animation-duration: 6s; }
+.cx-particles .cx-particle:nth-child(5) { left: 70%; animation-delay: 3s; animation-duration: 7s; }
+.cx-particles .cx-particle:nth-child(6) { left: 85%; animation-delay: 1.5s; animation-duration: 5.5s; }
+.cx-particles .cx-particle:nth-child(7) { left: 15%; animation-delay: 4s; animation-duration: 9s; }
+.cx-particles .cx-particle:nth-child(8) { left: 60%; animation-delay: 2.5s; animation-duration: 6.5s; }
+@keyframes particle-float {
+  0% { bottom: -4px; opacity: 0; transform: translateX(0); }
+  15% { opacity: 0.6; }
+  50% { opacity: 0.3; transform: translateX(20px); }
+  85% { opacity: 0.6; }
+  100% { bottom: 100%; opacity: 0; transform: translateX(-10px); }
+}
+
+/* ── Status Ring (for scores) ────────────────────────────── */
+.cx-score-ring {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cx-score-ring svg {
+  transform: rotate(-90deg);
+}
+.cx-score-ring circle {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.cx-score-ring .cx-ring-bg {
+  stroke: var(--cx-bg-strong);
+}
+.cx-score-ring .cx-ring-fill {
+  stroke: url(#cx-gradient);
+  transition: stroke-dashoffset 1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Responsive: disable heavy animations on mobile ──────── */
+@media (max-width: 767px) {
+  .cx-grid-bg::before,
+  .cx-data-stream::before,
+  .cx-scan-line::after {
+    animation: none;
+  }
+  .cx-glow-border::before {
+    animation: none;
+    opacity: 0.25;
+  }
+  .cx-holo-card::before {
+    animation: none;
+  }
+}
+
+/* ── Reduced Motion ──────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .cx-grid-bg::before,
+  .cx-glow-border::before,
+  .cx-glow-border-static::before,
+  .cx-holo-card::before,
+  .cx-scanner-pulse::before,
+  .cx-scanner-pulse::after,
+  .cx-live-dot,
+  .cx-live-dot::after,
+  .cx-data-stream::before,
+  .cx-typing::after,
+  .cx-heat-bar-fill,
+  .cx-scan-line::after,
+  .cx-neon-cyan,
+  .cx-neon-violet,
+  .cx-neon-buy,
+  .cx-neon-sell,
+  .cx-particles .cx-particle,
+  .cx-score-ring .cx-ring-fill {
+    animation: none !important;
+  }
+  .cx-fade-in,
+  .cx-fade-in-up,
+  .cx-fade-in-down,
+  .cx-slide-in-left,
+  .cx-slide-in-right,
+  .cx-scale-in,
+  .cx-count-up {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

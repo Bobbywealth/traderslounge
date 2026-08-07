@@ -201,6 +201,8 @@ const TradingView: React.FC = () => {
   );
   const [symbolSuggestions, setSymbolSuggestions] = useState<SymbolInfo[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 320 });
   const [availableSymbols, setAvailableSymbols] = useState<SymbolInfo[]>(BWTS_SYMBOLS);
   const [selectedBroker, setSelectedBroker] = useState('polygon');
 
@@ -712,6 +714,12 @@ const TradingView: React.FC = () => {
 
     setSymbolSuggestions(filtered);
     setShowSuggestions(filtered.length > 0);
+
+    // Calculate fixed position for dropdown to escape overflow: hidden clipping
+    if (filtered.length > 0 && searchContainerRef.current) {
+      const rect = searchContainerRef.current.getBoundingClientRect();
+      setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: Math.max(rect.width, 320) });
+    }
   }, [availableSymbols]);
 
   const handleSymbolSearch = (term: string) => {
@@ -2007,7 +2015,7 @@ const TradingView: React.FC = () => {
 
 
             {/* Symbol Search */}
-            <div className="relative">
+            <div className="relative" ref={searchContainerRef}>
               <div className="flex items-center space-x-2 bg-gray-700 rounded-lg px-3 py-2">
                 <Search className="w-4 h-4 cx-text-faint" />
                 <input
@@ -2020,14 +2028,14 @@ const TradingView: React.FC = () => {
                 />
               </div>
 
-              {/* Symbol Suggestions Dropdown */}
+              {/* Symbol Suggestions Dropdown - Fixed position to escape overflow: hidden clipping */}
               {showSuggestions && symbolSuggestions.length > 0 && (
-                <div className="absolute top-full left-0 mt-1 w-80 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 max-h-64 overflow-y-auto">
+                <div className="fixed bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-[9999] max-h-64 overflow-y-auto" style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width }}>
                   {symbolSuggestions.map((symbol) => (
                     <button
                       key={symbol.symbol}
                       onClick={() => selectSymbol(symbol)}
-                      className="w-full px-4 py-3 text-left hover:bg-gray-700 transition-colors border-b border-gray-700 last:border-b-0"
+                      className="w-full px-4 py-3 text-left hover:bg-gray-700 transition-colors border-b border-gray-700 last:border-b-0 text-white"
                     >
                       <div className="flex items-center justify-between">
                         <div>

@@ -113,7 +113,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         title={collapsed ? item.name : undefined}
         className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all duration-200 ${
           isActive
-            ? 'bg-gradient-to-r from-cyan-400/15 to-violet-500/15 text-cyan-300'
+            ? 'bg-gradient-to-r from-cyan-400/15 to-violet-500/15 text-cyan-300 cx-neon-cyan'
             : 'cx-text-faint hover:cx-bg-card-hover hover:text-gray-200'
         } ${collapsed ? 'justify-center px-2' : ''}`}
       >

@@ -302,7 +302,7 @@ export const SetupCard: React.FC<SetupCardProps> = ({
   if (variant === 'highlight') {
     return (
       <div
-        className={`relative overflow-hidden rounded-[24px] border border-violet-400/15 cx-bg-card bg-gradient-to-br from-violet-500/10 to-cyan-500/[0.04] p-6 ${className}`}
+        className={`relative overflow-hidden rounded-[24px] border border-violet-400/15 cx-bg-card bg-gradient-to-br from-violet-500/10 to-cyan-500/[0.04] p-6 cx-holo-card ${className}`}
       >
         <div className="text-[10px] font-black tracking-[0.2em] text-violet-300">TOP CONFLUENCE</div>
         <div className="mt-4 flex items-start justify-between gap-4">

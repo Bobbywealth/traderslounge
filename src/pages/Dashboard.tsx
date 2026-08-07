@@ -6,6 +6,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { bwtsApi, planReasonText, type AlertPreferences, type CalendarGateStatus, type CryptoAnalysis, type DashboardSnapshot, type PublishedSignal } from '../services/bwtsApi';
 import DataAttribution from '../components/DataAttribution';
+import { ParticleField, LiveDot, HeatBar, HoloCard, Stagger, ScanLine, AnimatedCounter, GlowBorder, GridBg } from '../components/FuturisticEffects';
 
 type MarketRow = DashboardSnapshot['markets'][number] & { heat: number; blocker: string; statusLabel: string };
 type FeedState = 'LOADING' | 'LIVE' | 'DEGRADED' | 'OFFLINE';
@@ -264,7 +265,8 @@ const Dashboard: React.FC = () => {
   return (
     <div className="space-y-6 pb-8 cx-text">
       <section className="relative overflow-hidden rounded-[28px] border border-cyan-400/15 cx-bg-app bg-gradient-to-br from-cyan-500/10 via-violet-500/[0.06] to-transparent p-6">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <ParticleField count={40} />
+        <div className="relative z-10 flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-3">
               <span className="rounded-full border border-cyan-400/25 bg-cyan-400/10 px-3 py-1 text-[10px] font-black tracking-[0.22em] text-cyan-300">MARKET COMMAND CENTER</span>
@@ -301,15 +303,17 @@ const Dashboard: React.FC = () => {
       {error && <div className="flex items-start gap-3 rounded-2xl border border-amber-400/20 bg-amber-400/[0.07] p-4 text-sm text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4" /><span><b>Dashboard degraded:</b> {error}</span></div>}
 
       <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <div className="rounded-[24px] border cx-border cx-bg-card p-5">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div><div className="text-[10px] font-black tracking-[0.2em] text-emerald-300">DECISION NOW</div><h2 className="mt-1 text-2xl font-black">{active.length ? 'Qualified setup available' : 'No active trade right now'}</h2></div>
-            {strongest && <span className="rounded-xl cx-bg-card-hover px-3 py-1 text-xs font-black cx-text-muted">Closest: {strongest.signal.pair} · {strongest.analysis.total_score}/100</span>}
+        <ScanLine>
+          <div className="rounded-[24px] border cx-border cx-bg-card p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div><div className="text-[10px] font-black tracking-[0.2em] text-emerald-300">DECISION NOW</div><h2 className="mt-1 text-2xl font-black">{active.length ? 'Qualified setup available' : 'No active trade right now'}</h2></div>
+              {strongest && <span className="rounded-xl cx-bg-card-hover px-3 py-1 text-xs font-black cx-text-muted">Closest: {strongest.signal.pair} · {strongest.analysis.total_score}/100</span>}
+            </div>
+            {loading && !markets.length ? <SkeletonRows /> : active[0] ? <ReadySetup row={active[0]} /> : strongest ? (
+              <DecisionNowBlocked row={strongest} snapshot={snapshot} />
+            ) : <EmptyState title="Scanner data unavailable" detail="The command center will populate when the dashboard snapshot returns market rows." />}
           </div>
-          {loading && !markets.length ? <SkeletonRows /> : active[0] ? <ReadySetup row={active[0]} /> : strongest ? (
-            <DecisionNowBlocked row={strongest} snapshot={snapshot} />
-          ) : <EmptyState title="Scanner data unavailable" detail="The command center will populate when the dashboard snapshot returns market rows." />}
-        </div>
+        </ScanLine>
 
         <div className="rounded-[24px] border cx-border cx-bg-card p-5">
           <div className="text-[10px] font-black tracking-[0.2em] text-violet-300">MARKET CONDITIONS</div>
@@ -333,10 +337,10 @@ const Dashboard: React.FC = () => {
         </div>
 
         {tab === 'hot' && (
-          <div className="grid gap-3 lg:grid-cols-2">
+          <Stagger className="grid gap-3 lg:grid-cols-2">
             {hot.slice(0, 8).map((row) => <HotMarketCard key={row.signal.pair} row={row} />)}
             {loading && !hot.length && <SkeletonRows />}
-          </div>
+          </Stagger>
         )}
 
         {tab === 'all' && (
@@ -356,9 +360,9 @@ const Dashboard: React.FC = () => {
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter by symbol…" className="cx-input ml-auto" />
             </div>
             <div className="text-[10px] cx-text-faint">Showing {filteredMarkets.length} of {hot.length} markets · {timeframe}</div>
-            <div className="grid gap-3 lg:grid-cols-2">
+            <Stagger className="grid gap-3 lg:grid-cols-2">
               {filteredMarkets.map((row) => <HotMarketCard key={row.signal.pair} row={row} />)}
-            </div>
+            </Stagger>
             {!loading && !filteredMarkets.length && <EmptyState title="No markets match" detail="Adjust direction filter or search." />}
           </div>
         )}
@@ -435,11 +439,23 @@ const Dashboard: React.FC = () => {
 };
 
 const FeedBadge: React.FC<{ state: FeedState }> = ({ state }) => {
+  const color = state === 'LIVE' ? 'green' : state === 'OFFLINE' ? 'red' : state === 'DEGRADED' ? 'amber' : 'cyan';
   const classes = state === 'LIVE' ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-300' : state === 'OFFLINE' ? 'border-rose-400/20 bg-rose-400/10 text-rose-300' : state === 'DEGRADED' ? 'border-amber-400/20 bg-amber-400/10 text-amber-300' : 'border-slate-400/20 bg-slate-400/10 cx-text-muted';
-  return <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[9px] font-black tracking-widest ${classes}`}>{state === 'LIVE' ? <CheckCircle2 className="h-3 w-3" /> : state === 'LOADING' ? <Activity className="h-3 w-3 animate-pulse" /> : <ShieldAlert className="h-3 w-3" />}{state}</span>;
+  return <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[9px] font-black tracking-widest ${classes}`}><LiveDot color={color as any} />{state}</span>;
 };
 
-const Metric: React.FC<{ label: string; value: string; accent?: 'emerald' | 'amber' }> = ({ label, value, accent }) => <div className="rounded-2xl border cx-border cx-bg-card p-4"><div className="text-[9px] font-black tracking-widest cx-text-faint">{label}</div><div className={`mt-2 text-2xl font-black ${accent === 'emerald' ? 'text-emerald-300' : accent === 'amber' ? 'text-amber-300' : 'cx-text-strong'}`}>{value}</div></div>;
+const Metric: React.FC<{ label: string; value: string; accent?: 'emerald' | 'amber' }> = ({ label, value, accent }) => {
+  const numericValue = parseInt(value, 10);
+  const isNumeric = !isNaN(numericValue) && String(numericValue) === value;
+  return (
+    <div className="rounded-2xl border cx-border cx-bg-card p-4 cx-fade-in-up">
+      <div className="text-[9px] font-black tracking-widest cx-text-faint">{label}</div>
+      <div className={`mt-2 text-2xl font-black ${accent === 'emerald' ? 'text-emerald-300' : accent === 'amber' ? 'text-amber-300' : 'cx-text-strong'}`}>
+        {isNumeric ? <AnimatedCounter value={numericValue} /> : value}
+      </div>
+    </div>
+  );
+};
 const MiniStat: React.FC<{ label: string; value: string }> = ({ label, value }) => <div className="rounded-xl border cx-border cx-bg-elev p-3"><div className="text-[9px] font-black uppercase tracking-widest cx-text-faint">{label}</div><div className="mt-1 font-mono text-sm font-bold cx-text">{value}</div></div>;
 const DirectionBadge: React.FC<{ direction: string; eligible?: boolean }> = ({ direction, eligible }) => {
   const muted = eligible === false;
@@ -531,7 +547,37 @@ const PublishedSignalCard: React.FC<{ signal: PublishedSignal }> = ({ signal }) 
 const HotMarketCard: React.FC<{ row: MarketRow }> = ({ row }) => {
   const eligible = row.analysis.trade_plan?.eligible;
   const tf = row.analysis.data_quality?.primary_timeframe || '1h';
-  return <article className="rounded-2xl border cx-border cx-bg-card p-4 transition hover:border-cyan-400/25 hover:cx-bg-card"><div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><span className="text-lg font-black">{row.signal.pair}</span><DirectionBadge direction={row.analysis.direction} eligible={eligible} /><HeatBadge row={row} /></div><p className="mt-2 line-clamp-2 text-xs cx-text-faint">{row.blocker}</p></div><div className="text-right"><div className="text-2xl font-black cx-text-strong">{row.analysis.total_score}<span className="text-xs cx-text-faint">/100</span></div><div className="text-[10px] cx-text-faint">{tf} · {formatAge(row.analysis.data_freshness_seconds)}</div></div></div><div className="mt-3 flex flex-wrap gap-2 text-[10px] cx-text-muted"><span className="rounded-md cx-bg-elev px-2 py-1">Timing {row.analysis.trade_timing?.status || 'WAIT'}</span><span className="rounded-md cx-bg-elev px-2 py-1">Fib {String(row.analysis.zones?.fibonacci?.nearest?.ratio || '—')}</span><span className="rounded-md cx-bg-elev px-2 py-1">Calendar {row.analysis.economic_calendar?.status || '—'}</span></div><div className="mt-3 flex gap-2"><Link to={`/tradingview?symbol=${row.signal.pair}&panel=full`} className="text-xs font-bold text-cyan-300 hover:text-cyan-200">Full analysis</Link><Link to={`/tradingview?symbol=${row.signal.pair}`} className="text-xs font-bold text-violet-300 hover:text-violet-200">Chart</Link></div></article>;
+  return (
+    <article className="cx-holo-card p-4 cx-fade-in-up">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-lg font-black">{row.signal.pair}</span>
+            <DirectionBadge direction={row.analysis.direction} eligible={eligible} />
+            <HeatBadge row={row} />
+          </div>
+          <p className="mt-2 line-clamp-2 text-xs cx-text-faint">{row.blocker}</p>
+        </div>
+        <div className="text-right">
+          <div className="text-2xl font-black cx-text-strong">
+            <AnimatedCounter value={row.analysis.total_score || 0} />
+            <span className="text-xs cx-text-faint">/100</span>
+          </div>
+          <div className="text-[10px] cx-text-faint">{tf} · {formatAge(row.analysis.data_freshness_seconds)}</div>
+        </div>
+      </div>
+      <HeatBar value={row.heat} className="mt-3" />
+      <div className="mt-3 flex flex-wrap gap-2 text-[10px] cx-text-muted">
+        <span className="rounded-md cx-bg-elev px-2 py-1">Timing {row.analysis.trade_timing?.status || 'WAIT'}</span>
+        <span className="rounded-md cx-bg-elev px-2 py-1">Fib {String(row.analysis.zones?.fibonacci?.nearest?.ratio || '—')}</span>
+        <span className="rounded-md cx-bg-elev px-2 py-1">Calendar {row.analysis.economic_calendar?.status || '—'}</span>
+      </div>
+      <div className="mt-3 flex gap-2">
+        <Link to={`/tradingview?symbol=${row.signal.pair}&panel=full`} className="text-xs font-bold text-cyan-300 hover:text-cyan-200">Full analysis</Link>
+        <Link to={`/tradingview?symbol=${row.signal.pair}`} className="text-xs font-bold text-violet-300 hover:text-violet-200">Chart</Link>
+      </div>
+    </article>
+  );
 };
 const QueueRow: React.FC<{ row: MarketRow }> = ({ row }) => <div className="grid items-center gap-3 rounded-2xl border cx-border cx-bg-card p-4 sm:grid-cols-[1fr_auto]"><div><div className="flex flex-wrap items-center gap-2"><span className="font-black">{row.signal.pair}</span><HeatBadge row={row} /></div><p className="mt-1 text-xs cx-text-faint">{row.blocker}</p></div><div className="text-right"><div className="font-black cx-text-strong">{row.analysis.total_score}/60</div><div className="text-[10px] cx-text-faint">to qualify</div></div></div>;
 const EmptyState: React.FC<{ title: string; detail: string }> = ({ title, detail }) => <div className="rounded-2xl border border-dashed cx-border-strong p-6 text-center"><div className="font-black cx-text-muted">{title}</div><p className="mt-1 text-sm cx-text-faint">{detail}</p></div>;
