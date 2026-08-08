@@ -7,7 +7,7 @@ export const test = base.extend<{
   authenticatedPage: Page;
   demoPage: Page;
 }>({
-  authenticatedPage: async ({ page }, use) => {
+  AuthenticatedPage: async ({ page }, use) => {
     // Navigate to login page
     await page.goto('/');
     
@@ -27,7 +27,7 @@ export const test = base.extend<{
     await use(page);
   },
 
-  demoPage: async ({ page }, use) => {
+  DemoPage: async ({ page }, use) => {
     // Login as demo user
     await page.goto('/');
     await page.fill('input[type="email"]', 'demo@trader.com');

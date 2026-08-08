@@ -109,7 +109,7 @@ export function useChartIndicators({
     if (!chart || !volumeContainerRef.current) return;
     
     if (showVolume && !volumeChartRef.current) {
-      const { createVolumeChart } = require('../../components/chartPanes');
+      const { createVolumeChart } = await import('../../components/chartPanes');
       const { volumeChart, volumeSeries } = createVolumeChart(volumeContainerRef.current);
       volumeChartRef.current = volumeChart;
       volumeSeriesRef.current = volumeSeries;
@@ -125,7 +125,7 @@ export function useChartIndicators({
     if (!chart || !rsiContainerRef.current) return;
     
     if (showRsi && !rsiChartRef.current) {
-      const { createRsiChart } = require('../../components/chartPanes');
+      const { createRsiChart } = await import('../../components/chartPanes');
       const { rsiChart, rsiSeries } = createRsiChart(rsiContainerRef.current);
       rsiChartRef.current = rsiChart;
       rsiSeriesRef.current = rsiSeries;
