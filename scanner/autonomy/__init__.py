@@ -36,6 +36,10 @@ from .memory import MarketMemory
 from .paper import PaperBrokerAdapter, PaperPositionManager
 from .validation import ForwardEngine, CalibrationAnalyzer, SegmentationAnalyzer
 from .ai import AIEngine
+from .broker import DemoBrokerAdapter, ReconciliationEngine
+from .gates import ExecutionGates
+from .websocket import WebSocketServer
+from .loop import AutonomousLoop
 
 __all__ = [
     # Config & Status
@@ -74,4 +78,13 @@ __all__ = [
     'SegmentationAnalyzer',
     # AI
     'AIEngine',
+    # Broker
+    'DemoBrokerAdapter',
+    'ReconciliationEngine',
+    # Gates
+    'ExecutionGates',
+    # WebSocket
+    'WebSocketServer',
+    # Loop
+    'AutonomousLoop',
 ]
