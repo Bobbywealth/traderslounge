@@ -5,7 +5,15 @@ import logging
 import os
 
 from .persistence import SQLiteRepository
-from .postgres_repo import PostgresRepository, is_available as pg_available
+from .postgres_repo import (
+    PostgresRepository,
+    PostgresUserRepository,
+    PostgresPositionRepository,
+    PostgresClosedTradeRepository,
+    PostgresTradeManagerStateRepository,
+    PostgresLastAnalysisRepository,
+    is_available as pg_available,
+)
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +38,59 @@ def create_signal_repository():
     path = os.environ.get("SIGNAL_DB_PATH", "scanner.db")
     log.info("DATABASE_URL not set; using SQLite at %s", path)
     return SQLiteRepository(path)
+
+
+def create_user_repository(db_path: str | None = None):
+    """Postgres when DATABASE_URL is set; SQLite fallback otherwise."""
+    db_url = os.environ.get("DATABASE_URL", "").strip()
+    if db_url and pg_available():
+        log.info("user_repo: using Postgres at %s", _redact(db_url))
+        return PostgresUserRepository(db_url)
+    from .persistence import SQLiteUserRepository
+    log.info("user_repo: DATABASE_URL not set; using SQLite at %s", db_path or "scanner.db")
+    return SQLiteUserRepository(db_path or "scanner.db")
+
+
+def create_position_repository(db_path: str | None = None):
+    """Postgres when DATABASE_URL is set; SQLite fallback otherwise."""
+    db_url = os.environ.get("DATABASE_URL", "").strip()
+    if db_url and pg_available():
+        log.info("position_repo: using Postgres at %s", _redact(db_url))
+        return PostgresPositionRepository(db_url)
+    from .trade_repo import SQLitePositionRepository
+    log.info("position_repo: DATABASE_URL not set; using SQLite at %s", db_path or "scanner.db")
+    return SQLitePositionRepository(db_path or "scanner.db")
+
+
+def create_closed_trade_repository(db_path: str | None = None):
+    """Postgres when DATABASE_URL is set; SQLite fallback otherwise."""
+    db_url = os.environ.get("DATABASE_URL", "").strip()
+    if db_url and pg_available():
+        log.info("closed_trade_repo: using Postgres at %s", _redact(db_url))
+        return PostgresClosedTradeRepository(db_url)
+    from .trade_repo import SQLiteClosedTradeRepository
+    log.info("closed_trade_repo: DATABASE_URL not set; using SQLite at %s", db_path or "scanner.db")
+    return SQLiteClosedTradeRepository(db_path or "scanner.db")
+
+
+def create_trade_manager_state_repository():
+    """Returns PostgresTradeManagerStateRepository or None (in-memory fallback)."""
+    db_url = os.environ.get("DATABASE_URL", "").strip()
+    if db_url and pg_available():
+        log.info("trade_manager_state_repo: using Postgres")
+        return PostgresTradeManagerStateRepository(db_url)
+    log.info("trade_manager_state_repo: DATABASE_URL not set; in-memory only")
+    return None
+
+
+def create_last_analysis_repository():
+    """Returns PostgresLastAnalysisRepository or None (in-memory fallback)."""
+    db_url = os.environ.get("DATABASE_URL", "").strip()
+    if db_url and pg_available():
+        log.info("last_analysis_repo: using Postgres")
+        return PostgresLastAnalysisRepository(db_url)
+    log.info("last_analysis_repo: DATABASE_URL not set; in-memory only")
+    return None
 
 
 def _redact(url: str) -> str:

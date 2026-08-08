@@ -127,6 +127,85 @@ CREATE TABLE IF NOT EXISTS forecast_outcomes (
     exit_reason TEXT,
     review JSONB NOT NULL DEFAULT '{}'::jsonb
 );
+
+-- User accounts (auth) — mirrors SQLiteUserRepository. Email is the
+-- unique login handle; password_hash is bcrypt.
+CREATE TABLE IF NOT EXISTS users (
+    id BIGSERIAL PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'user',
+    plan TEXT NOT NULL DEFAULT 'free',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_login TIMESTAMPTZ
+);
+
+-- Open positions — written by TradeManager on every state change.
+-- half_closed distinguishes a position that's still partially open after TP1
+-- from one that was closed entirely without taking TP1.
+CREATE TABLE IF NOT EXISTS positions (
+    id TEXT PRIMARY KEY,
+    opened_at DOUBLE PRECISION NOT NULL,
+    closed_at DOUBLE PRECISION,
+    pair TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    lot_size DOUBLE PRECISION NOT NULL,
+    entry DOUBLE PRECISION NOT NULL,
+    stop_loss DOUBLE PRECISION NOT NULL,
+    tp1 DOUBLE PRECISION NOT NULL,
+    tp2 DOUBLE PRECISION NOT NULL,
+    tp3 DOUBLE PRECISION NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    half_closed BOOLEAN NOT NULL DEFAULT FALSE,
+    closed_pnl_usd DOUBLE PRECISION NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(status);
+
+-- Closed-trade journal — append-only history used by /performance and
+-- /journal. Mirrors SQLiteClosedTradeRepository.
+CREATE TABLE IF NOT EXISTS closed_trades (
+    id BIGSERIAL PRIMARY KEY,
+    position_id TEXT,
+    pair TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    opened_at DOUBLE PRECISION NOT NULL,
+    closed_at DOUBLE PRECISION NOT NULL,
+    entry DOUBLE PRECISION NOT NULL,
+    exit_price DOUBLE PRECISION NOT NULL,
+    stop_loss DOUBLE PRECISION NOT NULL,
+    tp1 DOUBLE PRECISION NOT NULL,
+    tp2 DOUBLE PRECISION NOT NULL,
+    lot_size DOUBLE PRECISION NOT NULL,
+    sl_pips DOUBLE PRECISION NOT NULL,
+    pnl_usd DOUBLE PRECISION NOT NULL,
+    r_multiple DOUBLE PRECISION NOT NULL,
+    outcome TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_closed_trades_closed_at ON closed_trades(closed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_closed_trades_pair ON closed_trades(pair, closed_at DESC);
+
+-- Trade manager in-flight state — tracks per-position TP1 + original
+-- sizing so partial-close P&L math survives a Render restart. Replaces
+-- the in-memory _tp1_taken / _opened_state dicts in TradeManager.
+CREATE TABLE IF NOT EXISTS trade_manager_state (
+    position_id TEXT PRIMARY KEY,
+    tp1_taken BOOLEAN NOT NULL DEFAULT FALSE,
+    original_lots DOUBLE PRECISION,
+    risk_usd DOUBLE PRECISION,
+    sl_pips DOUBLE PRECISION,
+    original_sl DOUBLE PRECISION,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Last analysis snapshot per pair — feeds the invalidation detector so
+-- it doesn't fire on every cycle after a restart. Replaces the in-memory
+-- last_analysis_by_pair dict.
+CREATE TABLE IF NOT EXISTS last_analysis_snapshots (
+    pair TEXT PRIMARY KEY,
+    snapshot JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 """
 
 
@@ -402,6 +481,306 @@ class PostgresRepository:
                 (limit,),
             )
             return list(cur.fetchall())
+
+    def close(self) -> None:
+        self.conn.close()
+
+
+# --- Postgres user repository ----------------------------------------------
+# Same interface as SQLiteUserRepository in scanner/persistence.py.
+# Activated when DATABASE_URL is configured.
+
+class PostgresUserRepository:
+    def __init__(self, dsn: str):
+        if not _AVAILABLE:
+            raise RuntimeError("psycopg is not installed")
+        self.dsn = dsn
+        self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+
+    def get_by_email(self, email: str) -> Optional[dict]:
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+            row = cur.fetchone()
+            return _normalize_user_row(row) if row else None
+
+    def get_by_id(self, user_id: int) -> Optional[dict]:
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT * FROM users WHERE id = %s", (int(user_id),))
+            row = cur.fetchone()
+            return _normalize_user_row(row) if row else None
+
+    def create(self, email: str, password_hash: str, name: str) -> dict:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO users (email, password_hash, name)
+                VALUES (%s, %s, %s)
+                RETURNING id, email, name, role, plan, created_at, last_login
+                """,
+                (email, password_hash, name or ""),
+            )
+            row = cur.fetchone()
+            return _normalize_user_row(row)
+
+    def update_last_login(self, user_id: int) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET last_login = NOW() WHERE id = %s",
+                (int(user_id),),
+            )
+
+    def set_role(self, user_id: int, role: str) -> bool:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET role = %s WHERE id = %s",
+                (role, int(user_id)),
+            )
+            return cur.rowcount > 0
+
+    def close(self) -> None:
+        self.conn.close()
+
+
+def _normalize_user_row(row: dict) -> dict:
+    """Coerce Postgres timestamps to ISO strings so the auth layer's
+    dataclass + JSON responses work the same as with SQLite."""
+    out = dict(row)
+    for key in ("created_at", "last_login"):
+        value = out.get(key)
+        if hasattr(value, "isoformat"):
+            out[key] = value.isoformat()
+    return out
+
+
+# --- Postgres position / closed-trade repositories --------------------------
+# Mirror SQLitePositionRepository + SQLiteClosedTradeRepository.
+
+class PostgresPositionRepository:
+    def __init__(self, dsn: str):
+        if not _AVAILABLE:
+            raise RuntimeError("psycopg is not installed")
+        self.dsn = dsn
+        self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+
+    def upsert(self, pos: "Position") -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO positions (
+                    id, opened_at, pair, direction, lot_size, entry, stop_loss,
+                    tp1, tp2, tp3, status, closed_pnl_usd
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (id) DO UPDATE SET
+                    stop_loss = EXCLUDED.stop_loss,
+                    lot_size = EXCLUDED.lot_size,
+                    status = EXCLUDED.status,
+                    closed_pnl_usd = EXCLUDED.closed_pnl_usd
+                """,
+                (
+                    pos.id, pos.opened_at, pos.pair, pos.direction.value,
+                    pos.lot_size, pos.entry, pos.stop_loss,
+                    pos.tp1, pos.tp2, pos.tp3, pos.status, pos.closed_pnl_usd,
+                ),
+            )
+
+    def close(self, position_id: str, closed_at: float) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE positions SET status='closed', closed_at=%s WHERE id=%s",
+                (closed_at, position_id),
+            )
+
+    def open_positions(self) -> List[dict]:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM positions WHERE status != 'closed' ORDER BY opened_at DESC"
+            )
+            return list(cur.fetchall())
+
+    def get(self, position_id: str) -> Optional[dict]:
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT * FROM positions WHERE id = %s", (position_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def close(self) -> None:
+        self.conn.close()
+
+
+class PostgresClosedTradeRepository:
+    def __init__(self, dsn: str):
+        if not _AVAILABLE:
+            raise RuntimeError("psycopg is not installed")
+        self.dsn = dsn
+        self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+
+    def save(self, trade: dict) -> int:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO closed_trades (
+                    position_id, pair, direction, opened_at, closed_at,
+                    entry, exit_price, stop_loss, tp1, tp2, lot_size,
+                    sl_pips, pnl_usd, r_multiple, outcome
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    trade.get("position_id"),
+                    trade["pair"], trade["direction"],
+                    trade["opened_at"], trade["closed_at"],
+                    trade["entry"], trade["exit_price"],
+                    trade["stop_loss"], trade["tp1"], trade["tp2"],
+                    trade["lot_size"], trade["sl_pips"],
+                    trade["pnl_usd"], trade["r_multiple"], trade["outcome"],
+                ),
+            )
+            row = cur.fetchone()
+            return int(row["id"]) if row else 0
+
+    def recent(self, limit: int = 100, pair: Optional[str] = None) -> List[dict]:
+        with self.conn.cursor() as cur:
+            if pair:
+                cur.execute(
+                    "SELECT * FROM closed_trades WHERE pair = %s ORDER BY closed_at DESC LIMIT %s",
+                    (pair, limit),
+                )
+            else:
+                cur.execute(
+                    "SELECT * FROM closed_trades ORDER BY closed_at DESC LIMIT %s",
+                    (limit,),
+                )
+            return list(cur.fetchall())
+
+    def stats(self) -> dict:
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT pnl_usd, r_multiple FROM closed_trades")
+            rows = list(cur.fetchall())
+        if not rows:
+            return {
+                "trades": 0, "wins": 0, "losses": 0,
+                "win_rate": 0.0, "gross_profit": 0.0, "gross_loss": 0.0,
+                "profit_factor": 0.0, "avg_r": 0.0, "total_pnl": 0.0,
+            }
+        wins = sum(1 for r in rows if r["pnl_usd"] > 0)
+        losses = sum(1 for r in rows if r["pnl_usd"] < 0)
+        gross_profit = sum(float(r["pnl_usd"]) for r in rows if r["pnl_usd"] > 0)
+        gross_loss = abs(sum(float(r["pnl_usd"]) for r in rows if r["pnl_usd"] < 0))
+        total_pnl = sum(float(r["pnl_usd"]) for r in rows)
+        avg_r = sum(float(r["r_multiple"]) for r in rows) / len(rows)
+        decided = wins + losses
+        return {
+            "trades": len(rows),
+            "wins": wins, "losses": losses,
+            "win_rate": (wins / decided) if decided else 0.0,
+            "gross_profit": gross_profit,
+            "gross_loss": gross_loss,
+            "profit_factor": (gross_profit / gross_loss) if gross_loss else 0.0,
+            "avg_r": avg_r,
+            "total_pnl": total_pnl,
+        }
+
+    def close(self) -> None:
+        self.conn.close()
+
+
+# --- Postgres trade-manager state repository -------------------------------
+# Persists TradeManager._tp1_taken + _opened_state so partial-close P&L
+# math and TP1 bookkeeping survive a Render restart.
+
+class PostgresTradeManagerStateRepository:
+    def __init__(self, dsn: str):
+        if not _AVAILABLE:
+            raise RuntimeError("psycopg is not installed")
+        self.dsn = dsn
+        self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+
+    def upsert_state(self, position_id: str, tp1_taken: bool, opened_state: dict) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO trade_manager_state (
+                    position_id, tp1_taken, original_lots, risk_usd, sl_pips, original_sl
+                ) VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (position_id) DO UPDATE SET
+                    tp1_taken = EXCLUDED.tp1_taken,
+                    original_lots = EXCLUDED.original_lots,
+                    risk_usd = EXCLUDED.risk_usd,
+                    sl_pips = EXCLUDED.sl_pips,
+                    original_sl = EXCLUDED.original_sl,
+                    updated_at = NOW()
+                """,
+                (
+                    position_id, tp1_taken,
+                    opened_state.get("original_lots"),
+                    opened_state.get("risk_usd"),
+                    opened_state.get("sl_pips"),
+                    opened_state.get("original_sl"),
+                ),
+            )
+
+    def clear_state(self, position_id: str) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM trade_manager_state WHERE position_id = %s",
+                (position_id,),
+            )
+
+    def load_all(self) -> dict:
+        """Return {position_id: (tp1_taken, opened_state_dict)} for all rows."""
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT * FROM trade_manager_state")
+            rows = list(cur.fetchall())
+        result: dict = {}
+        for row in rows:
+            result[row["position_id"]] = (
+                bool(row["tp1_taken"]),
+                {
+                    "original_lots": row.get("original_lots"),
+                    "risk_usd": row.get("risk_usd"),
+                    "sl_pips": row.get("sl_pips"),
+                    "original_sl": row.get("original_sl"),
+                },
+            )
+        return result
+
+    def close(self) -> None:
+        self.conn.close()
+
+
+# --- Postgres last-analysis snapshot repository ----------------------------
+# One row per pair; holds the most recent analysis snapshot so the
+# invalidation detector has a baseline to compare against on each cycle.
+
+class PostgresLastAnalysisRepository:
+    def __init__(self, dsn: str):
+        if not _AVAILABLE:
+            raise RuntimeError("psycopg is not installed")
+        self.dsn = dsn
+        self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+
+    def save_snapshot(self, pair: str, snapshot: dict) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO last_analysis_snapshots (pair, snapshot)
+                VALUES (%s, %s::jsonb)
+                ON CONFLICT (pair) DO UPDATE SET
+                    snapshot = EXCLUDED.snapshot, updated_at = NOW()
+                """,
+                (pair, json.dumps(snapshot, default=str)),
+            )
+
+    def load_all(self) -> dict:
+        """Return {pair: snapshot_dict} for every persisted row."""
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT pair, snapshot FROM last_analysis_snapshots")
+            rows = list(cur.fetchall())
+        result: dict = {}
+        for row in rows:
+            value = row["snapshot"]
+            result[row["pair"]] = dict(value) if isinstance(value, dict) else json.loads(value)
+        return result
 
     def close(self) -> None:
         self.conn.close()

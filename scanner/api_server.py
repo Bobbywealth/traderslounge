@@ -25,7 +25,14 @@ from .news_feed import ForexFactoryClient, refresh_filter
 from .news_filter import NewsFilter
 from .alert_preferences import AlertPreferencesStore
 from .persistence import SQLiteUserRepository
-from .repository_factory import create_signal_repository
+from .repository_factory import (
+    create_signal_repository,
+    create_user_repository,
+    create_position_repository,
+    create_closed_trade_repository,
+    create_trade_manager_state_repository,
+    create_last_analysis_repository,
+)
 from .telegram_bot import TelegramBot
 from .trade_repo import SQLiteClosedTradeRepository, SQLitePositionRepository
 
@@ -39,12 +46,13 @@ def main() -> int:
     repo = create_signal_repository()
 
     db_path_for_aux = os.environ.get("SIGNAL_DB_PATH", "scanner.db")
-    # Positions + closed trades share the SQLite file the workers write to.
-    # When using Postgres, the same Postgres connection will eventually back
-    # these (added with the Postgres adapter in a follow-up).
-    position_repo = SQLitePositionRepository(db_path_for_aux)
-    closed_trade_repo = SQLiteClosedTradeRepository(db_path_for_aux)
-    user_repo = SQLiteUserRepository(db_path_for_aux)
+    # When DATABASE_URL is set, every repo here transparently swaps to its
+    # Postgres adapter via the factory. SQLite stays as the local-dev fallback.
+    position_repo = create_position_repository(db_path_for_aux)
+    closed_trade_repo = create_closed_trade_repository(db_path_for_aux)
+    user_repo = create_user_repository(db_path_for_aux)
+    trade_manager_state_repo = create_trade_manager_state_repository()
+    last_analysis_repo = create_last_analysis_repository()
     kill_switch = KillSwitch()
     scan_request_path = os.environ.get("SCAN_REQUEST_PATH", "/tmp/bwts.scan_request")
     news = NewsFilter(blackout_minutes=cfg.news_blackout_minutes)
