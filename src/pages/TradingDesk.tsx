@@ -11,12 +11,13 @@
  * - Agent Activity
  */
 import React, { useEffect, useState } from 'react';
-import { 
-  Activity, AlertTriangle, BarChart3, Bell, Bot, 
-  Clock, Cpu, Eye, Globe, Shield, Target, TrendingUp, 
-  Wifi, WifiOff, Zap 
+import {
+  Activity, AlertTriangle, BarChart3, Bell, Bot,
+  Clock, Cpu, Eye, Globe, Shield, Target, TrendingUp,
+  Wifi, WifiOff, Zap
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { bwtsApi } from '../services/bwtsApi';
 
 interface SystemStatus {
   mode: string;
@@ -77,31 +78,20 @@ const TradingDesk: React.FC = () => {
   const fetchDashboardData = async () => {
     try {
       // Fetch system status
-      const statusRes = await fetch('/api/autonomy/status');
-      if (statusRes.ok) {
-        setSystemStatus(await statusRes.json());
-      }
+      const status = await bwtsApi.autonomyStatus();
+      setSystemStatus(status);
 
       // Fetch opportunities
-      const oppsRes = await fetch('/api/autonomy/opportunities');
-      if (oppsRes.ok) {
-        const data = await oppsRes.json();
-        setOpportunities(data.opportunities || []);
-      }
+      const opps = await bwtsApi.autonomyOpportunities();
+      setOpportunities(opps.opportunities || []);
 
       // Fetch news
-      const newsRes = await fetch('/api/autonomy/news');
-      if (newsRes.ok) {
-        const data = await newsRes.json();
-        setNews(data.events || []);
-      }
+      const newsResp = await bwtsApi.autonomyNews();
+      setNews(newsResp.events || []);
 
       // Fetch alerts
-      const alertsRes = await fetch('/api/autonomy/alerts');
-      if (alertsRes.ok) {
-        const data = await alertsRes.json();
-        setAlerts(data.alerts || []);
-      }
+      const alertsResp = await bwtsApi.autonomyAlerts();
+      setAlerts(alertsResp.alerts || []);
 
       setLoading(false);
     } catch (err) {

@@ -764,6 +764,13 @@ export const bwtsApi = {
     post<{ ok: boolean }>('/api/alerts/push/unsubscribe', { endpoint }),
   getPushSubscriptions: () =>
     get<{ subscriptions: Array<{ endpoint: string; created_at: string; expiration_time: string | null }> }>('/api/alerts/push/subscriptions'),
+
+  // ── Trading Desk / Autonomy endpoints ───────────────────────────────
+  // Public endpoints (no auth required) used by the TradingDesk page.
+  autonomyStatus: () => getPublic<AutonomySystemStatus>('/api/autonomy/status'),
+  autonomyOpportunities: () => getPublic<AutonomyOpportunities>('/api/autonomy/opportunities'),
+  autonomyNews: () => getPublic<AutonomyNews>('/api/autonomy/news'),
+  autonomyAlerts: () => getPublic<AutonomyAlerts>('/api/autonomy/alerts'),
 };
 
 export interface AlertPreferences {
@@ -814,6 +821,68 @@ export interface TelegramWebhookInfo {
   pending_update_count?: number;
   has_custom_certificate?: boolean;
   allowed_updates?: string[];
+}
+
+// ── Trading Desk / Autonomy types ────────────────────────────────────
+
+export interface AutonomySystemStatus {
+  mode: string;
+  health: string;
+  components: Record<string, string>;
+  active_setups: number;
+  active_positions: number;
+  last_scan_time: number | null;
+  scan_count: number;
+  engine_version: string;
+}
+
+export interface AutonomyOpportunity {
+  symbol: string;
+  direction: string;
+  score: number;
+  setup_quality: string;
+  execution_readiness: string;
+  market_regime: string;
+  session: string;
+  news_status: string;
+  expected_rr: number;
+}
+
+export interface AutonomyOpportunities {
+  opportunities: AutonomyOpportunity[];
+  total: number;
+  message?: string;
+}
+
+export interface AutonomyNewsEvent {
+  event_id: string;
+  title: string;
+  currency: string;
+  impact: string;
+  minutes_until: number;
+}
+
+export interface AutonomyNews {
+  total_upcoming: number;
+  high_impact: number;
+  medium_impact: number;
+  events: AutonomyNewsEvent[];
+}
+
+export interface AutonomyAlert {
+  alert_id: string;
+  alert_type: string;
+  severity: string;
+  symbol: string;
+  title: string;
+  message: string;
+  created_at: number;
+}
+
+export interface AutonomyAlerts {
+  alerts: AutonomyAlert[];
+  total: number;
+  message?: string;
 }
 
 // ── Live Activity types ──────────────────────────────────────────────
