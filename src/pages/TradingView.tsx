@@ -515,6 +515,26 @@ const TradingView: React.FC = () => {
   const handleAnchorPointerUp = (event: React.PointerEvent<SVGCircleElement>) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); };
   const clearDrawings = () => { if (drawings.length && window.confirm('Clear drawings for this symbol and timeframe?')) { saveDrawingChange([]); setSelectedDrawingId(null); } };
 
+  // Keyboard shortcut: Delete / Backspace removes the currently-selected drawing.
+  // Skips when the user is typing into an input, textarea, or contenteditable
+  // (so the Fib prompt, the text-annotation editor, etc. still work).
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+      }
+      if (selectedDrawingId && !selectedDrawing?.locked) {
+        event.preventDefault();
+        deleteSelectedDrawing();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [selectedDrawingId, selectedDrawing?.locked, deleteSelectedDrawing]);
+
   // ---- Fib extension helpers ----
   // Add a custom level ratio to an existing fib drawing (persists per drawing).
   const addCustomLevelToFib = (drawingId: string, level: number) => {
@@ -2809,7 +2829,7 @@ const TradingView: React.FC = () => {
             </RailSection>
             {/* ACTIONS: delete / undo / clear / show-hide */}
             <RailSection label="ACTIONS">
-              <button onClick={deleteSelectedDrawing} disabled={!selectedDrawingId || selectedDrawing?.locked} title={!selectedDrawingId ? 'Select a drawing first' : selectedDrawing?.locked ? 'Drawing is locked' : 'Delete selected'} className="rounded-md p-2 cx-text-faint hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25"><Trash2 className="h-4 w-4"/></button>
+              <button onClick={deleteSelectedDrawing} disabled={!selectedDrawingId || selectedDrawing?.locked} title={!selectedDrawingId ? 'Select a drawing first to delete' : selectedDrawing?.locked ? 'Drawing is locked' : 'Delete selected drawing (Del)'} className={`flex items-center gap-1 rounded-md px-2 py-1.5 text-[10px] font-black transition ${selectedDrawingId && !selectedDrawing?.locked ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25' : 'cx-text-faint hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25'}`}><Trash2 className="h-3.5 w-3.5" /><span>DEL</span></button>
               <button onClick={undoDrawing} disabled={!drawingUndoRef.current.length} title={!drawingUndoRef.current.length ? 'No actions to undo' : 'Undo'} className="rounded-md p-2 cx-text-faint hover:cx-bg-card-hover hover:cx-text disabled:opacity-25"><Undo2 className="h-4 w-4"/></button>
               <button onClick={clearDrawings} disabled={!drawings.length} title={!drawings.length ? 'No drawings to clear' : 'Clear all drawings'} className="rounded-md px-2 py-1.5 text-[10px] font-black cx-text-faint hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25">CLEAR</button>
               <button onClick={() => setShowManualDrawings((visible) => !visible)} title="Show / hide drawings" className={`rounded-md p-2 ${showManualDrawings ? 'bg-cyan-400/20 text-cyan-300 border border-cyan-400/30' : 'cx-text-faint hover:cx-bg-card-hover hover:cx-text'}`}>{showManualDrawings ? <Eye className="h-4 w-4"/> : <EyeOff className="h-4 w-4"/>}</button>
