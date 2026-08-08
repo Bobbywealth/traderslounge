@@ -217,7 +217,7 @@ const TradingView: React.FC = () => {
   const [fibonacciLevels, setFibonacciLevels] = useState<FibonacciLevel[]>([]);
   const [showHarmonics, setShowHarmonics] = useState(true);
   const [showTrendLines, setShowTrendLines] = useState(true);
-  const [showFibonacci, setShowFibonacci] = useState(true);
+  const [showFibonacci, setShowFibonacci] = useState(false); // V2 auto-fib horizontal lines default OFF — manual retracement + FibonacciPanel are the primary interface
   const [showSupportResistance, setShowSupportResistance] = useState(true);
   const [showSetups, setShowSetups] = useState(true);
   const [showSetupGuide, setShowSetupGuide] = useState(true);
