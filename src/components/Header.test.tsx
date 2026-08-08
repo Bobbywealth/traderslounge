@@ -14,6 +14,7 @@ vi.mock('lucide-react', () => ({
   LogOut: () => <div data-testid="logout-icon">LogOut</div>,
   Zap: () => <div data-testid="zap-icon">Zap</div>,
   Info: () => <div data-testid="info-icon">Info</div>,
+  AlertTriangle: () => <div data-testid="alert-icon">AlertTriangle</div>,
 }));
 
 // Mock ThemeContext
@@ -40,6 +41,14 @@ vi.mock('../contexts/AuthContext', () => ({
 vi.mock('../contexts/BrokerContext', () => ({
   useBroker: () => ({
     credentials: { hasCredentials: false },
+  }),
+}));
+
+// Mock NotificationContext
+vi.mock('../contexts/NotificationContext', () => ({
+  useNotifications: () => ({
+    notifications: [],
+    unreadCount: 0,
   }),
 }));
 
