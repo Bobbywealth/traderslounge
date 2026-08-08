@@ -2709,19 +2709,6 @@ const TradingView: React.FC = () => {
 
       <div className="flex shrink-0 items-center gap-3 overflow-x-auto border-b cx-border bg-[#080d18] px-4 py-1.5 text-[10px] font-black uppercase tracking-wider cx-text-faint">
         <span className="text-cyan-300">MARKET CONTEXT</span>
-        {cryptoAnalysis && (
-          <span className="rounded bg-black/30 px-2 py-1 normal-case tracking-normal text-[10px] cx-text">
-            <b className="text-cyan-300">{cryptoAnalysis.pair || selectedSymbol}</b>
-            <span className="mx-1 opacity-50">·</span>
-            <span>{timeframe}</span>
-            <span className="mx-1 opacity-50">·</span>
-            <span>Score {cryptoAnalysis.total_score}/100</span>
-            <span className="mx-1 opacity-50">·</span>
-            <span className="cx-text-faint">as-of {chartUpdatedAt ? new Date(chartUpdatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'live'}</span>
-            <span className="mx-1 opacity-50">·</span>
-            <span className="cx-text-faint">{cryptoAnalysis.data_quality?.primary_timeframe ? `engine ${cryptoAnalysis.data_quality.primary_timeframe}` : 'engine V2'}</span>
-          </span>
-        )}
         <DataAttribution
           provider="Multi-source"
           timestamp={chartUpdatedAt}
@@ -2731,15 +2718,6 @@ const TradingView: React.FC = () => {
         />
         {harmonicPatterns.length > 0 && <span className="rounded bg-emerald-400/10 px-2 py-1 text-emerald-300">{harmonicPatterns.length} harmonic</span>}
         {adrData && <span className={`rounded px-2 py-1 ${adrData.exhausted ? 'bg-rose-400/10 text-rose-300' : 'bg-sky-400/10 text-sky-300'}`}>ADR {adrData.percent_used.toFixed(0)}%</span>}
-        {cryptoAnalysis && (
-          <V2ScoreBadge
-            score={cryptoAnalysis.total_score}
-            direction={cryptoAnalysis.direction}
-            lifecycle={cryptoAnalysis.direction_stability?.lifecycle}
-            timingStatus={setupTimingStatus}
-            calendarStatus={setupCalendarStatus}
-          />
-        )}
         {cryptoAnalysis?.market_context && (
           <MtfBar
             timeframes={{
