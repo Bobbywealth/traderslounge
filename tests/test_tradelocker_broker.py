@@ -78,8 +78,11 @@ class TestTradeLockerBroker(unittest.TestCase):
     def test_non_401_error_raises(self, urlopen):
         err = HTTPError("u", 500, "server boom", {}, None)
         err.read = MagicMock(return_value=b'{"error":"boom"}')
+        # Provide enough mock responses for 3 retry attempts
         urlopen.side_effect = [
             _mock_response({"token": "t"}),
+            err,
+            err,
             err,
         ]
         with self.assertRaises(TradeLockerError):

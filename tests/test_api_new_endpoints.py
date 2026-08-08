@@ -84,13 +84,14 @@ class TestNewEndpoints(unittest.TestCase):
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
 
-        # Build a JWT for a demo user so the protected endpoints
+        # Build a JWT for an admin user so the protected endpoints
         # (/api/positions, /api/journal, /api/kill-switch, /api/scans/refresh)
         # accept our requests. Auth was added in scanner/api.py after these
         # tests were written; the tests pre-date the protection.
+        # kill-switch and scan-refresh require admin role.
         cls.user = User(
-            id=1, email="demo@trader.com", name="Demo",
-            role="user", plan="pro", created_at="",
+            id=1, email="admin@trader.com", name="Admin",
+            role="admin", plan="pro", created_at="",
         )
         cls.auth_header = {"Authorization": f"Bearer {create_access_token(cls.user)}"}
 
