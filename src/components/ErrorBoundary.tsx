@@ -21,6 +21,14 @@ class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Uncaught error:', error, errorInfo);
+    // DEBUG: capture to window so we can inspect from outside
+    (window as unknown as { __lastError?: unknown }).__lastError = {
+      message: String(error?.message || error),
+      stack: String(error?.stack || ''),
+      name: String(error?.name || ''),
+      componentStack: String(errorInfo?.componentStack || ''),
+      timestamp: new Date().toISOString(),
+    };
   }
 
   public render() {
