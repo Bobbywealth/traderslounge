@@ -21,7 +21,13 @@ import threading
 from .api import ApiState, make_server, start_signal_monitor
 from .alert_preferences import AlertPreferencesStore
 from .binance_client import BinanceClient
-from .bot_runner import BotRunner
+try:
+    # BotRunner may be absent in slimmer deployment images; the read API
+    # boots without it and /api/bot/status simply returns 503 until the
+    # bot worker is deployed alongside.
+    from .bot_runner import BotRunner
+except ImportError:
+    BotRunner = None  # type: ignore[assignment,misc]
 from .broker import PaperBroker
 from .config import load_from_env
 from .data_provider import TwelveDataClient
