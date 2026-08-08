@@ -115,9 +115,14 @@ def main() -> int:
         closed_trade_repo=closed_trade_repo,
         state_repo=create_trade_manager_state_repository(),
     )
-    bot_runner = BotRunner(
-        trade_manager=tm, broker=paper_broker, kill_switch=kill_switch,
-    )
+    bot_runner = None
+    if BotRunner is not None:
+        try:
+            bot_runner = BotRunner(
+                trade_manager=tm, broker=paper_broker, kill_switch=kill_switch,
+            )
+        except Exception:
+            logging.exception("BotRunner init failed; /api/bot/status will be unavailable")
     state = ApiState(
         repository=repo,
         config=cfg,
