@@ -180,14 +180,9 @@ def _admin_emails() -> set[str]:
     Read from the ``ADMIN_EMAILS`` env var as a comma-separated list. The
     comparison is case-insensitive and whitespace is trimmed. If the env
     var is unset or empty, the set is empty and no automatic promotion
-    happens — the API behaves as before.
+    happens.
     """
     raw = os.environ.get("ADMIN_EMAILS", "")
-    if not raw:
-        # TEMPORARY TEST FALLBACK — Render dashboard not persisting env
-        # vars for this service. Remove after env vars are properly set
-        # in Render. See telegram_bot.py for the matching note.
-        raw = "bobby@wolfpaqmarketing.com"
     return {e.strip().lower() for e in raw.split(",") if e.strip()}
 
 
@@ -298,6 +293,13 @@ class _ApiHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
+        
+        # Include correlation ID in response for client-side tracing
+        from .logging_config import get_request_id
+        request_id = get_request_id()
+        if request_id:
+            self.send_header("X-Request-ID", request_id)
+        
         # Strict CORS: only echo the Origin when it is on the allowlist.
         # We no longer reflect arbitrary origins nor use "*" with
         # credentials — that combination is the most common path to
@@ -307,13 +309,18 @@ class _ApiHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", allowed)
             self.send_header("Vary", "Origin")
             self.send_header("Access-Control-Allow-Credentials", "true")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.end_headers()
         self.wfile.write(payload)
 
     def _error(self, status: int, message: str) -> None:
-        self._json(status, {"error": message})
+        from .logging_config import get_request_id
+        body = {"error": message}
+        request_id = get_request_id()
+        if request_id:
+            body["request_id"] = request_id
+        self._json(status, body)
 
     def _cache_get(self, key: str, allow_stale: bool = False):
         with _STATE.cache_lock:
@@ -367,15 +374,29 @@ class _ApiHandler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         path = url.path.rstrip("/") or "/"
         max_bytes = MAX_BODY_BYTES_CHART_AI if path == "/api/ai/chart-analyze" else MAX_BODY_BYTES_DEFAULT
+        
+        # Generate correlation ID for request tracing
+        from .logging_config import set_request_context, generate_request_id
+        correlation_id = self.headers.get("X-Request-ID") or generate_request_id()
+        set_request_context(request_id=correlation_id)
+        
+        start_time = time.monotonic()
         try:
             body = self._read_body(max_bytes=max_bytes)
         except ValueError as exc:
             return self._error(413, str(exc))
         try:
-            return self._route_post(path, body)
+            result = self._route_post(path, body)
+            duration_ms = (time.monotonic() - start_time) * 1000
+            log.info("POST %s completed in %.1fms", path, duration_ms)
+            return result
         except Exception as exc:
-            log.exception("api error (POST)")
+            duration_ms = (time.monotonic() - start_time) * 1000
+            log.exception("api error (POST) %s in %.1fms", path, duration_ms)
             return self._error(500, str(exc))
+        finally:
+            from .logging_config import clear_request_context
+            clear_request_context()
 
     def _read_body(self, max_bytes: int = MAX_BODY_BYTES_DEFAULT) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
@@ -398,11 +419,25 @@ class _ApiHandler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         path = url.path.rstrip("/") or "/"
         query = {k: v[0] for k, v in parse_qs(url.query).items()}
+        
+        # Generate correlation ID for request tracing
+        from .logging_config import set_request_context, generate_request_id
+        correlation_id = self.headers.get("X-Request-ID") or generate_request_id()
+        set_request_context(request_id=correlation_id)
+        
+        start_time = time.monotonic()
         try:
-            return self._route(path, query)
+            result = self._route(path, query)
+            duration_ms = (time.monotonic() - start_time) * 1000
+            log.info("GET %s completed in %.1fms", path, duration_ms)
+            return result
         except Exception as exc:  # last-resort
-            log.exception("api error")
+            duration_ms = (time.monotonic() - start_time) * 1000
+            log.exception("api error GET %s in %.1fms", path, duration_ms)
             return self._error(500, str(exc))
+        finally:
+            from .logging_config import clear_request_context
+            clear_request_context()
 
     # --- routing --------------------------------------------------------
 

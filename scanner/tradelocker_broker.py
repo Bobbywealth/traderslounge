@@ -9,7 +9,8 @@ Spec §9.1 endpoints:
     GET    /positions
 
 Stdlib `urllib` only. Authentication caches the session token in memory
-and re-auths on 401.
+and re-auths on 401. Includes exponential backoff retry for transient
+failures (network errors, 5xx, timeouts).
 
 LIVE MONEY WARNING: this class is only instantiated when
 EXECUTION_MODE=live is set explicitly. Until you've verified one round
@@ -20,6 +21,7 @@ from __future__ import annotations
 import itertools
 import json
 import logging
+import random
 import time
 import urllib.error
 import urllib.request
@@ -31,6 +33,14 @@ from .data_types import Direction
 from .risk_manager import TradePlan
 
 log = logging.getLogger(__name__)
+
+# Retry configuration
+MAX_RETRY_ATTEMPTS = 3
+RETRY_BACKOFF_BASE = 1.0  # seconds
+RETRY_BACKOFF_MAX = 8.0  # seconds
+
+# HTTP status codes that should trigger retry
+RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 
 
 class TradeLockerError(RuntimeError):
@@ -50,7 +60,18 @@ class TradeLockerBroker:
     _balance_cached_at: float = 0.0
 
     def _request(self, method: str, path: str, body: dict | None = None,
-                 retry_on_401: bool = True) -> dict:
+                 retry_on_401: bool = True, max_attempts: int = MAX_RETRY_ATTEMPTS) -> dict:
+        """Make HTTP request with exponential backoff retry.
+        
+        Retries on:
+        - Network errors (URLError)
+        - Timeout errors
+        - Retryable HTTP status codes (408, 429, 500-504)
+        
+        Does NOT retry on:
+        - 401 (handled separately with re-auth)
+        - 4xx client errors (except 408, 429)
+        """
         url = f"{self.base_url.rstrip('/')}{path}"
         headers = {
             "Content-Type": "application/json",
@@ -59,29 +80,88 @@ class TradeLockerBroker:
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
         data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(url, data=data, method=method, headers=headers)
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout_seconds) as resp:
-                payload = resp.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:
-            if exc.code == 401 and retry_on_401 and self._token is not None:
-                log.info("tradelocker 401 — re-authenticating")
-                self._token = None
-                self._auth()
-                return self._request(method, path, body, retry_on_401=False)
+        
+        last_exception = None
+        
+        for attempt in range(max_attempts):
+            req = urllib.request.Request(url, data=data, method=method, headers=headers)
             try:
-                err_body = exc.read().decode("utf-8")
-            except Exception:
-                err_body = ""
-            raise TradeLockerError(f"{method} {path} → {exc.code}: {err_body}") from exc
-        except urllib.error.URLError as exc:
-            raise TradeLockerError(f"{method} {path}: {exc}") from exc
-        if not payload:
-            return {}
-        try:
-            return json.loads(payload)
-        except json.JSONDecodeError as exc:
-            raise TradeLockerError(f"invalid JSON from {path}: {exc}") from exc
+                with urllib.request.urlopen(req, timeout=self.timeout_seconds) as resp:
+                    payload = resp.read().decode("utf-8")
+                
+                if not payload:
+                    return {}
+                try:
+                    return json.loads(payload)
+                except json.JSONDecodeError as exc:
+                    raise TradeLockerError(f"invalid JSON from {path}: {exc}") from exc
+                    
+            except urllib.error.HTTPError as exc:
+                # Handle 401 separately with re-auth
+                if exc.code == 401 and retry_on_401 and self._token is not None:
+                    log.info("tradelocker 401 — re-authenticating")
+                    self._token = None
+                    self._auth()
+                    return self._request(method, path, body, retry_on_401=False)
+                
+                # Check if status code is retryable
+                if exc.code in RETRYABLE_STATUS_CODES and attempt < max_attempts - 1:
+                    try:
+                        err_body = exc.read().decode("utf-8")
+                    except Exception:
+                        err_body = ""
+                    
+                    # Calculate backoff with jitter
+                    backoff = min(RETRY_BACKOFF_BASE * (2 ** attempt), RETRY_BACKOFF_MAX)
+                    jitter = random.uniform(0, backoff * 0.1)
+                    wait_time = backoff + jitter
+                    
+                    log.warning(
+                        "tradelocker %d %s → %d (attempt %d/%d), retrying in %.1fs",
+                        method, path, exc.code, attempt + 1, max_attempts, wait_time,
+                    )
+                    time.sleep(wait_time)
+                    last_exception = exc
+                    continue
+                
+                # Non-retryable HTTP error
+                try:
+                    err_body = exc.read().decode("utf-8")
+                except Exception:
+                    err_body = ""
+                raise TradeLockerError(f"{method} {path} → {exc.code}: {err_body}") from exc
+                
+            except urllib.error.URLError as exc:
+                # Network error - retryable
+                if attempt < max_attempts - 1:
+                    backoff = min(RETRY_BACKOFF_BASE * (2 ** attempt), RETRY_BACKOFF_MAX)
+                    jitter = random.uniform(0, backoff * 0.1)
+                    wait_time = backoff + jitter
+                    
+                    log.warning(
+                        "tradelocker %s %s network error (attempt %d/%d), retrying in %.1fs: %s",
+                        method, path, attempt + 1, max_attempts, wait_time, str(exc),
+                    )
+                    time.sleep(wait_time)
+                    last_exception = exc
+                    continue
+                
+                raise TradeLockerError(f"{method} {path}: {exc}") from exc
+        
+        # If we exhausted retries, raise the last exception
+        if last_exception:
+            if isinstance(last_exception, urllib.error.HTTPError):
+                try:
+                    err_body = last_exception.read().decode("utf-8")
+                except Exception:
+                    err_body = ""
+                raise TradeLockerError(
+                    f"{method} {path} → {last_exception.code} (after {max_attempts} attempts): {err_body}"
+                ) from last_exception
+            else:
+                raise TradeLockerError(
+                    f"{method} {path} failed after {max_attempts} attempts: {last_exception}"
+                ) from last_exception
 
     def _auth(self) -> None:
         data = self._request("POST", "/auth", body={

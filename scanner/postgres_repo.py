@@ -220,30 +220,51 @@ class PostgresRepository:
                 "psycopg is not installed — pip install 'psycopg[binary]' to enable Postgres"
             )
         self.dsn = dsn
-        self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
-        with self.conn.cursor() as cur:
-            cur.execute(SCHEMA)
+        # Use connection pool if available, otherwise create direct connection
+        from .db_pool import get_connection_pool
+        self._pool = get_connection_pool()
+        if self._pool is None:
+            # Fallback to direct connection (legacy behavior)
+            self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+        else:
+            self.conn = None  # Will use pool connections
+        # Initialize schema
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(SCHEMA)
+    
+    def _get_connection(self):
+        """Get a connection from the pool or use direct connection."""
+        if self._pool is not None:
+            return self._pool.connection()
+        else:
+            from contextlib import contextmanager
+            @contextmanager
+            def direct_connection():
+                yield self.conn
+            return direct_connection()
 
     def save(self, sig: Signal) -> int:
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO signals (
-                    pair, direction, tier, confidence_score, entry, stop_loss,
-                    tp1, tp2, tp3, risk_level, session, adr_status, htf_bias,
-                    pattern, reasons
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
-                RETURNING id
-                """,
-                (
-                    sig.pair, sig.direction.value, sig.tier.value, sig.confidence_score,
-                    sig.entry, sig.stop_loss, sig.tp1, sig.tp2, sig.tp3,
-                    sig.risk_level, sig.session, sig.adr_status, sig.htf_bias,
-                    sig.pattern, json.dumps(sig.reasons),
-                ),
-            )
-            row = cur.fetchone()
-            return int(row["id"])
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO signals (
+                        pair, direction, tier, confidence_score, entry, stop_loss,
+                        tp1, tp2, tp3, risk_level, session, adr_status, htf_bias,
+                        pattern, reasons
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                    RETURNING id
+                    """,
+                    (
+                        sig.pair, sig.direction.value, sig.tier.value, sig.confidence_score,
+                        sig.entry, sig.stop_loss, sig.tp1, sig.tp2, sig.tp3,
+                        sig.risk_level, sig.session, sig.adr_status, sig.htf_bias,
+                        sig.pattern, json.dumps(sig.reasons),
+                    ),
+                )
+                row = cur.fetchone()
+                return int(row["id"])
 
     def recent(self, limit: int = 50) -> List[dict]:
         with self.conn.cursor() as cur:

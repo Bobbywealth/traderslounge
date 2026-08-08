@@ -1,7 +1,8 @@
 // API Service for communicating with backend server
 import { applyHtfBiasPenalty, evaluateHtfBias, type BiasStatus } from '../strategy/htfBias';
+import apiClient from './apiClient';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://traderslounge.onrender.com';
+const API_BASE_URL = apiClient.getBaseUrl();
 
 const buildTradeLockerUrl = (path: string, params: Record<string, string | null | undefined> = {}): string => {
   const query = new URLSearchParams();
@@ -109,79 +110,50 @@ export interface RefreshSignalsResponse extends RefreshMetadata {
 export const tradeLockerApi = {
   async connect(): Promise<{ connected: boolean; demo?: boolean; hasCredentials?: boolean }> {
     const sessionId = localStorage.getItem('tl_session_id');
-    const response = await fetch(buildTradeLockerUrl('/api/tradelocker/status', { sessionId }));
-    return response.json();
+    return apiClient.get('/api/tradelocker/status', { sessionId });
   },
 
   async authenticate(email: string, password: string, server: string, isDemo: boolean = true): Promise<any> {
     const sessionId = crypto.randomUUID();
-    const response = await fetch(`${API_BASE_URL}/api/tradelocker/auth`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, server, isDemo, sessionId })
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Authentication failed');
-    }
-
-    const data = await response.json();
+    const data = await apiClient.post('/api/tradelocker/auth', { email, password, server, isDemo, sessionId });
     localStorage.setItem('tl_session_id', sessionId);
     return data;
   },
 
   async getAccount(): Promise<any> {
     const sessionId = localStorage.getItem('tl_session_id');
-    const url = buildTradeLockerUrl('/api/tradelocker/account', { sessionId });
-    const response = await fetch(url);
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Failed to get account');
-    return data;
+    return apiClient.get('/api/tradelocker/account', { sessionId });
   },
 
   async getPositions(accountId: string): Promise<any[]> {
     const sessionId = localStorage.getItem('tl_session_id');
-    const response = await fetch(buildTradeLockerUrl('/api/tradelocker/positions', { sessionId, accountId }));
-    return response.json();
+    return apiClient.get('/api/tradelocker/positions', { sessionId, accountId });
   },
 
   async getOrders(accountId: string): Promise<any[]> {
     const sessionId = localStorage.getItem('tl_session_id');
-    const response = await fetch(buildTradeLockerUrl('/api/tradelocker/orders', { sessionId, accountId }));
-    return response.json();
+    return apiClient.get('/api/tradelocker/orders', { sessionId, accountId });
   },
 
   async executeSignal(signal: SignalAnalysis, accountId?: string, quantity: number = 1): Promise<any> {
     const sessionId = localStorage.getItem('tl_session_id');
-    const response = await fetch(`${API_BASE_URL}/api/tradelocker/execute-signal`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId,
-        signal: {
-          symbol: signal.symbol,
-          direction: signal.direction,
-          entry_price: signal.entry_price,
-          stop_loss: signal.stop_loss,
-          take_profit: signal.take_profit,
-        },
-        accountId,
-        quantity
-      })
+    return apiClient.post('/api/tradelocker/execute-signal', {
+      sessionId,
+      signal: {
+        symbol: signal.symbol,
+        direction: signal.direction,
+        entry_price: signal.entry_price,
+        stop_loss: signal.stop_loss,
+        take_profit: signal.take_profit,
+      },
+      accountId,
+      quantity
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || data.message || 'Failed to execute trade');
-    return data;
   },
 
   async disconnect(): Promise<void> {
     const sessionId = localStorage.getItem('tl_session_id');
-    await fetch(`${API_BASE_URL}/api/tradelocker/disconnect`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId })
-    });
+    await apiClient.post('/api/tradelocker/disconnect', { sessionId });
     localStorage.removeItem('tl_session_id');
   }
 };
@@ -233,12 +205,10 @@ const mapSignal = (s: any): SignalAnalysis => {
 // Signals API
 export const signalsApi = {
   async getSignals(symbol?: string, limit: number = 50): Promise<SignalAnalysis[]> {
-    const params = new URLSearchParams();
-    if (symbol) params.set('symbol', symbol);
-    params.set('limit', limit.toString());
+    const params: Record<string, string> = { limit: limit.toString() };
+    if (symbol) params.symbol = symbol;
     
-    const response = await fetch(`${API_BASE_URL}/api/signals?${params}`);
-    const data = await response.json();
+    const data = await apiClient.get('/api/signals', params);
     
     if (!data.success) {
       throw new Error(data.error || 'Failed to fetch signals');
@@ -249,8 +219,7 @@ export const signalsApi = {
   
   async getSignal(symbol: string): Promise<SignalAnalysis | null> {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/signals/${symbol}`);
-      const data = await response.json();
+      const data = await apiClient.get(`/api/signals/${symbol}`);
       const s = data.signal;
       return s ? mapSignal(s) : null;
     } catch {
@@ -262,17 +231,8 @@ export const signalsApi = {
     symbols: string[] = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'AUDUSD', 'USDCAD'],
     options: { force?: boolean } = {}
   ): Promise<RefreshSignalsResponse> {
-    const params = new URLSearchParams();
-    if (options.force) params.set('force', 'true');
-
-    const response = await fetch(`${API_BASE_URL}/api/signals/refresh?${params.toString()}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbols })
-    });
+    const data = await apiClient.post('/api/signals/refresh', { symbols }, options.force ? { force: true } : undefined);
     
-    const data = await response.json();
-
     const mappedResults = (data.results || []).map((r: any) => r.signal ? {
       ...r,
       signal: mapSignal(r.signal)
@@ -288,7 +248,7 @@ export const signalsApi = {
       results: mappedResults
     };
 
-    if (!response.ok || !data.success) {
+    if (!data.success) {
       const message = data.error || 'Failed to refresh signals';
       const error = new Error(message) as Error & { details?: RefreshSignalsResponse };
       error.details = payload;
@@ -299,10 +259,7 @@ export const signalsApi = {
   },
   
   async cleanup(): Promise<number> {
-    const response = await fetch(`${API_BASE_URL}/api/signals/cleanup`, {
-      method: 'DELETE'
-    });
-    const data = await response.json();
+    const data = await apiClient.delete('/api/signals/cleanup');
     return data.deleted || 0;
   }
 };

@@ -68,22 +68,87 @@ class TradeManager:
         # Pull whatever persisted state the repo has (e.g. across a restart)
         # into the in-memory dicts so the manage-cycle sees the right TP1 +
         # sizing bookkeeping immediately.
-        if self.state_repo is None:
-            return
+        if self.state_repo is not None:
+            try:
+                persisted = self.state_repo.load_all()
+            except Exception:
+                log.exception("failed to restore trade-manager state from repo; continuing in-memory only")
+                persisted = {}
+            for position_id, (tp1_taken, opened_state) in persisted.items():
+                if tp1_taken:
+                    self._tp1_taken.add(position_id)
+                # Drop nulls so P&L math doesn't trip on a None original_sl.
+                cleaned = {k: v for k, v in (opened_state or {}).items() if v is not None}
+                if cleaned:
+                    self._opened_state[position_id] = cleaned
+            if persisted:
+                log.info("restored %d trade-manager state rows from repo", len(persisted))
+        
+        # Run startup reconciliation
+        self._startup_reconciliation()
+    
+    def _startup_reconciliation(self) -> None:
+        """Reconcile broker state with local database on startup.
+        
+        Checks for:
+        1. Positions in broker but not in DB (orphaned broker positions)
+        2. Positions in DB but not in broker (stale DB entries)
+        3. State repo entries without matching positions
+        
+        Logs warnings for mismatches. Does NOT auto-close or auto-open
+        positions — that requires manual intervention.
+        """
+        log.info("running startup reconciliation...")
+        
         try:
-            persisted = self.state_repo.load_all()
-        except Exception:
-            log.exception("failed to restore trade-manager state from repo; continuing in-memory only")
-            return
-        for position_id, (tp1_taken, opened_state) in persisted.items():
-            if tp1_taken:
-                self._tp1_taken.add(position_id)
-            # Drop nulls so P&L math doesn't trip on a None original_sl.
-            cleaned = {k: v for k, v in (opened_state or {}).items() if v is not None}
-            if cleaned:
-                self._opened_state[position_id] = cleaned
-        if persisted:
-            log.info("restored %d trade-manager state rows from repo", len(persisted))
+            # Get broker positions
+            broker_positions = self.broker.list_positions()
+            broker_position_ids = {p.id for p in broker_positions}
+            
+            # Get DB positions (if repo available)
+            db_position_ids = set()
+            if self.position_repo is not None:
+                try:
+                    db_positions = self.position_repo.open_positions()
+                    db_position_ids = {p["id"] if isinstance(p, dict) else p.id for p in db_positions}
+                except Exception:
+                    log.warning("could not load DB positions for reconciliation")
+            
+            # Check for orphaned broker positions (in broker but not in DB)
+            orphaned_broker = broker_position_ids - db_position_ids
+            if orphaned_broker:
+                log.warning(
+                    "RECONCILIATION: %d positions in broker but not in DB: %s",
+                    len(orphaned_broker),
+                    orphaned_broker,
+                )
+            
+            # Check for stale DB entries (in DB but not in broker)
+            stale_db = db_position_ids - broker_position_ids
+            if stale_db:
+                log.warning(
+                    "RECONCILIATION: %d positions in DB but not in broker (possibly closed externally): %s",
+                    len(stale_db),
+                    stale_db,
+                )
+            
+            # Check state repo consistency
+            if self.state_repo is not None:
+                state_ids = set(self._tp1_taken) | set(self._opened_state.keys())
+                orphaned_state = state_ids - broker_position_ids - db_position_ids
+                if orphaned_state:
+                    log.warning(
+                        "RECONCILIATION: %d state entries without matching positions: %s",
+                        len(orphaned_state),
+                        orphaned_state,
+                    )
+            
+            if not orphaned_broker and not stale_db:
+                log.info("reconciliation passed: broker and DB positions match")
+            
+        except Exception as exc:
+            log.exception("reconciliation failed: %s", exc)
+            # Don't crash on reconciliation failure — continue with startup
 
     # ---- entry --------------------------------------------------------
 

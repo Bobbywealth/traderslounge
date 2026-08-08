@@ -36,15 +36,6 @@ LINK_TOKEN_TTL_SECONDS = 600  # 10 minutes, single-use
 RATE_LIMIT_PER_MINUTE = 20
 ALLOWED_UPDATES = ["message"]
 
-# TEMPORARY TEST FALLBACK — Render dashboard won't persist env vars for
-# this service (confirmed via Web Shell). Remove this block after env
-# vars are set in Render and rotate the bot token via @BotFather /revoke.
-_TEST_FALLBACK_TOKEN = "8681691857:AAE0P5IprvYEU61aXObwEAkfDXoPNlqHhH0"
-_TEST_FALLBACK_USERNAME = "confluencex_alerts_bot"
-_TEST_FALLBACK_WEBHOOK_SECRET = "I_nIhA2oQyKZLqQ1ZKjrgT-JwnFksoKCuwLCURY_cAc"
-_TEST_FALLBACK_ADMIN_EMAILS = "bobby@wolfpaqmarketing.com"
-_TEST_FALLBACK_PUBLIC_BASE_URL = "https://traderslounge-bwts-api.onrender.com"
-
 
 class TelegramBot:
     """Stateful bot handle. Construct once at API startup."""
@@ -56,18 +47,12 @@ class TelegramBot:
         webhook_secret: Optional[str] = None,
     ) -> None:
         self.bot_token = (bot_token if bot_token is not None else os.environ.get("TELEGRAM_BOT_TOKEN", "")).strip()
-        if bot_token is None and not self.bot_token:
-            self.bot_token = _TEST_FALLBACK_TOKEN
         self.bot_username = (
             bot_username if bot_username is not None else os.environ.get("TELEGRAM_BOT_USERNAME", "")
         ).strip().lstrip("@")
-        if bot_username is None and not self.bot_username:
-            self.bot_username = _TEST_FALLBACK_USERNAME
         self.webhook_secret = (
             webhook_secret if webhook_secret is not None else os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
         ).strip()
-        if webhook_secret is None and not self.webhook_secret:
-            self.webhook_secret = _TEST_FALLBACK_WEBHOOK_SECRET
 
         self._link_tokens: dict[str, dict[str, Any]] = {}
         self._link_tokens_lock = threading.Lock()

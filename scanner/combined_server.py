@@ -52,10 +52,12 @@ from .trade_repo import SQLiteClosedTradeRepository, SQLitePositionRepository
 
 def main() -> int:
     cfg = load_from_env()
-    logging.basicConfig(
-        level=cfg.log_level,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    
+    # Configure structured JSON logging with environment context
+    from .logging_config import setup_logging
+    environment = os.environ.get("ENVIRONMENT", "development")
+    app_version = os.environ.get("APPLICATION_VERSION", "unknown")
+    setup_logging(level=cfg.log_level, environment=environment, application_version=app_version)
 
     db_path = os.environ.get("SIGNAL_DB_PATH", "scanner.db")
     repo = create_signal_repository()
