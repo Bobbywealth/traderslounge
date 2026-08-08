@@ -35,6 +35,7 @@ from .journal import TradingJournal
 from .memory import MarketMemory
 from .paper import PaperBrokerAdapter, PaperPositionManager
 from .validation import ForwardEngine, CalibrationAnalyzer, SegmentationAnalyzer
+from .ai import AIEngine
 
 __all__ = [
     # Config & Status
@@ -71,4 +72,6 @@ __all__ = [
     'ForwardEngine',
     'CalibrationAnalyzer',
     'SegmentationAnalyzer',
+    # AI
+    'AIEngine',
 ]
