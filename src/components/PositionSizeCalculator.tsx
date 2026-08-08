@@ -181,7 +181,7 @@ export function PositionSizeCalculator(props: PositionSizeCalculatorProps) {
     setPersisted((p) => ({ ...p, preset, riskPct: PRESETS[preset].risk }));
   };
 
-  const useAtrStop = (mult: number) => {
+  const applyAtrStop = (mult: number) => {
     if (!setup?.atr || !isFinite(setup.atr) || entry <= 0) return;
     const offset = setup.atr * mult;
     setStop(direction === 'long' ? +(entry - offset).toFixed(6) : +(entry + offset).toFixed(6));
@@ -283,7 +283,7 @@ export function PositionSizeCalculator(props: PositionSizeCalculatorProps) {
           {[1, 1.5, 2, 3].map((m) => (
             <button
               key={m}
-              onClick={() => useAtrStop(m)}
+              onClick={() => applyAtrStop(m)}
               className="rounded px-1.5 py-0.5 text-[9px] font-black cx-text-faint hover:bg-cyan-400/15 hover:text-cyan-300 border cx-border"
             >
               {m}×

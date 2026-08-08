@@ -84,7 +84,7 @@ const outcomeLabel = (outcome: string | undefined | null): string => {
   return outcome;
 };
 
-const useSourceLabel = (source: string | undefined | null): { label: string; tone: string; icon: React.ComponentType<{ className?: string }> } => {
+const getSourceLabel = (source: string | undefined | null): { label: string; tone: string; icon: React.ComponentType<{ className?: string }> } => {
   const match = SOURCES.find((entry) => entry.value === source);
   if (match) return { label: match.label, tone: match.tone, icon: match.icon };
   return { label: source || 'unknown', tone: 'border-slate-400/20 bg-slate-400/[0.06] cx-text-muted', icon: AlertTriangle };
@@ -617,7 +617,7 @@ const Journal: React.FC = () => {
                 {filteredTrades.map((t) => {
                   const outcome = outcomeLabel(t.outcome);
                   const outcomeTone = OUTCOME_TONE[outcome.toLowerCase()] || 'border-slate-400/20 bg-slate-400/[0.06] cx-text-muted';
-                  const source = useSourceLabel((t as unknown as { source?: string }).source);
+                  const source = getSourceLabel((t as unknown as { source?: string }).source);
                   const SourceIcon = source.icon;
                   return (
                     <tr key={t.id} className="border-t border-white/[0.04] hover:bg-white/[0.02]" data-testid="journal-row">
