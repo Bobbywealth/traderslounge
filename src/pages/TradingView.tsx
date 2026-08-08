@@ -2714,7 +2714,6 @@ const TradingView: React.FC = () => {
           timestamp={chartUpdatedAt}
           live={isConnected && !candlesLoading}
           variant="inline"
-          detail={`${selectedSymbol} ${timeframe}`}
         />
         {harmonicPatterns.length > 0 && <span className="rounded bg-emerald-400/10 px-2 py-1 text-emerald-300">{harmonicPatterns.length} harmonic</span>}
         {adrData && <span className={`rounded px-2 py-1 ${adrData.exhausted ? 'bg-rose-400/10 text-rose-300' : 'bg-sky-400/10 text-sky-300'}`}>ADR {adrData.percent_used.toFixed(0)}%</span>}
