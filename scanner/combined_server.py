@@ -21,6 +21,8 @@ import threading
 from .api import ApiState, make_server, start_signal_monitor
 from .alert_preferences import AlertPreferencesStore
 from .binance_client import BinanceClient
+from .bot_runner import BotRunner
+from .broker import PaperBroker
 from .config import load_from_env
 from .data_provider import TwelveDataClient
 from .fmp_client import FMPClient
@@ -28,9 +30,17 @@ from .kill_switch import KillSwitch
 from .multi_source import MultiSourceClient
 from .news_feed import ForexFactoryClient
 from .news_filter import NewsFilter
-from .repository_factory import create_signal_repository
+from .repository_factory import (
+    create_signal_repository,
+    create_user_repository,
+    create_position_repository,
+    create_closed_trade_repository,
+    create_trade_manager_state_repository,
+)
+from .risk_manager import RiskManager
 from .scheduler import Scanner
 from .telegram_bot import TelegramBot
+from .trade_manager import TradeManager
 from .trade_repo import SQLiteClosedTradeRepository, SQLitePositionRepository
 
 
@@ -77,21 +87,44 @@ def main() -> int:
         logging.info("RUN_SCANNER_THREAD=0 — serving API only")
 
     # --- HTTP read API (foreground) --------------------------------------
-    position_repo = SQLitePositionRepository(db_path)
-    closed_trade_repo = SQLiteClosedTradeRepository(db_path)
+    # When DATABASE_URL is set, every repo here transparently swaps to its
+    # Postgres adapter via the factory. SQLite stays as the local-dev fallback.
+    position_repo = create_position_repository(db_path)
+    closed_trade_repo = create_closed_trade_repository(db_path)
+    user_repo = create_user_repository(db_path)
     kill_switch = KillSwitch()
     alert_store = AlertPreferencesStore(repository=repo)
+    # --- bot runner (paper-mode default; only fires on the execution
+    #     worker when EXECUTION_MODE=live). On the read API it mirrors
+    #     state for the admin dashboard so the user can see bot status
+    #     even before the execution worker is deployed.
+    paper_broker = PaperBroker(starting_balance_usd=float(
+        os.environ.get("PAPER_STARTING_BALANCE_USD", "10000")))
+    risk = RiskManager(risk_per_trade_pct=float(
+        os.environ.get("RISK_PER_TRADE_PCT", "0.5")))
+    tm = TradeManager(
+        broker=paper_broker, risk=risk, kill_switch=kill_switch,
+        price_oracle=lambda _pair: None,  # read-API has no manage-cycle
+        position_repo=position_repo,
+        closed_trade_repo=closed_trade_repo,
+        state_repo=create_trade_manager_state_repository(),
+    )
+    bot_runner = BotRunner(
+        trade_manager=tm, broker=paper_broker, kill_switch=kill_switch,
+    )
     state = ApiState(
         repository=repo,
         config=cfg,
         position_repo=position_repo,
         closed_trade_repo=closed_trade_repo,
+        user_repo=user_repo,
         kill_switch=kill_switch,
         scan_request_path=scan_request_path,
         market_client=client,
         news_filter=news,
         alert_preferences_store=alert_store,
         alert_repo=repo,
+        bot_runner=bot_runner,
     )
     # Wire the Telegram bot into API state and rebuild the chat_id
     # reverse index from persisted preferences so a deploy does not
