@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts';
+import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries, createSeriesMarkers, type SeriesMarker, type Time } from 'lightweight-charts';
 import { createVolumePane, createRsiPane, computeVolume, computeRsi, detectDivergence, divergenceStyle, type Divergence } from '../components/chartPanes';
 import { computeEma, computeBollinger, mergeLineWithTime } from '../components/chartIndicators';
 import { V2ScoreBadge, MtfBar, TradeLevels, TechnicalAnalysisTable, SetupGuideHero, CandlePatternMarkers, detectCandlePatterns } from '../components/ChartUxEnhancements';
@@ -171,6 +171,7 @@ const TradingView: React.FC = () => {
   const adrSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
   const trendSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
   const v2LevelSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
+  const swingMarkersRef = useRef<ReturnType<typeof createSeriesMarkers> | null>(null);
   const candleCacheRef = useRef<Record<string, CandlestickData[]>>({});
   const loadedChartKeyRef = useRef('');
   const candleRequestRef = useRef(0);
@@ -218,6 +219,7 @@ const TradingView: React.FC = () => {
   const [trendLines, setTrendLines] = useState<TrendLine[]>([]);
   const [fibonacciLevels, setFibonacciLevels] = useState<FibonacciLevel[]>([]);
   const [showHarmonics, setShowHarmonics] = useState(true);
+  const [showSwingMarkers, setShowSwingMarkers] = useState(true);
   const [showTrendLines, setShowTrendLines] = useState(true);
   const [showFibonacci, setShowFibonacci] = useState(false); // V2 auto-fib horizontal lines default OFF — manual retracement + FibonacciPanel are the primary interface
   const [showSupportResistance, setShowSupportResistance] = useState(true);
@@ -1247,6 +1249,74 @@ const TradingView: React.FC = () => {
     const detected = detectCandlePatterns(candles);
     setCandlePatterns(detected);
   }, [chartRevision, selectedSymbol, timeframe]);
+
+  // Swing high / low markers on the candle series.
+  // Color-coded by market direction: swing lows in uptrends are support (green),
+  // swing highs in downtrends are resistance (red); the other side is muted.
+  useEffect(() => {
+    const series = candlestickSeriesRef.current;
+    if (!series || !candles || candles.length < 8) {
+      if (swingMarkersRef.current) {
+        try { swingMarkersRef.current.setMarkers([]); } catch { /* noop */ }
+      }
+      return;
+    }
+    if (!showSwingMarkers) {
+      if (swingMarkersRef.current) {
+        try { swingMarkersRef.current.setMarkers([]); } catch { /* noop */ }
+      }
+      return;
+    }
+    const lookback = 3;
+    const dir = String(cryptoAnalysis?.direction || 'NEUTRAL').toUpperCase();
+    const start = Math.max(lookback, candles.length - 250);
+    const markers: import('lightweight-charts').SeriesMarker<Time>[] = [];
+    for (let i = start; i < candles.length - lookback; i++) {
+      const c = candles[i] as any;
+      const high = Number(c.high ?? c.h ?? 0);
+      const low = Number(c.low ?? c.l ?? 0);
+      const time = Number(c.time ?? c.t ?? 0);
+      if (!high || !low || !time) continue;
+      let isHigh = true;
+      let isLow = true;
+      for (let j = 1; j <= lookback; j++) {
+        const before = candles[i - j] as any;
+        const after = candles[i + j] as any;
+        const bH = Number(before.high ?? before.h ?? 0);
+        const aH = Number(after.high ?? after.h ?? 0);
+        const bL = Number(before.low ?? before.l ?? 0);
+        const aL = Number(after.low ?? after.l ?? 0);
+        if (high <= bH || high <= aH) isHigh = false;
+        if (low >= bL || low >= aL) isLow = false;
+      }
+      if (isHigh && !isLow) {
+        markers.push({
+          time: time as UTCTimestamp,
+          position: 'aboveBar',
+          color: dir === 'SELL' ? '#ef4444' : '#94a3b8',
+          shape: 'arrowDown',
+          text: '',
+        });
+      } else if (isLow && !isHigh) {
+        markers.push({
+          time: time as UTCTimestamp,
+          position: 'belowBar',
+          color: dir === 'BUY' ? '#10b981' : '#94a3b8',
+          shape: 'arrowUp',
+          text: '',
+        });
+      }
+    }
+    try {
+      if (!swingMarkersRef.current) {
+        swingMarkersRef.current = createSeriesMarkers(series, markers);
+      } else {
+        swingMarkersRef.current.setMarkers(markers);
+      }
+    } catch (error) {
+      console.warn('Failed to update swing markers:', error);
+    }
+  }, [candles, cryptoAnalysis?.direction, showSwingMarkers]);
 
   // ADR changes slowly, so refresh once per minute rather than on every
   // candle poll.
@@ -2933,6 +3003,7 @@ const TradingView: React.FC = () => {
                 ['Possible Setups', showSetups, setShowSetups, 0, 'text-amber-500'],
                 ['Setup Guide', showSetupGuide, setShowSetupGuide, 0, 'text-emerald-500'],
                 ['Manual Drawings', showManualDrawings, setShowManualDrawings, drawings.length, 'text-cyan-500'],
+                ['Swing Markers', showSwingMarkers, setShowSwingMarkers, 0, 'text-rose-400'],
               ].map(([label, checked, setter, count, color]) => (
                 <label key={String(label)} className="flex items-center justify-between rounded px-2 py-1.5 cx-text-muted hover:cx-bg-card-hover text-xs">
                   <div className="flex items-center gap-2">
