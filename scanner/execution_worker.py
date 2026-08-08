@@ -34,6 +34,7 @@ from .scheduler import Scanner
 from .signal import Signal
 from .trade_manager import TradeManager
 from .trade_repo import SQLiteClosedTradeRepository, SQLitePositionRepository
+from .repository_factory import create_trade_manager_state_repository
 
 
 def _build_broker() -> Broker:
@@ -102,6 +103,7 @@ def main() -> int:
         price_oracle=_price_oracle_from(client),
         position_repo=position_repo,
         closed_trade_repo=closed_trade_repo,
+        state_repo=create_trade_manager_state_repository(),
     )
 
     def execution_sink(sig: Signal) -> None:

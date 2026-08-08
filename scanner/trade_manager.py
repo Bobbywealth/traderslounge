@@ -50,6 +50,12 @@ class TradeManager:
     price_oracle: PriceOracle
     position_repo: Optional[PositionRepository] = None
     closed_trade_repo: Optional[ClosedTradeRepository] = None
+    # Optional persistence hook for TP1 + original-sizing state. When set,
+    # every TP1 / close transitions write to the repo so partial-close P&L
+    # math survives a Render free-tier restart. When None, state stays in
+    # the in-memory `_tp1_taken` / `_opened_state` containers (legacy
+    # behaviour, used by unit tests).
+    state_repo: Optional["TradeManagerStateRepository"] = None
     min_tier_to_execute: Tier = Tier.STRONG
     partial_close_fraction: float = 0.5
 
@@ -57,6 +63,27 @@ class TradeManager:
     # Track original lot size + risk per position so P&L math survives the
     # TP1 lot-size halving in PaperBroker.
     _opened_state: Dict[str, dict] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # Pull whatever persisted state the repo has (e.g. across a restart)
+        # into the in-memory dicts so the manage-cycle sees the right TP1 +
+        # sizing bookkeeping immediately.
+        if self.state_repo is None:
+            return
+        try:
+            persisted = self.state_repo.load_all()
+        except Exception:
+            log.exception("failed to restore trade-manager state from repo; continuing in-memory only")
+            return
+        for position_id, (tp1_taken, opened_state) in persisted.items():
+            if tp1_taken:
+                self._tp1_taken.add(position_id)
+            # Drop nulls so P&L math doesn't trip on a None original_sl.
+            cleaned = {k: v for k, v in (opened_state or {}).items() if v is not None}
+            if cleaned:
+                self._opened_state[position_id] = cleaned
+        if persisted:
+            log.info("restored %d trade-manager state rows from repo", len(persisted))
 
     # ---- entry --------------------------------------------------------
 
@@ -90,6 +117,7 @@ class TradeManager:
             "sl_pips": plan.sl_pips,
             "original_sl": pos.stop_loss,
         }
+        self._persist_state(pos.id, tp1_taken=False)
         self._persist_position(pos)
         return ExecutionDecision(True, "Order placed", position=pos)
 
@@ -134,6 +162,7 @@ class TradeManager:
             # The broker mutates pos in place (PaperBroker); for live we re-read.
             pos.stop_loss = pos.entry
             self._tp1_taken.add(pos.id)
+            self._persist_state(pos.id, tp1_taken=True)
             self._persist_position(pos)
         except Exception:
             log.exception("TP1 management failed for %s", pos.id)
@@ -180,6 +209,9 @@ class TradeManager:
             except Exception:
                 log.exception("position close-mark failed for %s", pos.id)
         self._tp1_taken.discard(pos.id)
+        # Drop the row from the persisted state map so a stale TP1 row
+        # can't resurrect on the next restart after the position is closed.
+        self._persist_clear(pos.id)
 
     # ---- helpers ------------------------------------------------------
 
@@ -190,6 +222,23 @@ class TradeManager:
             self.position_repo.upsert(pos)
         except Exception:
             log.exception("position upsert failed for %s", pos.id)
+
+    def _persist_state(self, position_id: str, tp1_taken: bool) -> None:
+        if self.state_repo is None:
+            return
+        opened = self._opened_state.get(position_id, {})
+        try:
+            self.state_repo.upsert_state(position_id, tp1_taken, opened)
+        except Exception:
+            log.exception("trade-manager state upsert failed for %s", position_id)
+
+    def _persist_clear(self, position_id: str) -> None:
+        if self.state_repo is None:
+            return
+        try:
+            self.state_repo.clear_state(position_id)
+        except Exception:
+            log.exception("trade-manager state clear failed for %s", position_id)
 
     def _calc_pnl(
         self, pos: Position, original_lots: float, original_sl: float,
