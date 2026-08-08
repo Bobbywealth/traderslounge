@@ -13,6 +13,7 @@ vi.mock('lucide-react', () => ({
   Rss: () => <div data-testid="rss-icon">Rss</div>,
   LogOut: () => <div data-testid="logout-icon">LogOut</div>,
   Zap: () => <div data-testid="zap-icon">Zap</div>,
+  Info: () => <div data-testid="info-icon">Info</div>,
 }));
 
 // Mock ThemeContext

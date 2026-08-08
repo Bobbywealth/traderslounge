@@ -83,7 +83,7 @@ describe('extractPrice', () => {
   });
 
   it('extracts HLC3 (high+low+close/3)', () => {
-    expect(extractPrice(candle, 'hlc3')).toBeCloseTo(99.333, 2); // (105+95+102)/3
+    expect(extractPrice(candle, 'hlc3')).toBeCloseTo(100.667, 2); // (105+95+102)/3
   });
 
   it('extracts OHLC4 (open+high+low+close/4)', () => {
