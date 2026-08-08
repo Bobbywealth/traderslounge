@@ -2036,29 +2036,59 @@ const TradingView: React.FC = () => {
     };
   }, [cryptoAnalysis]);
 
-  // One-click auto-Fib: find the most recent swing in the visible candles and add a manual retracement.
+  // One-click auto-Fib: prefer the V2 engine's swing (X→A harmonic leg), fall back to last-80 candle high/low.
   const handleAutoFib = useCallback(() => {
     if (!candles || candles.length < 5) return;
-    const window = candles.slice(-80); // last 80 candles
-    let hiIdx = 0; let loIdx = 0;
-    let hiPrice = -Infinity; let loPrice = Infinity;
-    for (let i = 0; i < window.length; i++) {
-      const c = window[i] as any;
-      const high = Number(c.high ?? c.h ?? 0);
-      const low = Number(c.low ?? c.l ?? Infinity);
-      if (high > hiPrice) { hiPrice = high; hiIdx = i; }
-      if (low < loPrice) { loPrice = low; loIdx = i; }
+    let p1: DrawingPoint | null = null;
+    let p2: DrawingPoint | null = null;
+    // Prefer engine swing (correct harmonic-aware anchor from the V2 analysis).
+    const fibZones: any = cryptoAnalysis?.zones?.fibonacci;
+    const swingLow = Number(fibZones?.swing_low ?? fibZones?.leg?.swing_low);
+    const swingHigh = Number(fibZones?.swing_high ?? fibZones?.leg?.swing_high);
+    const swingStartTime = Number(fibZones?.swing_start_time);
+    const swingStartPrice = Number(fibZones?.swing_start_price);
+    const swingEndTime = Number(fibZones?.swing_end_time);
+    const swingEndPrice = Number(fibZones?.swing_end_price);
+    if (Number.isFinite(swingStartPrice) && Number.isFinite(swingEndPrice) && Number.isFinite(swingStartTime) && Number.isFinite(swingEndTime)) {
+      p1 = { time: swingStartTime, price: swingStartPrice };
+      p2 = { time: swingEndTime, price: swingEndPrice };
+    } else if (Number.isFinite(swingLow) && Number.isFinite(swingHigh)) {
+      // Find candle indexes closest to swing_low/swing_high to anchor the drawing in time.
+      let loIdx = 0; let hiIdx = 0;
+      let loDelta = Infinity; let hiDelta = Infinity;
+      for (let i = 0; i < candles.length; i++) {
+        const c = candles[i] as any;
+        const t = Number(c.time ?? c.t ?? 0);
+        const lo = Math.abs(Number(c.low ?? c.l ?? 0) - swingLow);
+        const hi = Math.abs(Number(c.high ?? c.h ?? 0) - swingHigh);
+        if (lo < loDelta) { loDelta = lo; loIdx = i; }
+        if (hi < hiDelta) { hiDelta = hi; hiIdx = i; }
+      }
+      const loCandle = candles[loIdx] as any;
+      const hiCandle = candles[hiIdx] as any;
+      p1 = { time: Number(loCandle.time ?? loCandle.t ?? 0), price: swingLow };
+      p2 = { time: Number(hiCandle.time ?? hiCandle.t ?? 0), price: swingHigh };
+    } else {
+      // Fallback: most extreme high/low in last 80 candles.
+      const window = candles.slice(-80);
+      let hiIdx = 0; let loIdx = 0;
+      let hiPrice = -Infinity; let loPrice = Infinity;
+      for (let i = 0; i < window.length; i++) {
+        const c = window[i] as any;
+        const high = Number(c.high ?? c.h ?? 0);
+        const low = Number(c.low ?? c.l ?? Infinity);
+        if (high > hiPrice) { hiPrice = high; hiIdx = i; }
+        if (low < loPrice) { loPrice = low; loIdx = i; }
+      }
+      const highCandle = window[hiIdx] as any;
+      const lowCandle = window[loIdx] as any;
+      const highTime = Number(highCandle.time ?? highCandle.t ?? 0);
+      const lowTime = Number(lowCandle.time ?? lowCandle.t ?? 0);
+      if (!highTime || !lowTime || !hiPrice || !loPrice) return;
+      p1 = loIdx <= hiIdx ? { time: lowTime, price: loPrice } : { time: highTime, price: hiPrice };
+      p2 = loIdx <= hiIdx ? { time: highTime, price: hiPrice } : { time: lowTime, price: loPrice };
     }
-    const highCandle = window[hiIdx] as any;
-    const lowCandle = window[loIdx] as any;
-    const highTime = Number(highCandle.time ?? highCandle.t ?? 0);
-    const lowTime = Number(lowCandle.time ?? lowCandle.t ?? 0);
-    const highPrice = Number(highCandle.high ?? highCandle.h ?? 0);
-    const lowPrice = Number(lowCandle.low ?? lowCandle.l ?? 0);
-    if (!highTime || !lowTime || !highPrice || !lowPrice) return;
-    // Always draw leg from swing low → swing high so user sees classic 0/1 origin at the swing low.
-    const p1 = loIdx <= hiIdx ? { time: lowTime, price: lowPrice } : { time: highTime, price: highPrice };
-    const p2 = loIdx <= hiIdx ? { time: highTime, price: highPrice } : { time: lowTime, price: lowPrice };
+    if (!p1 || !p2) return;
     const id = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `fib-${Date.now()}`;
     const newDrawing: ManualDrawing = {
       id,
@@ -2072,7 +2102,7 @@ const TradingView: React.FC = () => {
     setShowManualDrawings(true);
     setDrawingTool('select');
     setSelectedDrawingId(id);
-  }, [candles, drawings, saveDrawingChange]);
+  }, [candles, drawings, saveDrawingChange, cryptoAnalysis]);
 
   // Position-size chart overlay: render entry/SL/TP price lines on the main series.
   useEffect(() => {
@@ -2715,7 +2745,7 @@ const TradingView: React.FC = () => {
             if (points.length < 2) return null;
             if (drawing.type === 'trend') return <g key={drawing.id}><line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke="transparent" strokeWidth="14" onPointerDown={select} style={{pointerEvents:'stroke'}}/><line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke={stroke} strokeWidth={selected ? 2.5 : 1.7} strokeDasharray={dash} onPointerDown={select} style={{ pointerEvents: 'stroke' }}/>{drawing.showPrice && <text x={points[1].x!+5} y={points[1].y!-5} fill={stroke} fontSize="9">{drawing.points[1].price.toFixed(2)}</text>}{anchors}</g>;
             if (drawing.type === 'rectangle') { const x=Math.min(points[0].x!,points[1].x!), y=Math.min(points[0].y!,points[1].y!), width=Math.abs(points[1].x!-points[0].x!), height=Math.abs(points[1].y!-points[0].y!); return <g key={drawing.id}><rect x={x} y={y} width={width} height={height} fill={`${stroke}18`} stroke={stroke} strokeDasharray={dash} strokeWidth={selected ? 2 : 1.5} onPointerDown={select} style={{ pointerEvents: 'all' }}/>{drawing.showPrice && <text x={x+4} y={y+12} fill={stroke} fontSize="9">{Math.min(...drawing.points.map((point)=>point.price)).toFixed(2)}-{Math.max(...drawing.points.map((point)=>point.price)).toFixed(2)}</text>}{anchors}</g>; }
-            if (drawing.type === 'fib') { const ratios=[0,.236,.382,.5,.618,.786,1,1.272,1.618]; const ax=Math.min(points[0].x!,points[1].x!), bx=Math.max(points[0].x!,points[1].x!); const width=Math.max(0,bx-ax); const top=Math.min(points[0].y!,points[1].y!), height=Math.max(0,Math.abs(points[1].y!-points[0].y!)); const decimals=getDecimalPlaces(selectedSymbol); return <g key={drawing.id} onPointerDown={select}><rect x={ax} y={top} width={width} height={height} fill={`${stroke}10`} stroke={stroke} strokeDasharray="2 4" strokeWidth={0.5} style={{ pointerEvents: 'none' }}/>{ratios.map((ratio) => { const y=points[0].y!+(points[1].y!-points[0].y!)*ratio; const price=drawing.points[0].price+(drawing.points[1].price-drawing.points[0].price)*ratio; const golden=String(ratio)==='0.618' || String(ratio)==='0.65'; const extension=ratio>1; const color=golden?'#c084fc':extension?'#67e8f9':stroke; return <g key={ratio}><line x1={ax} x2={bx} y1={y} y2={y} stroke={color} strokeWidth={selected ? 1.6 : 1} strokeDasharray={dash || (extension ? '6 4' : '4 3')} opacity={0.85} style={{ pointerEvents: 'none' }}/>{drawing.showPrice !== false && <g transform={`translate(${bx-4}, ${y})`} style={{ pointerEvents: 'none' }}><rect x={-50} y={-7} width={48} height={14} rx={3} fill={color} opacity={0.85} /><text x={-26} y={3} textAnchor="middle" fill="#0b1020" fontSize="9" fontWeight={800}>{ratio} · {price.toFixed(decimals)}</text></g>}</g>; })}<line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke={stroke} strokeWidth={selected ? 2 : 1.4} strokeDasharray="2 3" style={{ pointerEvents: 'none' }}/>{anchors}</g>; }
+            if (drawing.type === 'fib') { const ratios = customFibLevels && customFibLevels.length > 0 ? customFibLevels : [0,.236,.382,.5,.618,.786,1,1.272,1.618]; const ax=Math.min(points[0].x!,points[1].x!), bx=Math.max(points[0].x!,points[1].x!); const width=Math.max(0,bx-ax); const top=Math.min(points[0].y!,points[1].y!), height=Math.max(0,Math.abs(points[1].y!-points[0].y!)); const decimals=getDecimalPlaces(selectedSymbol); return <g key={drawing.id} onPointerDown={select}><rect x={ax} y={top} width={width} height={height} fill={`${stroke}10`} stroke={stroke} strokeDasharray="2 4" strokeWidth={0.5} style={{ pointerEvents: 'none' }}/>{ratios.map((ratio) => { const y=points[0].y!+(points[1].y!-points[0].y!)*ratio; const price=drawing.points[0].price+(drawing.points[1].price-drawing.points[0].price)*ratio; const golden=Number(ratio)===0.618 || Number(ratio)===0.65; const extension=ratio>1; const color=golden?'#c084fc':extension?'#67e8f9':stroke; return <g key={ratio}><line x1={ax} x2={bx} y1={y} y2={y} stroke={color} strokeWidth={selected ? 1.6 : 1} strokeDasharray={dash || (extension ? '6 4' : '4 3')} opacity={0.85} style={{ pointerEvents: 'none' }}/>{drawing.showPrice !== false && <g transform={`translate(${bx-4}, ${y})`} style={{ pointerEvents: 'none' }}><rect x={-50} y={-7} width={48} height={14} rx={3} fill={color} opacity={0.85} /><text x={-26} y={3} textAnchor="middle" fill="#0b1020" fontSize="9" fontWeight={800}>{ratio} · {price.toFixed(decimals)}</text></g>}</g>; })}<line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke={stroke} strokeWidth={selected ? 2 : 1.4} strokeDasharray="2 3" style={{ pointerEvents: 'none' }}/>{anchors}</g>; }
             return null;
           })}
         </svg>}
