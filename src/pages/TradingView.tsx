@@ -2686,23 +2686,41 @@ const TradingView: React.FC = () => {
         </button>
         {!drawingRailCollapsed && (
           <>
-        <span className="mr-2 text-[9px] font-black tracking-widest cx-text-faint">DRAW</span>
-        {([
-          ['pan', Hand, 'Pan chart'], ['select', MousePointer2, 'Select drawing'], ['trend', LineChart, 'Trend line'], ['horizontal', Minus, 'Horizontal line'],
-          ['sr', Target, 'S/R level'], ['rectangle', Square, 'Rectangle / zone'], ['fib', Percent, 'Fibonacci retracement'], ['fib-ext', ArrowUpRight, 'Fibonacci extension (3-point)'], ['text', Type, 'Text annotation'],
-        ] as const).map(([tool, Icon, label]) => <button key={tool} onClick={() => setDrawingTool(tool)} title={label} className={`rounded-md p-2 transition ${drawingTool === tool ? 'bg-cyan-400/15 text-cyan-300' : 'cx-text-faint hover:cx-bg-card-hover hover:cx-text'}`}><Icon className="h-4 w-4"/></button>)}
-        <div className="mx-2 h-5 w-px bg-white/10"/>
-        <input type="color" value={selectedDrawing?.color || drawingColor} onChange={(event) => { setDrawingColor(event.target.value); if (selectedDrawing) updateSelectedDrawing({color:event.target.value}); }} title="Drawing color" className="h-7 w-7 cursor-pointer rounded border-0 bg-transparent p-0"/>
-        <button onClick={() => selectedDrawing && updateSelectedDrawing({locked:!selectedDrawing.locked})} disabled={!selectedDrawing} title={!selectedDrawing ? 'Select a drawing first' : selectedDrawing?.locked ? 'Unlock drawing' : 'Lock drawing'} className={`rounded-md p-2 disabled:opacity-25 ${selectedDrawing?.locked ? 'bg-amber-400/10 text-amber-300' : 'cx-text-faint hover:cx-text'}`}>{selectedDrawing?.locked ? <Lock className="h-4 w-4"/> : <Unlock className="h-4 w-4"/>}</button>
-        <button onClick={duplicateSelectedDrawing} disabled={!selectedDrawing} title={!selectedDrawing ? 'Select a drawing first' : 'Duplicate drawing'} className="rounded-md p-2 cx-text-faint hover:cx-text disabled:opacity-25"><Copy className="h-4 w-4"/></button>
-        <button onClick={() => selectedDrawing && updateSelectedDrawing({lineStyle:selectedDrawing.lineStyle === 'dashed' ? 'solid' : 'dashed'})} disabled={!selectedDrawing || selectedDrawing.type === 'text'} title={!selectedDrawing ? 'Select a drawing first' : selectedDrawing.type === 'text' ? 'Not available for text' : 'Toggle solid / dashed'} className="rounded-md px-2 py-1.5 text-[10px] font-black cx-text-faint hover:cx-text disabled:opacity-25">{selectedDrawing?.lineStyle === 'dashed' ? 'DASH' : 'SOLID'}</button>
-        <button onClick={() => selectedDrawing && updateSelectedDrawing({showPrice:!selectedDrawing.showPrice})} disabled={!selectedDrawing || selectedDrawing.type === 'text'} title={!selectedDrawing ? 'Select a drawing first' : selectedDrawing.type === 'text' ? 'Not available for text' : 'Toggle price labels'} className={`rounded-md p-2 disabled:opacity-25 ${selectedDrawing?.showPrice ? 'text-cyan-300' : 'cx-text-faint'}`}><Tag className="h-4 w-4"/></button>
-        <button onClick={() => setMagnetDrawing((value)=>!value)} title="Magnet to candle OHLC" className={`rounded-md p-2 ${magnetDrawing ? 'bg-cyan-400/20 text-cyan-300 border border-cyan-400/30' : 'cx-text-faint hover:cx-bg-card-hover hover:cx-text'}`}><Magnet className="h-4 w-4"/></button>
-        <button onClick={deleteSelectedDrawing} disabled={!selectedDrawingId || selectedDrawing?.locked} title={!selectedDrawingId ? 'Select a drawing first' : selectedDrawing?.locked ? 'Drawing is locked' : 'Delete selected'} className="rounded-md p-2 cx-text-faint hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25"><Trash2 className="h-4 w-4"/></button>
-        <button onClick={undoDrawing} disabled={!drawingUndoRef.current.length} title={!drawingUndoRef.current.length ? 'No actions to undo' : 'Undo'} className="rounded-md p-2 cx-text-faint hover:cx-bg-card-hover hover:cx-text disabled:opacity-25"><Undo2 className="h-4 w-4"/></button>
-        <button onClick={clearDrawings} disabled={!drawings.length} title={!drawings.length ? 'No drawings to clear' : 'Clear all drawings'} className="rounded-md px-2 py-1.5 text-[10px] font-black cx-text-faint hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25">CLEAR</button>
-        <button onClick={() => setShowManualDrawings((visible) => !visible)} title="Show / hide drawings" className={`ml-auto rounded-md p-2 ${showManualDrawings ? 'bg-cyan-400/20 text-cyan-300 border border-cyan-400/30' : 'cx-text-faint hover:cx-bg-card-hover hover:cx-text'}`}>{showManualDrawings ? <Eye className="h-4 w-4"/> : <EyeOff className="h-4 w-4"/>}</button>
-        <span className="text-[9px] font-bold cx-text-faint">{drawings.length} · {selectedSymbol} {timeframe}</span>
+            {/* SELECT: pan + cursor */}
+            <RailSection label="SELECT">
+              {([
+                ['pan', Hand, 'Pan chart'], ['select', MousePointer2, 'Select drawing'],
+              ] as const).map(([tool, Icon, label]) => (
+                <button key={tool} onClick={() => setDrawingTool(tool)} title={label} className={`rounded-md p-2 transition ${drawingTool === tool ? 'bg-cyan-400/15 text-cyan-300' : 'cx-text-faint hover:cx-bg-card-hover hover:cx-text'}`}><Icon className="h-4 w-4"/></button>
+              ))}
+            </RailSection>
+            {/* DRAW: shape primitives */}
+            <RailSection label="DRAW">
+              {([
+                ['trend', LineChart, 'Trend line'], ['horizontal', Minus, 'Horizontal line'],
+                ['sr', Target, 'S/R level'], ['rectangle', Square, 'Rectangle / zone'],
+                ['fib', Percent, 'Fibonacci retracement'], ['fib-ext', ArrowUpRight, 'Fibonacci extension (3-point)'], ['text', Type, 'Text annotation'],
+              ] as const).map(([tool, Icon, label]) => (
+                <button key={tool} onClick={() => setDrawingTool(tool)} title={label} className={`rounded-md p-2 transition ${drawingTool === tool ? 'bg-cyan-400/15 text-cyan-300' : 'cx-text-faint hover:cx-bg-card-hover hover:cx-text'}`}><Icon className="h-4 w-4"/></button>
+              ))}
+            </RailSection>
+            {/* STYLE: format / properties of the selected drawing */}
+            <RailSection label="STYLE">
+              <input type="color" value={selectedDrawing?.color || drawingColor} onChange={(event) => { setDrawingColor(event.target.value); if (selectedDrawing) updateSelectedDrawing({color:event.target.value}); }} title="Drawing color" className="h-7 w-7 cursor-pointer rounded border-0 bg-transparent p-0"/>
+              <button onClick={() => selectedDrawing && updateSelectedDrawing({locked:!selectedDrawing.locked})} disabled={!selectedDrawing} title={!selectedDrawing ? 'Select a drawing first' : selectedDrawing?.locked ? 'Unlock drawing' : 'Lock drawing'} className={`rounded-md p-2 disabled:opacity-25 ${selectedDrawing?.locked ? 'bg-amber-400/10 text-amber-300' : 'cx-text-faint hover:cx-text'}`}>{selectedDrawing?.locked ? <Lock className="h-4 w-4"/> : <Unlock className="h-4 w-4"/>}</button>
+              <button onClick={duplicateSelectedDrawing} disabled={!selectedDrawing} title={!selectedDrawing ? 'Select a drawing first' : 'Duplicate drawing'} className="rounded-md p-2 cx-text-faint hover:cx-text disabled:opacity-25"><Copy className="h-4 w-4"/></button>
+              <button onClick={() => selectedDrawing && updateSelectedDrawing({lineStyle:selectedDrawing.lineStyle === 'dashed' ? 'solid' : 'dashed'})} disabled={!selectedDrawing || selectedDrawing.type === 'text'} title={!selectedDrawing ? 'Select a drawing first' : selectedDrawing.type === 'text' ? 'Not available for text' : 'Toggle solid / dashed'} className="rounded-md px-2 py-1.5 text-[10px] font-black cx-text-faint hover:cx-text disabled:opacity-25">{selectedDrawing?.lineStyle === 'dashed' ? 'DASH' : 'SOLID'}</button>
+              <button onClick={() => selectedDrawing && updateSelectedDrawing({showPrice:!selectedDrawing.showPrice})} disabled={!selectedDrawing || selectedDrawing.type === 'text'} title={!selectedDrawing ? 'Select a drawing first' : selectedDrawing.type === 'text' ? 'Not available for text' : 'Toggle price labels'} className={`rounded-md p-2 disabled:opacity-25 ${selectedDrawing?.showPrice ? 'text-cyan-300' : 'cx-text-faint'}`}><Tag className="h-4 w-4"/></button>
+              <button onClick={() => setMagnetDrawing((value)=>!value)} title="Magnet to candle OHLC" className={`rounded-md p-2 ${magnetDrawing ? 'bg-cyan-400/20 text-cyan-300 border border-cyan-400/30' : 'cx-text-faint hover:cx-bg-card-hover hover:cx-text'}`}><Magnet className="h-4 w-4"/></button>
+            </RailSection>
+            {/* ACTIONS: delete / undo / clear / show-hide */}
+            <RailSection label="ACTIONS">
+              <button onClick={deleteSelectedDrawing} disabled={!selectedDrawingId || selectedDrawing?.locked} title={!selectedDrawingId ? 'Select a drawing first' : selectedDrawing?.locked ? 'Drawing is locked' : 'Delete selected'} className="rounded-md p-2 cx-text-faint hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25"><Trash2 className="h-4 w-4"/></button>
+              <button onClick={undoDrawing} disabled={!drawingUndoRef.current.length} title={!drawingUndoRef.current.length ? 'No actions to undo' : 'Undo'} className="rounded-md p-2 cx-text-faint hover:cx-bg-card-hover hover:cx-text disabled:opacity-25"><Undo2 className="h-4 w-4"/></button>
+              <button onClick={clearDrawings} disabled={!drawings.length} title={!drawings.length ? 'No drawings to clear' : 'Clear all drawings'} className="rounded-md px-2 py-1.5 text-[10px] font-black cx-text-faint hover:bg-rose-400/10 hover:text-rose-300 disabled:opacity-25">CLEAR</button>
+              <button onClick={() => setShowManualDrawings((visible) => !visible)} title="Show / hide drawings" className={`rounded-md p-2 ${showManualDrawings ? 'bg-cyan-400/20 text-cyan-300 border border-cyan-400/30' : 'cx-text-faint hover:cx-bg-card-hover hover:cx-text'}`}>{showManualDrawings ? <Eye className="h-4 w-4"/> : <EyeOff className="h-4 w-4"/>}</button>
+            </RailSection>
+            <span className="ml-auto text-[9px] font-bold cx-text-faint">{drawings.length} · {selectedSymbol} {timeframe}</span>
           </>
         )}
       </div>
@@ -3397,6 +3415,15 @@ const TradingView: React.FC = () => {
 
 const Row: React.FC<{ label: string; value: string }> = ({ label, value }) => (
   <div className="flex items-center justify-between gap-4 rounded-lg border cx-border cx-bg-card px-2.5 py-1.5"><span className="text-[10px] font-black uppercase tracking-widest cx-text-faint">{label}</span><b className="cx-text">{value}</b></div>
+);
+
+// Visual section for the draw toolbar: tiny label above, vertical separator on the right.
+// Groups related buttons so the toolbar reads as a sequence of labeled clusters.
+const RailSection: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div className="flex items-center gap-1 border-l border-white/10 pl-2 first:border-l-0 first:pl-0">
+    <span className="mr-1 select-none text-[8px] font-black uppercase tracking-[0.18em] text-cyan-400/70">{label}</span>
+    {children}
+  </div>
 );
 
 export default TradingView;
