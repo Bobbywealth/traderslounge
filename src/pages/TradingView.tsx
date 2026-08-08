@@ -40,7 +40,8 @@ import {
   Tag,
   Hand,
   Calculator,
-  Hash
+  Hash,
+  ArrowUpRight
 } from 'lucide-react';
 import { liveDataService, HarmonicPattern, TrendLine, FibonacciLevel } from '../services/liveDataService';
 import { tradeLockerService, TradeLockerConfig } from '../services/tradeLockerService';
@@ -51,6 +52,7 @@ import ChartAiAnalysisPanel from '../components/ChartAiAnalysisPanel';
 import { bwtsApi, type ChartAiAnalysis, type CryptoAnalysis } from '../services/bwtsApi';
 import { PositionSizeCalculator, type CalcLevels, type SetupSnapshot, type AssetClass } from '../components/PositionSizeCalculator';
 import { FibonacciPanel } from '../components/FibonacciPanel';
+import { SessionStrip, SessionNowBadge } from '../components/SessionStrip';
 
 interface CandlestickData {
   time: UTCTimestamp;
@@ -87,10 +89,10 @@ interface TradeLockerHistoryCandle {
 }
 
 type ChartType = 'candlestick' | 'line' | 'area';
-type DrawingTool = 'pan' | 'select' | 'trend' | 'horizontal' | 'sr' | 'rectangle' | 'fib' | 'text';
+type DrawingTool = 'pan' | 'select' | 'trend' | 'horizontal' | 'sr' | 'rectangle' | 'fib' | 'fib-ext' | 'text';
 type DrawingPoint = { time: number; price: number };
 
-type ManualDrawing = { id: string; type: Exclude<DrawingTool, 'select' | 'pan'>; points: DrawingPoint[]; text?: string; color?: string; locked?: boolean; lineStyle?: 'solid' | 'dashed'; showPrice?: boolean };
+type ManualDrawing = { id: string; type: Exclude<DrawingTool, 'select' | 'pan'>; points: DrawingPoint[]; text?: string; color?: string; locked?: boolean; lineStyle?: 'solid' | 'dashed'; showPrice?: boolean; customLevels?: number[] };
 
 interface SymbolInfo {
   symbol: string;
@@ -242,6 +244,12 @@ const TradingView: React.FC = () => {
   const calcPriceLinesRef = useRef<{ entry?: unknown; stop?: unknown; tp1?: unknown; tp2?: unknown; tp3?: unknown }>({});
   // Custom Fibonacci levels selected by the user (overrides the manual retracement default set when set).
   const [customFibLevels, setCustomFibLevels] = useState<number[] | null>(null);
+  // Right-click context menu on a fib drawing (add extension / custom level / lock / delete).
+  const [fibContextMenu, setFibContextMenu] = useState<{ x: number; y: number; drawingId: string } | null>(null);
+  // When set, the next chart click adds a 3rd point to the named fib drawing (extension flow).
+  const [pendingExtension, setPendingExtension] = useState<string | null>(null);
+  // Tracks progress through a 3-point fib-extension draw: 0 idle, 1 placed p0, 2 placed p1.
+  const [fibExtDraftStep, setFibExtDraftStep] = useState<0 | 1 | 2>(0);
   const [drawingRailCollapsed, setDrawingRailCollapsed] = useState(false);
   const [drawingRevision, setDrawingRevision] = useState(0);
   const [drawingColor, setDrawingColor] = useState('#22d3ee');
@@ -353,6 +361,14 @@ const TradingView: React.FC = () => {
   const handleDrawingPointerDown = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
     if (drawingTool === 'select' || drawingTool === 'pan') return;
     const point = drawingPointFromEvent(event); if (!point) return;
+    // Pending extension from right-click menu: next click becomes the 3rd point of the named fib.
+    if (pendingExtension) {
+      const targetId = pendingExtension;
+      setPendingExtension(null);
+      addExtensionPointToFib(targetId, point);
+      setDrawingTool('select');
+      return;
+    }
     if (drawingTool === 'horizontal' || drawingTool === 'sr') {
       saveDrawingChange([...drawings, { id: crypto.randomUUID(), type: drawingTool, points: [point], color: drawingColor, lineStyle: drawingTool === 'sr' ? 'dashed' : 'solid', showPrice: true }]);
       return;
@@ -362,13 +378,37 @@ const TradingView: React.FC = () => {
       if (text?.trim()) saveDrawingChange([...drawings, { id: crypto.randomUUID(), type: 'text', points: [point], text: text.trim(), color: drawingColor, showPrice: false }]);
       return;
     }
+    if (drawingTool === 'fib-ext') {
+      if (fibExtDraftStep === 0) {
+        setDraftDrawing({ id: crypto.randomUUID(), type: 'fib-ext', points: [point, point, point], color: drawingColor, lineStyle: 'dashed', showPrice: true });
+        setFibExtDraftStep(1);
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } else if (fibExtDraftStep === 1 && draftDrawing && draftDrawing.type === 'fib-ext') {
+        setDraftDrawing({ ...draftDrawing, points: [draftDrawing.points[0], point, point] });
+        setFibExtDraftStep(2);
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } else if (fibExtDraftStep === 2 && draftDrawing && draftDrawing.type === 'fib-ext') {
+        const final = { ...draftDrawing, points: [draftDrawing.points[0], draftDrawing.points[1], point] };
+        saveDrawingChange([...drawings, final]);
+        setDraftDrawing(null);
+        setFibExtDraftStep(0);
+        setDrawingTool('select');
+        setSelectedDrawingId(final.id);
+      }
+      return;
+    }
     setDraftDrawing({ id: crypto.randomUUID(), type: drawingTool, points: [point, point], color: drawingColor, lineStyle: drawingTool === 'fib' ? 'dashed' : 'solid', showPrice: true });
     event.currentTarget.setPointerCapture(event.pointerId);
-  }, [drawingTool, drawingPointFromEvent, drawings, saveDrawingChange, drawingColor]);
+  }, [drawingTool, drawingPointFromEvent, drawings, saveDrawingChange, drawingColor, pendingExtension, fibExtDraftStep, draftDrawing]);
   const handleDrawingPointerMove = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
     if (!draftDrawing) return; const point = drawingPointFromEvent(event); if (!point) return;
+    if (draftDrawing.type === 'fib-ext') {
+      if (fibExtDraftStep === 1) setDraftDrawing({ ...draftDrawing, points: [draftDrawing.points[0], point, point] });
+      else if (fibExtDraftStep === 2) setDraftDrawing({ ...draftDrawing, points: [draftDrawing.points[0], draftDrawing.points[1], point] });
+      return;
+    }
     setDraftDrawing({ ...draftDrawing, points: [draftDrawing.points[0], point] });
-  }, [draftDrawing, drawingPointFromEvent]);
+  }, [draftDrawing, drawingPointFromEvent, fibExtDraftStep]);
   const handleDrawingPointerUp = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
     if (!draftDrawing) return; const point = drawingPointFromEvent(event) || draftDrawing.points[1];
     const next = { ...draftDrawing, points: [draftDrawing.points[0], point] };
@@ -384,6 +424,34 @@ const TradingView: React.FC = () => {
   const handleAnchorPointerMove = (event: React.PointerEvent<SVGCircleElement>, drawingId: string, pointIndex: number) => { if (!event.currentTarget.hasPointerCapture(event.pointerId)) return; const point=drawingPointFromClient(event.clientX,event.clientY); if (!point) return; setDrawings((current)=>current.map((drawing)=>drawing.id===drawingId?{...drawing,points:drawing.points.map((existing,index)=>index===pointIndex?point:existing)}:drawing)); };
   const handleAnchorPointerUp = (event: React.PointerEvent<SVGCircleElement>) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); };
   const clearDrawings = () => { if (drawings.length && window.confirm('Clear drawings for this symbol and timeframe?')) { saveDrawingChange([]); setSelectedDrawingId(null); } };
+
+  // ---- Fib extension helpers ----
+  // Add a custom level ratio to an existing fib drawing (persists per drawing).
+  const addCustomLevelToFib = (drawingId: string, level: number) => {
+    if (!Number.isFinite(level) || level <= 0 || level >= 10) return;
+    saveDrawingChange(drawings.map((d) => {
+      if (d.id !== drawingId) return d;
+      const existing = d.customLevels || [];
+      if (existing.includes(level)) return d;
+      return { ...d, customLevels: [...existing, level].sort((a, b) => a - b) };
+    }));
+  };
+  const removeCustomLevelFromFib = (drawingId: string, level: number) => {
+    saveDrawingChange(drawings.map((d) => {
+      if (d.id !== drawingId) return d;
+      const existing = d.customLevels || [];
+      return { ...d, customLevels: existing.filter((l) => l !== level) };
+    }));
+  };
+  // Add a 3rd point to a 2-point fib, turning it into a fib extension (uses p2 as projection direction).
+  const addExtensionPointToFib = (drawingId: string, point: DrawingPoint) => {
+    saveDrawingChange(drawings.map((d) => {
+      if (d.id !== drawingId) return d;
+      if (d.points.length < 2) return d;
+      return { ...d, points: [d.points[0], d.points[1], point] };
+    }));
+    setSelectedDrawingId(drawingId);
+  };
   const drawingCoordinates = (drawing: ManualDrawing) => { const series = candlestickSeriesRef.current || mainSeriesRef.current; return drawing.points.map((point) => ({ x: chartRef.current?.timeScale().timeToCoordinate(point.time as UTCTimestamp) ?? null, y: series?.priceToCoordinate(point.price) ?? null })); };
 
   const mapTradeLockerType = (instrument: any): SymbolInfo['type'] => {
@@ -2422,7 +2490,7 @@ const TradingView: React.FC = () => {
         <span className="mr-2 text-[9px] font-black tracking-widest cx-text-faint">DRAW</span>
         {([
           ['pan', Hand, 'Pan chart'], ['select', MousePointer2, 'Select drawing'], ['trend', LineChart, 'Trend line'], ['horizontal', Minus, 'Horizontal line'],
-          ['sr', Target, 'S/R level'], ['rectangle', Square, 'Rectangle / zone'], ['fib', Percent, 'Fibonacci retracement'], ['text', Type, 'Text annotation'],
+          ['sr', Target, 'S/R level'], ['rectangle', Square, 'Rectangle / zone'], ['fib', Percent, 'Fibonacci retracement'], ['fib-ext', ArrowUpRight, 'Fibonacci extension (3-point)'], ['text', Type, 'Text annotation'],
         ] as const).map(([tool, Icon, label]) => <button key={tool} onClick={() => setDrawingTool(tool)} title={label} className={`rounded-md p-2 transition ${drawingTool === tool ? 'bg-cyan-400/15 text-cyan-300' : 'cx-text-faint hover:cx-bg-card-hover hover:cx-text'}`}><Icon className="h-4 w-4"/></button>)}
         <div className="mx-2 h-5 w-px bg-white/10"/>
         <input type="color" value={selectedDrawing?.color || drawingColor} onChange={(event) => { setDrawingColor(event.target.value); if (selectedDrawing) updateSelectedDrawing({color:event.target.value}); }} title="Drawing color" className="h-7 w-7 cursor-pointer rounded border-0 bg-transparent p-0"/>
@@ -2514,6 +2582,7 @@ const TradingView: React.FC = () => {
             className="w-full min-w-0 min-h-0 overflow-hidden"
             style={{ flex: '1 1 60%' }}
           />
+          <SessionStrip chart={chartRef.current} />
           {showVolume && (
             <div className="relative border-t cx-border">
               <div className="absolute left-2 top-1 z-10 rounded bg-black/40 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest cx-text-muted">
@@ -2745,10 +2814,61 @@ const TradingView: React.FC = () => {
             if (points.length < 2) return null;
             if (drawing.type === 'trend') return <g key={drawing.id}><line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke="transparent" strokeWidth="14" onPointerDown={select} style={{pointerEvents:'stroke'}}/><line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke={stroke} strokeWidth={selected ? 2.5 : 1.7} strokeDasharray={dash} onPointerDown={select} style={{ pointerEvents: 'stroke' }}/>{drawing.showPrice && <text x={points[1].x!+5} y={points[1].y!-5} fill={stroke} fontSize="9">{drawing.points[1].price.toFixed(2)}</text>}{anchors}</g>;
             if (drawing.type === 'rectangle') { const x=Math.min(points[0].x!,points[1].x!), y=Math.min(points[0].y!,points[1].y!), width=Math.abs(points[1].x!-points[0].x!), height=Math.abs(points[1].y!-points[0].y!); return <g key={drawing.id}><rect x={x} y={y} width={width} height={height} fill={`${stroke}18`} stroke={stroke} strokeDasharray={dash} strokeWidth={selected ? 2 : 1.5} onPointerDown={select} style={{ pointerEvents: 'all' }}/>{drawing.showPrice && <text x={x+4} y={y+12} fill={stroke} fontSize="9">{Math.min(...drawing.points.map((point)=>point.price)).toFixed(2)}-{Math.max(...drawing.points.map((point)=>point.price)).toFixed(2)}</text>}{anchors}</g>; }
-            if (drawing.type === 'fib') { const ratios = customFibLevels && customFibLevels.length > 0 ? customFibLevels : [0,.236,.382,.5,.618,.786,1,1.272,1.618]; const ax=Math.min(points[0].x!,points[1].x!), bx=Math.max(points[0].x!,points[1].x!); const width=Math.max(0,bx-ax); const top=Math.min(points[0].y!,points[1].y!), height=Math.max(0,Math.abs(points[1].y!-points[0].y!)); const decimals=getDecimalPlaces(selectedSymbol); return <g key={drawing.id} onPointerDown={select}><rect x={ax} y={top} width={width} height={height} fill={`${stroke}10`} stroke={stroke} strokeDasharray="2 4" strokeWidth={0.5} style={{ pointerEvents: 'none' }}/>{ratios.map((ratio) => { const y=points[0].y!+(points[1].y!-points[0].y!)*ratio; const price=drawing.points[0].price+(drawing.points[1].price-drawing.points[0].price)*ratio; const golden=Number(ratio)===0.618 || Number(ratio)===0.65; const extension=ratio>1; const color=golden?'#c084fc':extension?'#67e8f9':stroke; return <g key={ratio}><line x1={ax} x2={bx} y1={y} y2={y} stroke={color} strokeWidth={selected ? 1.6 : 1} strokeDasharray={dash || (extension ? '6 4' : '4 3')} opacity={0.85} style={{ pointerEvents: 'none' }}/>{drawing.showPrice !== false && <g transform={`translate(${bx-4}, ${y})`} style={{ pointerEvents: 'none' }}><rect x={-50} y={-7} width={48} height={14} rx={3} fill={color} opacity={0.85} /><text x={-26} y={3} textAnchor="middle" fill="#0b1020" fontSize="9" fontWeight={800}>{ratio} · {price.toFixed(decimals)}</text></g>}</g>; })}<line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke={stroke} strokeWidth={selected ? 2 : 1.4} strokeDasharray="2 3" style={{ pointerEvents: 'none' }}/>{anchors}</g>; }
+            if (drawing.type === 'fib' || drawing.type === 'fib-ext') { const baseRatios = customFibLevels && customFibLevels.length > 0 ? customFibLevels : [0,.236,.382,.5,.618,.786,1,1.272,1.618]; const ratios = [...baseRatios, ...(drawing.customLevels || [])].filter((r, i, arr) => arr.indexOf(r) === i).sort((a, b) => a - b); const ax=Math.min(points[0].x!,points[1].x!), bx=Math.max(points[0].x!,points[1].x!); const width=Math.max(0,bx-ax); const top=Math.min(points[0].y!,points[1].y!), height=Math.max(0,Math.abs(points[1].y!-points[0].y!)); const decimals=getDecimalPlaces(selectedSymbol); const isExtension = drawing.type === 'fib-ext' || points.length >= 3; const extensionRatios = [1, 1.272, 1.618, 2, 2.618]; return <g key={drawing.id} onPointerDown={select} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setFibContextMenu({ x: event.clientX, y: event.clientY, drawingId: drawing.id }); }}><rect x={ax} y={top} width={width} height={height} fill={`${stroke}10`} stroke={stroke} strokeDasharray="2 4" strokeWidth={0.5} style={{ pointerEvents: 'none' }}/>{ratios.map((ratio) => { const y=points[0].y!+(points[1].y!-points[0].y!)*ratio; const price=drawing.points[0].price+(drawing.points[1].price-drawing.points[0].price)*ratio; const golden=Number(ratio)===0.618 || Number(ratio)===0.65; const extension=ratio>1; const color=golden?'#c084fc':extension?'#67e8f9':stroke; const isCustom = drawing.customLevels?.includes(ratio); return <g key={ratio}><line x1={ax} x2={bx} y1={y} y2={y} stroke={color} strokeWidth={selected ? 1.6 : isCustom ? 1.2 : 1} strokeDasharray={dash || (extension ? '6 4' : isCustom ? '3 3' : '4 3')} opacity={0.85} style={{ pointerEvents: 'none' }}/>{drawing.showPrice !== false && <g transform={`translate(${bx-4}, ${y})`} style={{ pointerEvents: 'none' }}><rect x={-50} y={-7} width={48} height={14} rx={3} fill={color} opacity={0.85} /><text x={-26} y={3} textAnchor="middle" fill="#0b1020" fontSize="9" fontWeight={800}>{ratio} · {price.toFixed(decimals)}</text></g>}</g>; })}{isExtension && points.length >= 3 && points[2] && extensionRatios.map((r) => { const extPrice = drawing.points[1].price + (drawing.points[1].price - drawing.points[0].price) * (r - 1); const y = points[1].y! + (points[1].y! - points[0].y!) * (r - 1); return <g key={`ext-${r}`}><line x1={points[1].x!} x2="100%" y1={y} y2={y} stroke="#67e8f9" strokeWidth={selected ? 1.6 : 1} strokeDasharray="6 4" opacity={0.7} style={{ pointerEvents: 'none' }}/><g transform={`translate(${bx + 8}, ${y})`} style={{ pointerEvents: 'none' }}><rect x={-50} y={-7} width={48} height={14} rx={3} fill="#67e8f9" opacity={0.85} /><text x={-26} y={3} textAnchor="middle" fill="#0b1020" fontSize="9" fontWeight={800}>E{r} · {extPrice.toFixed(decimals)}</text></g></g>; })}<line x1={points[0].x!} y1={points[0].y!} x2={points[1].x!} y2={points[1].y!} stroke={stroke} strokeWidth={selected ? 2 : 1.4} strokeDasharray="2 3" style={{ pointerEvents: 'none' }}/>{points.length >= 3 && points[2] && <line x1={points[1].x!} y1={points[1].y!} x2={points[2].x!} y2={points[2].y!} stroke={stroke} strokeWidth={1} strokeDasharray="2 4" opacity={0.5} style={{ pointerEvents: 'none' }}/>}{anchors}</g>; }
             return null;
           })}
         </svg>}
+
+        {/* Fib right-click context menu */}
+        {fibContextMenu && (() => {
+          const target = drawings.find((d) => d.id === fibContextMenu.drawingId);
+          if (!target || (target.type !== 'fib' && target.type !== 'fib-ext')) return null;
+          const isExtension = target.points.length >= 3;
+          const customList = target.customLevels || [];
+          const close = () => setFibContextMenu(null);
+          const toggleLock = () => { saveDrawingChange(drawings.map((d) => d.id === target.id ? { ...d, locked: !d.locked } : d)); close(); };
+          const remove = () => { if (window.confirm('Delete this Fibonacci drawing?')) { saveDrawingChange(drawings.filter((d) => d.id !== target.id)); setSelectedDrawingId(null); } close(); };
+          const addExt = () => { setPendingExtension(target.id); setDrawingTool('select'); close(); };
+          const clearCustom = () => { saveDrawingChange(drawings.map((d) => d.id === target.id ? { ...d, customLevels: [] } : d)); close(); };
+          const addCustom = () => { const raw = window.prompt('Add custom Fib level (e.g. 0.886, 1.5, 2.618):'); if (raw == null) return; const v = Number(raw); if (!Number.isFinite(v) || v <= 0 || v >= 10) { window.alert('Enter a number between 0 and 10 (e.g. 0.886, 1.5).'); return; } addCustomLevelToFib(target.id, v); close(); };
+          const removeCustomAt = (lvl: number) => removeCustomLevelFromFib(target.id, lvl);
+          return (
+            <>
+              <div className="fixed inset-0 z-[60]" onClick={close} onContextMenu={(e) => { e.preventDefault(); close(); }} />
+              <div className="fixed z-[61] min-w-[220px] rounded-xl border border-violet-400/30 cx-bg-elev/98 p-1 text-[11px] cx-text shadow-2xl backdrop-blur" style={{ left: fibContextMenu.x, top: fibContextMenu.y }} onClick={(e) => e.stopPropagation()}>
+                <div className="px-2 py-1 text-[9px] font-black uppercase tracking-widest text-violet-300">Fib {target.locked ? '(locked)' : isExtension ? 'Extension' : 'Retracement'}</div>
+                {!isExtension && (
+                  <button onClick={addExt} className="flex w-full items-center justify-between rounded px-2 py-1.5 hover:bg-violet-400/10 text-violet-200">
+                    <span>+ Add Extension Point</span><span className="text-[8px] cx-text-faint">3rd click</span>
+                  </button>
+                )}
+                <button onClick={addCustom} className="flex w-full items-center justify-between rounded px-2 py-1.5 hover:bg-fuchsia-400/10 text-fuchsia-200">
+                  <span>+ Add Custom Level</span><span className="text-[8px] cx-text-faint">e.g. 0.886</span>
+                </button>
+                {customList.length > 0 && (
+                  <div className="border-t cx-border pt-1 mt-1">
+                    <div className="px-2 py-0.5 text-[8px] font-bold uppercase tracking-widest cx-text-faint">Custom levels</div>
+                    {customList.map((lvl) => (
+                      <button key={lvl} onClick={() => removeCustomAt(lvl)} className="flex w-full items-center justify-between rounded px-2 py-1 hover:bg-rose-400/10 text-rose-300">
+                        <span>− Remove {lvl.toString().replace(/^0\./, '.')}</span>
+                      </button>
+                    ))}
+                    <button onClick={clearCustom} className="flex w-full items-center justify-between rounded px-2 py-1 hover:bg-rose-400/10 text-rose-300 text-[10px]">Clear all custom levels</button>
+                  </div>
+                )}
+                <div className="border-t cx-border pt-1 mt-1">
+                  <button onClick={toggleLock} className="flex w-full items-center justify-between rounded px-2 py-1.5 hover:bg-cyan-400/10">
+                    <span>{target.locked ? '🔓 Unlock' : '🔒 Lock'}</span>
+                  </button>
+                  <button onClick={remove} className="flex w-full items-center justify-between rounded px-2 py-1.5 hover:bg-rose-400/10 text-rose-300">
+                    <span>✕ Delete</span>
+                  </button>
+                </div>
+                <div className="px-2 py-1 text-[8px] cx-text-faint border-t cx-border mt-1">Right-click the chart to dismiss · Click outside to close</div>
+              </div>
+            </>
+          );
+        })()}
 
         {/* Pattern Info Overlay */}
         {(harmonicPatterns.length > 0 || trendLines.length > 0 || fibonacciLevels.length > 0) && (
