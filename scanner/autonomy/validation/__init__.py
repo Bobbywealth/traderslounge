@@ -11,6 +11,7 @@ Provides:
 from .forward_engine import ForwardEngine, ForwardForecast, ForecastOutcome
 from .calibration import CalibrationAnalyzer, CalibrationResult
 from .segmentation import SegmentationAnalyzer, SegmentResult
+from .sample_data import generate_sample_forecasts, resolve_sample_forecasts
 
 __all__ = [
     'ForwardEngine',
@@ -20,4 +21,6 @@ __all__ = [
     'CalibrationResult',
     'SegmentationAnalyzer',
     'SegmentResult',
+    'generate_sample_forecasts',
+    'resolve_sample_forecasts',
 ]

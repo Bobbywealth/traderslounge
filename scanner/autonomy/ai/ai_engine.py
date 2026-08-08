@@ -34,8 +34,15 @@ class AIEngine:
     """
     
     def __init__(self, llm_client=None):
-        self._llm_client = llm_client
+        from .llm_client import LLMClient
+        self._llm_client = llm_client or LLMClient()
         self._context: Dict[str, Any] = {}
+    
+    def _generate_with_llm(self, prompt: str, system_prompt: str = None) -> Optional[str]:
+        """Generate response using LLM if available, otherwise return None."""
+        if self._llm_client and self._llm_client.is_available:
+            return self._llm_client.generate(prompt, system_prompt)
+        return None
     
     def set_context(self, key: str, value: Any):
         """Set context for AI responses."""
