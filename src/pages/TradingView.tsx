@@ -2555,6 +2555,7 @@ const TradingView: React.FC = () => {
           />
         )}
         <div className="ml-auto flex items-center gap-1">
+          <SessionNowBadge />
           <button onClick={() => { setRightPanelTab(rightPanelTab === 'tools' ? null : 'tools'); setShowTechnicalControls(rightPanelTab !== 'tools'); }} className={`rounded px-2.5 py-1 text-[9px] transition ${rightPanelTab === 'tools' ? 'bg-cyan-400/20 text-cyan-300' : 'cx-bg-card-hover cx-text-muted hover:bg-white/[0.1]'}`}>Tools</button>
           <button onClick={() => { setRightPanelTab(rightPanelTab === 'details' ? null : 'details'); setShowChartContext(rightPanelTab !== 'details'); }} className={`rounded px-2.5 py-1 text-[9px] transition ${rightPanelTab === 'details' ? 'bg-cyan-400/20 text-cyan-300' : 'cx-bg-card-hover cx-text-muted hover:bg-white/[0.1]'}`}>Details</button>
           <button onClick={() => { setRightPanelTab(rightPanelTab === 'guide' ? null : 'guide'); setShowSetupGuide(rightPanelTab !== 'guide'); }} className={`rounded px-2.5 py-1 text-[9px] transition ${rightPanelTab === 'guide' ? 'bg-cyan-400/20 text-cyan-300' : 'cx-bg-card-hover cx-text-muted hover:bg-white/[0.1]'}`}>Guide</button>
