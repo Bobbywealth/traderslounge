@@ -220,6 +220,8 @@ const TradingView: React.FC = () => {
   const [fibonacciLevels, setFibonacciLevels] = useState<FibonacciLevel[]>([]);
   const [showHarmonics, setShowHarmonics] = useState(true);
   const [showSwingMarkers, setShowSwingMarkers] = useState(true);
+  // Per-candle outline rectangles drawn over swing high/low candles, recomputed on chart scroll/zoom.
+  const [swingOverlayRects, setSwingOverlayRects] = useState<Array<{ x: number; y: number; width: number; height: number; color: string; label: string; key: string }>>([]);
   const [showTrendLines, setShowTrendLines] = useState(true);
   const [showFibonacci, setShowFibonacci] = useState(false); // V2 auto-fib horizontal lines default OFF — manual retracement + FibonacciPanel are the primary interface
   const [showSupportResistance, setShowSupportResistance] = useState(true);
@@ -1316,6 +1318,75 @@ const TradingView: React.FC = () => {
     } catch (error) {
       console.warn('Failed to update swing markers:', error);
     }
+  }, [candles, cryptoAnalysis?.direction, showSwingMarkers]);
+
+  // Swing candle outlines: draw a colored rectangle around each swing candle's full price range
+  // (high to low), updated on chart scroll/zoom so the highlight tracks the visible candle.
+  useEffect(() => {
+    const chart = chartRef.current;
+    const series = candlestickSeriesRef.current;
+    if (!chart || !series || !candles || candles.length < 8 || !showSwingMarkers) {
+      setSwingOverlayRects([]);
+      return;
+    }
+    const lookback = 3;
+    const dir = String(cryptoAnalysis?.direction || 'NEUTRAL').toUpperCase();
+    const start = Math.max(lookback, candles.length - 250);
+    const update = () => {
+      try {
+        const ts = chart.timeScale();
+        const candleSpacing = ts.getBarSpacing ? ts.getBarSpacing() : 8;
+        const candleWidth = Math.max(3, candleSpacing * 0.78);
+        const rects: typeof swingOverlayRects = [];
+        for (let i = start; i < candles.length - lookback; i++) {
+          const c = candles[i] as any;
+          const high = Number(c.high ?? c.h ?? 0);
+          const low = Number(c.low ?? c.l ?? 0);
+          const time = Number(c.time ?? c.t ?? 0);
+          if (!high || !low || !time) continue;
+          let isHigh = true;
+          let isLow = true;
+          for (let j = 1; j <= lookback; j++) {
+            const before = candles[i - j] as any;
+            const after = candles[i + j] as any;
+            const bH = Number(before.high ?? before.h ?? 0);
+            const aH = Number(after.high ?? after.h ?? 0);
+            const bL = Number(before.low ?? before.l ?? 0);
+            const aL = Number(after.low ?? after.l ?? 0);
+            if (high <= bH || high <= aH) isHigh = false;
+            if (low >= bL || low >= aL) isLow = false;
+          }
+          if (!isHigh && !isLow) continue;
+          const xCenter = ts.timeToCoordinate(time as UTCTimestamp);
+          if (xCenter == null) continue;
+          const yHigh = series.priceToCoordinate(high);
+          const yLow = series.priceToCoordinate(low);
+          if (yHigh == null || yLow == null) continue;
+          const isSwingHigh = isHigh && !isLow;
+          const color = isSwingHigh
+            ? (dir === 'SELL' ? '#ef4444' : '#94a3b8')
+            : (dir === 'BUY' ? '#10b981' : '#94a3b8');
+          rects.push({
+            x: xCenter - candleWidth / 2,
+            y: Math.min(yHigh, yLow),
+            width: candleWidth,
+            height: Math.max(2, Math.abs(yLow - yHigh)),
+            color,
+            label: isSwingHigh ? 'SH' : 'SL',
+            key: `${time}-${isSwingHigh ? 'H' : 'L'}`,
+          });
+        }
+        setSwingOverlayRects(rects);
+      } catch (err) {
+        console.warn('Failed to update swing overlays:', err);
+      }
+    };
+    update();
+    const handler = () => update();
+    chart.timeScale().subscribeVisibleTimeRangeChange(handler);
+    return () => {
+      try { chart.timeScale().unsubscribeVisibleTimeRangeChange(handler); } catch { /* noop */ }
+    };
   }, [candles, cryptoAnalysis?.direction, showSwingMarkers]);
 
   // ADR changes slowly, so refresh once per minute rather than on every
@@ -2653,6 +2724,28 @@ const TradingView: React.FC = () => {
             className="w-full min-w-0 min-h-0 overflow-hidden"
             style={{ flex: '1 1 60%' }}
           />
+          {/* Swing candle outlines: per-candle colored rectangles around swing highs/lows. */}
+          {showSwingMarkers && swingOverlayRects.length > 0 && (
+            <div className="pointer-events-none absolute inset-0 z-[15]" style={{ flex: '1 1 60%' }}>
+              {swingOverlayRects.map((rect) => (
+                <div
+                  key={rect.key}
+                  className="absolute"
+                  style={{
+                    left: rect.x,
+                    top: rect.y,
+                    width: rect.width,
+                    height: rect.height,
+                    boxSizing: 'border-box',
+                    border: `2px solid ${rect.color}`,
+                    borderRadius: 1,
+                    boxShadow: `0 0 8px ${rect.color}88, inset 0 0 6px ${rect.color}33`,
+                  }}
+                  title={rect.label === 'SH' ? 'Swing High' : 'Swing Low'}
+                />
+              ))}
+            </div>
+          )}
           <SessionStrip chart={chartRef.current} />
           {showVolume && (
             <div className="relative border-t cx-border">
