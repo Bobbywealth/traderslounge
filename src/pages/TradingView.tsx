@@ -1596,10 +1596,10 @@ const TradingView: React.FC = () => {
 
     // Create/update EMA series for each visible config
     const emaSeriesRefs = new Map<number, ISeriesApi<'Line'>>();
-    
+
     for (const config of emaConfigs) {
       if (!config.visible) continue;
-      
+
       const result = emaResults.get(config.period);
       if (!result) continue;
 
@@ -1636,7 +1636,12 @@ const TradingView: React.FC = () => {
         }
       }
     };
-  }, [chart, showEma, emaConfigs, emaResults, emaCandles]);
+    // 'chart' is intentionally NOT in the deps: it is declared as
+    // `const chart = chartRef.current` inside this effect, so a reference
+    // here would throw "chart is not defined" at render time. Reading
+    // chartRef.current in the deps achieves the same linter intent
+    // (re-run when the chart instance changes) without the closure trap.
+  }, [chartRef.current, showEma, emaConfigs, emaResults, emaCandles]);
 
   // Prominent filled XABCD geometry, rendered above the chart canvases.
   useEffect(() => {
