@@ -38,7 +38,9 @@ import {
   Copy,
   Magnet,
   Tag,
-  Hand
+  Hand,
+  Calculator,
+  Hash
 } from 'lucide-react';
 import { liveDataService, HarmonicPattern, TrendLine, FibonacciLevel } from '../services/liveDataService';
 import { tradeLockerService, TradeLockerConfig } from '../services/tradeLockerService';
@@ -47,6 +49,8 @@ import ConfluenceXLogo from '../components/ConfluenceXLogo';
 import DataAttribution from '../components/DataAttribution';
 import ChartAiAnalysisPanel from '../components/ChartAiAnalysisPanel';
 import { bwtsApi, type ChartAiAnalysis, type CryptoAnalysis } from '../services/bwtsApi';
+import { PositionSizeCalculator, type CalcLevels, type SetupSnapshot, type AssetClass } from '../components/PositionSizeCalculator';
+import { FibonacciPanel } from '../components/FibonacciPanel';
 
 interface CandlestickData {
   time: UTCTimestamp;
@@ -232,7 +236,12 @@ const TradingView: React.FC = () => {
   const [showChartContext, setShowChartContext] = useState(false);
   const [showTechnicalControls, setShowTechnicalControls] = useState(false);
   const [overlayDensity, setOverlayDensity] = useState<'minimal' | 'confluence' | 'full'>('confluence');
-  const [rightPanelTab, setRightPanelTab] = useState<'tools' | 'details' | 'guide' | null>(null);
+  const [rightPanelTab, setRightPanelTab] = useState<'tools' | 'details' | 'guide' | 'calc' | 'fib' | null>(null);
+  // Position-size calculator chart overlay (entry/SL/TP price lines).
+  const [calcLevels, setCalcLevels] = useState<CalcLevels | null>(null);
+  const calcPriceLinesRef = useRef<{ entry?: unknown; stop?: unknown; tp1?: unknown; tp2?: unknown; tp3?: unknown }>({});
+  // Custom Fibonacci levels selected by the user (overrides the manual retracement default set when set).
+  const [customFibLevels, setCustomFibLevels] = useState<number[] | null>(null);
   const [drawingRailCollapsed, setDrawingRailCollapsed] = useState(false);
   const [drawingRevision, setDrawingRevision] = useState(0);
   const [drawingColor, setDrawingColor] = useState('#22d3ee');
@@ -2002,6 +2011,96 @@ const TradingView: React.FC = () => {
   const fibContext = fibData?.context;
   const fibTopCluster = Array.isArray(fibData?.clusters) ? fibData.clusters[0] : null;
   const fibHtfConflicts = Array.isArray(fibContext?.htf_conflicts) ? fibContext.htf_conflicts : [];
+
+  // Asset class drives pip math, position-sizing units, and lot conventions in the calculator.
+  const assetClass: AssetClass = useMemo(() => {
+    const info = BWTS_SYMBOLS.find((s) => s.symbol === selectedSymbol);
+    if (!info) return 'crypto';
+    return info.type as AssetClass;
+  }, [selectedSymbol]);
+
+  // Snapshot of the active setup, passed to the calculator so it can pre-fill entry/SL/TPs.
+  const setupSnapshot: SetupSnapshot | null = useMemo(() => {
+    const plan = cryptoAnalysis?.trade_plan;
+    if (!plan) return null;
+    const targets = Array.isArray(plan.targets)
+      ? plan.targets.slice(0, 3).map((t: any) => Number(t?.price ?? t)).filter((v: number) => Number.isFinite(v))
+      : [];
+    return {
+      direction: plan.direction || null,
+      entry: Number.isFinite(Number(plan.entry)) ? Number(plan.entry) : null,
+      stop: Number.isFinite(Number(plan.stop)) ? Number(plan.stop) : null,
+      invalidation: Number.isFinite(Number(plan.invalidation)) ? Number(plan.invalidation) : null,
+      targets,
+      atr: Number.isFinite(Number(cryptoAnalysis?.indicators?.atr)) ? Number(cryptoAnalysis.indicators.atr) : null,
+    };
+  }, [cryptoAnalysis]);
+
+  // One-click auto-Fib: find the most recent swing in the visible candles and add a manual retracement.
+  const handleAutoFib = useCallback(() => {
+    if (!candles || candles.length < 5) return;
+    const window = candles.slice(-80); // last 80 candles
+    let hiIdx = 0; let loIdx = 0;
+    let hiPrice = -Infinity; let loPrice = Infinity;
+    for (let i = 0; i < window.length; i++) {
+      const c = window[i] as any;
+      const high = Number(c.high ?? c.h ?? 0);
+      const low = Number(c.low ?? c.l ?? Infinity);
+      if (high > hiPrice) { hiPrice = high; hiIdx = i; }
+      if (low < loPrice) { loPrice = low; loIdx = i; }
+    }
+    const highCandle = window[hiIdx] as any;
+    const lowCandle = window[loIdx] as any;
+    const highTime = Number(highCandle.time ?? highCandle.t ?? 0);
+    const lowTime = Number(lowCandle.time ?? lowCandle.t ?? 0);
+    const highPrice = Number(highCandle.high ?? highCandle.h ?? 0);
+    const lowPrice = Number(lowCandle.low ?? lowCandle.l ?? 0);
+    if (!highTime || !lowTime || !highPrice || !lowPrice) return;
+    // Always draw leg from swing low → swing high so user sees classic 0/1 origin at the swing low.
+    const p1 = loIdx <= hiIdx ? { time: lowTime, price: lowPrice } : { time: highTime, price: highPrice };
+    const p2 = loIdx <= hiIdx ? { time: highTime, price: highPrice } : { time: lowTime, price: lowPrice };
+    const id = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `fib-${Date.now()}`;
+    const newDrawing: ManualDrawing = {
+      id,
+      type: 'fib',
+      points: [p1, p2],
+      color: '#c084fc',
+      lineStyle: 'dashed',
+      showPrice: true,
+    };
+    saveDrawingChange([...drawings, newDrawing]);
+    setShowManualDrawings(true);
+    setDrawingTool('select');
+    setSelectedDrawingId(id);
+  }, [candles, drawings, saveDrawingChange]);
+
+  // Position-size chart overlay: render entry/SL/TP price lines on the main series.
+  useEffect(() => {
+    const series = candlestickSeriesRef.current || mainSeriesRef.current;
+    if (!series) return;
+    const handles = calcPriceLinesRef.current;
+    // Remove any lines that should no longer exist (or all if calcLevels is null).
+    const keys: Array<keyof typeof handles> = ['entry', 'stop', 'tp1', 'tp2', 'tp3'];
+    for (const k of keys) {
+      if (handles[k] && (!calcLevels || !(calcLevels as any)[k] || k === 'stop' && !calcLevels?.stop)) {
+        try { (series as any).removePriceLine(handles[k]); } catch { /* noop */ }
+        handles[k] = undefined;
+      }
+    }
+    if (!calcLevels) return;
+    const make = (price: number, color: string, title: string, lineWidth = 2, lineStyle = 0) => {
+      try {
+        return (series as any).createPriceLine({
+          price, color, lineWidth, lineStyle, axisLabelVisible: true, title,
+        });
+      } catch { return undefined; }
+    };
+    if (!handles.entry && calcLevels.entry) handles.entry = make(calcLevels.entry, '#22d3ee', `${calcLevels.direction === 'long' ? '▲' : '▼'} Entry`);
+    if (!handles.stop && calcLevels.stop) handles.stop = make(calcLevels.stop, '#fb7185', '✕ Stop', 2, 1);
+    if (!handles.tp1 && calcLevels.tp1) handles.tp1 = make(calcLevels.tp1, '#34d399', 'TP1', 1, 2);
+    if (!handles.tp2 && calcLevels.tp2) handles.tp2 = make(calcLevels.tp2, '#10b981', 'TP2', 1, 2);
+    if (!handles.tp3 && calcLevels.tp3) handles.tp3 = make(calcLevels.tp3, '#059669', 'TP3', 1, 2);
+  }, [calcLevels]);
   const fibWaitFor = Array.isArray(fibContext?.wait_for) ? fibContext.wait_for.slice(0, 3).map((item: string) => item.replace(/_/g, ' ')) : [];
 
   return (
@@ -2361,6 +2460,8 @@ const TradingView: React.FC = () => {
           <button onClick={() => { setRightPanelTab(rightPanelTab === 'tools' ? null : 'tools'); setShowTechnicalControls(rightPanelTab !== 'tools'); }} className={`rounded px-2.5 py-1 text-[9px] transition ${rightPanelTab === 'tools' ? 'bg-cyan-400/20 text-cyan-300' : 'cx-bg-card-hover cx-text-muted hover:bg-white/[0.1]'}`}>Tools</button>
           <button onClick={() => { setRightPanelTab(rightPanelTab === 'details' ? null : 'details'); setShowChartContext(rightPanelTab !== 'details'); }} className={`rounded px-2.5 py-1 text-[9px] transition ${rightPanelTab === 'details' ? 'bg-cyan-400/20 text-cyan-300' : 'cx-bg-card-hover cx-text-muted hover:bg-white/[0.1]'}`}>Details</button>
           <button onClick={() => { setRightPanelTab(rightPanelTab === 'guide' ? null : 'guide'); setShowSetupGuide(rightPanelTab !== 'guide'); }} className={`rounded px-2.5 py-1 text-[9px] transition ${rightPanelTab === 'guide' ? 'bg-cyan-400/20 text-cyan-300' : 'cx-bg-card-hover cx-text-muted hover:bg-white/[0.1]'}`}>Guide</button>
+          <button onClick={() => { setRightPanelTab(rightPanelTab === 'calc' ? null : 'calc'); setShowSetupGuide(rightPanelTab !== 'calc' && rightPanelTab === 'guide' ? false : showSetupGuide); }} className={`flex items-center gap-1 rounded px-2.5 py-1 text-[9px] font-black transition ${rightPanelTab === 'calc' ? 'bg-cyan-400/20 text-cyan-300' : 'cx-bg-card-hover cx-text-muted hover:bg-white/[0.1]'}`}><Calculator className="h-3 w-3" />Calc</button>
+          <button onClick={() => { setRightPanelTab(rightPanelTab === 'fib' ? null : 'fib'); }} className={`flex items-center gap-1 rounded px-2.5 py-1 text-[9px] font-black transition ${rightPanelTab === 'fib' ? 'bg-purple-400/20 text-purple-300' : 'cx-bg-card-hover cx-text-muted hover:bg-white/[0.1]'}`}><Hash className="h-3 w-3" />Fib</button>
           <button onClick={() => setOverlayDensity(overlayDensity === 'minimal' ? 'confluence' : overlayDensity === 'confluence' ? 'full' : 'minimal')} title="Overlay density" className="rounded px-2 py-1 text-[8px] font-black uppercase tracking-wider cx-text-faint hover:cx-bg-card-hover hover:cx-text">{overlayDensity}</button>
         </div>
       </div>
@@ -2665,7 +2766,7 @@ const TradingView: React.FC = () => {
           <div className="fixed right-0 top-0 bottom-0 z-50 w-80 max-w-[85vw] overflow-y-auto border-l cx-border bg-gray-800 p-3 space-y-3 shadow-2xl md:static md:w-72 md:max-w-none md:shadow-none md:z-auto shrink-0">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-black uppercase tracking-widest text-cyan-300">
-              {rightPanelTab === 'tools' ? 'OVERLAYS & TOOLS' : rightPanelTab === 'details' ? 'MARKET DETAILS' : 'SETUP GUIDE'}
+              {rightPanelTab === 'tools' ? 'OVERLAYS & TOOLS' : rightPanelTab === 'details' ? 'MARKET DETAILS' : rightPanelTab === 'calc' ? 'POSITION SIZE & RISK' : rightPanelTab === 'fib' ? 'FIBONACCI TOOLS' : 'SETUP GUIDE'}
             </span>
             <button onClick={() => { setRightPanelTab(null); setShowTechnicalControls(false); setShowChartContext(false); setShowSetupGuide(false); }} className="rounded p-1 cx-text-faint hover:cx-text text-xs">x</button>
           </div>
@@ -2803,6 +2904,58 @@ const TradingView: React.FC = () => {
                   />
                 )}
               </SetupGuideHero>
+            </div>
+          )}
+
+          {rightPanelTab === 'calc' && (
+            <div className="space-y-2 text-xs">
+              <PositionSizeCalculator
+                symbol={selectedSymbol}
+                assetClass={assetClass}
+                currentPrice={currentPrice}
+                setup={setupSnapshot}
+                onLevelsChange={setCalcLevels}
+              />
+              <div className="rounded-md border border-cyan-400/15 cx-bg-card px-2 py-1.5 text-[10px] cx-text-muted leading-relaxed">
+                <div className="text-[9px] font-black uppercase tracking-widest text-cyan-300 mb-1">HOW TO USE</div>
+                <ul className="list-disc list-inside space-y-0.5 cx-text-faint">
+                  <li>Set account size + risk % (or tap a preset).</li>
+                  <li>Enter entry + stop. TPs auto-populate from the active setup or fill manually.</li>
+                  <li>Position size and R-multiple ladder update live. Price lines draw on the chart.</li>
+                  <li>Pip math adapts to asset class — FX lots, gold oz/100, crypto units, stock shares.</li>
+                  <li>Click <b className="text-emerald-300">↓ FILL FROM ACTIVE SETUP</b> to auto-populate from the V2 trade plan.</li>
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {rightPanelTab === 'fib' && (
+            <div className="space-y-2 text-xs">
+              <FibonacciPanel
+                symbol={selectedSymbol}
+                timeframe={timeframe}
+                onAutoFib={handleAutoFib}
+                onLevelsChange={setCustomFibLevels}
+              />
+              <div className="rounded-md border border-purple-400/15 cx-bg-card px-2 py-1.5 text-[10px] cx-text-muted leading-relaxed">
+                <div className="text-[9px] font-black uppercase tracking-widest text-purple-300 mb-1">FIB TOOLS</div>
+                <ul className="list-disc list-inside space-y-0.5 cx-text-faint">
+                  <li>Tap default levels to hide/show them in your manual retracements.</li>
+                  <li>Add custom levels (e.g. 0.886, 1.5, 2.618) for your own playbook.</li>
+                  <li><b className="text-purple-300">⚡ AUTO</b> places a Fibonacci retracement on the most recent swing in view.</li>
+                  <li>Use the <b className="text-cyan-300">Fib retracement</b> tool in the left toolbar for manual drawings.</li>
+                </ul>
+              </div>
+              {customFibLevels && customFibLevels.length > 0 && (
+                <div className="rounded-md border border-fuchsia-400/15 cx-bg-card px-2 py-1.5 text-[10px]">
+                  <div className="text-[9px] font-black uppercase tracking-widest text-fuchsia-300 mb-1">ACTIVE LEVELS</div>
+                  <div className="flex flex-wrap gap-1">
+                    {customFibLevels.map((l) => (
+                      <span key={l} className="rounded border border-purple-400/30 bg-purple-400/10 px-2 py-0.5 text-[10px] font-black tabular-nums text-purple-300">{l.toString().replace(/^0\./, '.')}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
           </div>
