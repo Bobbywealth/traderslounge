@@ -143,6 +143,7 @@ const AppContent: React.FC = () => {
                 <Route path="/trades" element={<TradingTable />} />
                 <Route path="/tradingview" element={<TradingView />} />
                 <Route path="/calendar" element={<EconomicNews />} />
+                <Route path="/economic-news" element={<Navigate to="/calendar" replace />} />
                 <Route path="/education" element={<Education />} />
                 <Route path="/community" element={<Community />} />
               </Routes>
