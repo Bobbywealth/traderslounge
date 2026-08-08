@@ -271,6 +271,10 @@ class ApiState:
     market_event_repo: Optional[Any] = None
     trade_setup_repo: Optional[Any] = None
     trade_outcome_repo: Optional[Any] = None
+    # Optional bot runner for automated trading. Populated when the
+    # BotRunner class is available; /api/bot/* endpoints return 503
+    # when this is None.
+    bot_runner: Optional[Any] = None
 
 
 # Module-level state pointer — http.server's handler API doesn't make
