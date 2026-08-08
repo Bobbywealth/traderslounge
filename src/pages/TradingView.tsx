@@ -2571,7 +2571,7 @@ const TradingView: React.FC = () => {
           </div>
 
           {/* Center Section - Timeframes */}
-          <div className="flex items-center space-x-1 overflow-x-auto scrollbar-none">
+          <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
             {timeframes.map(tf => (
               <button
                 key={tf.value}
