@@ -480,74 +480,79 @@ class PostgresRepository:
                 return int(row["id"])
 
     def recent(self, limit: int = 50) -> List[dict]:
-        with self.conn.cursor() as cur:
-            cur.execute(
-                "SELECT * FROM signals ORDER BY created_at DESC, id DESC LIMIT %s",
-                (limit,),
-            )
-            return list(cur.fetchall())
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM signals ORDER BY created_at DESC, id DESC LIMIT %s",
+                    (limit,),
+                )
+                return list(cur.fetchall())
 
     def by_pair(self, pair: str, limit: int = 50) -> List[dict]:
-        with self.conn.cursor() as cur:
-            cur.execute(
-                "SELECT * FROM signals WHERE pair = %s ORDER BY created_at DESC LIMIT %s",
-                (pair, limit),
-            )
-            return list(cur.fetchall())
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM signals WHERE pair = %s ORDER BY created_at DESC LIMIT %s",
+                    (pair, limit),
+                )
+                return list(cur.fetchall())
 
     def count(self) -> int:
-        with self.conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) AS n FROM signals")
-            return int(cur.fetchone()["n"])
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) AS n FROM signals")
+                return int(cur.fetchone()["n"])
 
     def publish_actionable(self, payload: dict) -> int:
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO published_signals (
-                    fingerprint, pair, direction, timeframe, score, setup_quality,
-                    entry, stop_loss, tp1, tp2, tp3, net_rr, risk_percent,
-                    calendar_status, scenario, rationale, source_candle_time,
-                    engine_version, status
-                ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s::jsonb, %s, %s, %s
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO published_signals (
+                        fingerprint, pair, direction, timeframe, score, setup_quality,
+                        entry, stop_loss, tp1, tp2, tp3, net_rr, risk_percent,
+                        calendar_status, scenario, rationale, source_candle_time,
+                        engine_version, status
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s::jsonb, %s, %s, %s
+                    )
+                    ON CONFLICT (fingerprint) DO UPDATE SET updated_at = NOW()
+                    RETURNING id
+                    """,
+                    (
+                        payload["fingerprint"], payload["pair"], payload["direction"],
+                        payload["timeframe"], payload["score"], payload["setup_quality"],
+                        payload["entry"], payload["stop_loss"], payload["tp1"],
+                        payload.get("tp2"), payload.get("tp3"), payload.get("net_rr"),
+                        payload.get("risk_percent"), payload["calendar_status"],
+                        payload["scenario"], json.dumps(payload.get("rationale") or []),
+                        payload.get("source_candle_time"), payload["engine_version"],
+                        payload.get("status", "ACTIVE"),
+                    ),
                 )
-                ON CONFLICT (fingerprint) DO UPDATE SET updated_at = NOW()
-                RETURNING id
-                """,
-                (
-                    payload["fingerprint"], payload["pair"], payload["direction"],
-                    payload["timeframe"], payload["score"], payload["setup_quality"],
-                    payload["entry"], payload["stop_loss"], payload["tp1"],
-                    payload.get("tp2"), payload.get("tp3"), payload.get("net_rr"),
-                    payload.get("risk_percent"), payload["calendar_status"],
-                    payload["scenario"], json.dumps(payload.get("rationale") or []),
-                    payload.get("source_candle_time"), payload["engine_version"],
-                    payload.get("status", "ACTIVE"),
-                ),
-            )
-            return int(cur.fetchone()["id"])
+                return int(cur.fetchone()["id"])
 
     def publish_actionable_once(self, payload: dict) -> tuple[int, bool]:
         """Persist one active call per pair/timeframe and report if it is new."""
         self._expire_stale_published()
-        with self.conn.cursor() as cur:
-            cur.execute(
-                "SELECT id, direction FROM published_signals "
-                "WHERE pair = %s AND timeframe = %s AND status = 'ACTIVE' "
-                "ORDER BY published_at DESC LIMIT 1",
-                (payload["pair"], payload["timeframe"]),
-            )
-            current = cur.fetchone()
-            if current is not None and str(current["direction"]).upper() == str(payload["direction"]).upper():
-                cur.execute("UPDATE published_signals SET updated_at = NOW() WHERE id = %s", (int(current["id"]),))
-                return int(current["id"]), False
-            if current is not None:
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
                 cur.execute(
-                    "UPDATE published_signals SET status = 'CANCELLED', updated_at = NOW() WHERE id = %s",
-                    (int(current["id"]),),
+                    "SELECT id, direction FROM published_signals "
+                    "WHERE pair = %s AND timeframe = %s AND status = 'ACTIVE' "
+                    "ORDER BY published_at DESC LIMIT 1",
+                    (payload["pair"], payload["timeframe"]),
                 )
+                current = cur.fetchone()
+                if current is not None and str(current["direction"]).upper() == str(payload["direction"]).upper():
+                    cur.execute("UPDATE published_signals SET updated_at = NOW() WHERE id = %s", (int(current["id"]),))
+                    return int(current["id"]), False
+                if current is not None:
+                    cur.execute(
+                        "UPDATE published_signals SET status = 'CANCELLED', updated_at = NOW() WHERE id = %s",
+                        (int(current["id"]),),
+                    )
         return self.publish_actionable(payload), True
 
     # An entry area goes stale long before this, but a call that is never
@@ -556,165 +561,176 @@ class PostgresRepository:
 
     def _expire_stale_published(self) -> None:
         try:
-            with self.conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE published_signals SET status = 'EXPIRED', updated_at = NOW() "
-                    "WHERE status = 'ACTIVE' AND published_at < NOW() - make_interval(hours => %s)",
-                    (self.PUBLISHED_TTL_HOURS,),
-                )
+            with self._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE published_signals SET status = 'EXPIRED', updated_at = NOW() "
+                        "WHERE status = 'ACTIVE' AND published_at < NOW() - make_interval(hours => %s)",
+                        (self.PUBLISHED_TTL_HOURS,),
+                    )
         except Exception:  # pragma: no cover — never block the feed on a sweep
             logging.exception("failed to expire stale published signals")
 
     def published(self, limit: int = 50, status: str | None = None) -> List[dict]:
         self._expire_stale_published()
-        with self.conn.cursor() as cur:
-            if status:
-                cur.execute(
-                    "SELECT * FROM published_signals WHERE status = %s ORDER BY published_at DESC LIMIT %s",
-                    (status, limit),
-                )
-            else:
-                cur.execute(
-                    "SELECT * FROM published_signals ORDER BY published_at DESC LIMIT %s",
-                    (limit,),
-                )
-            return list(cur.fetchall())
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                if status:
+                    cur.execute(
+                        "SELECT * FROM published_signals WHERE status = %s ORDER BY published_at DESC LIMIT %s",
+                        (status, limit),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT * FROM published_signals ORDER BY published_at DESC LIMIT %s",
+                        (limit,),
+                    )
+                return list(cur.fetchall())
 
     def get_alert_preferences(self, user_id: int) -> dict | None:
-        with self.conn.cursor() as cur:
-            cur.execute("SELECT preferences FROM alert_preferences WHERE user_id = %s", (int(user_id),))
-            row = cur.fetchone()
-            if not row:
-                return None
-            value = row["preferences"]
-            return dict(value) if isinstance(value, dict) else json.loads(value)
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT preferences FROM alert_preferences WHERE user_id = %s", (int(user_id),))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                value = row["preferences"]
+                return dict(value) if isinstance(value, dict) else json.loads(value)
 
     def upsert_alert_preferences(self, user_id: int, preferences: dict) -> dict:
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO alert_preferences (user_id, preferences, updated_at)
-                VALUES (%s, %s::jsonb, NOW())
-                ON CONFLICT (user_id) DO UPDATE SET
-                    preferences = EXCLUDED.preferences, updated_at = NOW()
-                """,
-                (int(user_id), json.dumps(preferences, default=str)),
-            )
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO alert_preferences (user_id, preferences, updated_at)
+                    VALUES (%s, %s::jsonb, NOW())
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        preferences = EXCLUDED.preferences, updated_at = NOW()
+                    """,
+                    (int(user_id), json.dumps(preferences, default=str)),
+                )
         return dict(preferences)
 
     def delete_alert_preferences(self, user_id: int) -> bool:
-        with self.conn.cursor() as cur:
-            cur.execute("DELETE FROM alert_preferences WHERE user_id = %s", (int(user_id),))
-            return bool(cur.rowcount)
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM alert_preferences WHERE user_id = %s", (int(user_id),))
+                return bool(cur.rowcount)
 
     def alert_preference_user_ids(self) -> List[int]:
-        with self.conn.cursor() as cur:
-            cur.execute("SELECT user_id FROM alert_preferences ORDER BY user_id")
-            return [int(row["user_id"]) for row in cur.fetchall()]
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT user_id FROM alert_preferences ORDER BY user_id")
+                return [int(row["user_id"]) for row in cur.fetchall()]
 
     def save_events(self, events: List[dict]) -> List[dict]:
         from .alert_preferences import alert_event_key
         inserted: List[dict] = []
-        with self.conn.cursor() as cur:
-            for event in events:
-                key = alert_event_key(event)
-                created_at = event.get("created_at")
-                cur.execute(
-                    """
-                    INSERT INTO alert_events (
-                        event_key, user_id, alert_type, pair, timeframe, title,
-                        body, severity, payload, created_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
-                    ON CONFLICT (event_key) DO NOTHING
-                    RETURNING event_key, created_at
-                    """,
-                    (
-                        key, int(event.get("user_id") or 0), str(event.get("alert_type") or ""),
-                        str(event.get("pair") or ""), event.get("timeframe"),
-                        str(event.get("title") or "Alert"), str(event.get("body") or ""),
-                        str(event.get("severity") or "info"),
-                        json.dumps(event.get("payload") or {}, default=str), created_at,
-                    ),
-                )
-                row = cur.fetchone()
-                if row:
-                    inserted.append({**event, "event_key": key, "created_at": row["created_at"]})
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                for event in events:
+                    key = alert_event_key(event)
+                    created_at = event.get("created_at")
+                    cur.execute(
+                        """
+                        INSERT INTO alert_events (
+                            event_key, user_id, alert_type, pair, timeframe, title,
+                            body, severity, payload, created_at
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+                        ON CONFLICT (event_key) DO NOTHING
+                        RETURNING event_key, created_at
+                        """,
+                        (
+                            key, int(event.get("user_id") or 0), str(event.get("alert_type") or ""),
+                            str(event.get("pair") or ""), event.get("timeframe"),
+                            str(event.get("title") or "Alert"), str(event.get("body") or ""),
+                            str(event.get("severity") or "info"),
+                            json.dumps(event.get("payload") or {}, default=str), created_at,
+                        ),
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        inserted.append({**event, "event_key": key, "created_at": row["created_at"]})
         return inserted
 
     def recent_for_user(self, user_id: int, limit: int = 50) -> List[dict]:
-        with self.conn.cursor() as cur:
-            cur.execute(
-                "SELECT * FROM alert_events WHERE user_id = %s ORDER BY created_at DESC LIMIT %s",
-                (int(user_id), int(limit)),
-            )
-            return list(cur.fetchall())
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM alert_events WHERE user_id = %s ORDER BY created_at DESC LIMIT %s",
+                    (int(user_id), int(limit)),
+                )
+                return list(cur.fetchall())
 
     def save_forecast(self, payload: dict) -> int:
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO analysis_forecasts (
-                    fingerprint, created_at, pair, timeframe, direction,
-                    forecast_weight, weight_label, setup_type, session,
-                    volatility_regime, score, setup_quality_score,
-                    execution_readiness_score, entry, stop_loss, target,
-                    engine_version, metadata, status
-                ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s::jsonb, %s
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO analysis_forecasts (
+                        fingerprint, created_at, pair, timeframe, direction,
+                        forecast_weight, weight_label, setup_type, session,
+                        volatility_regime, score, setup_quality_score,
+                        execution_readiness_score, entry, stop_loss, target,
+                        engine_version, metadata, status
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s::jsonb, %s
+                    )
+                    ON CONFLICT (fingerprint) DO UPDATE SET metadata = EXCLUDED.metadata
+                    RETURNING id
+                    """,
+                    (
+                        payload["fingerprint"], payload["created_at"], payload["pair"],
+                        payload["timeframe"], payload["direction"], payload["forecast_weight"],
+                        payload.get("weight_label", "scenario_weight"), payload.get("setup_type"),
+                        payload.get("session"), payload.get("volatility_regime"), payload.get("score"),
+                        payload.get("setup_quality_score"), payload.get("execution_readiness_score"),
+                        payload.get("entry"), payload.get("stop_loss"), payload.get("target"),
+                        payload.get("engine_version"), json.dumps(payload.get("metadata") or {}),
+                        payload.get("status", "PENDING"),
+                    ),
                 )
-                ON CONFLICT (fingerprint) DO UPDATE SET metadata = EXCLUDED.metadata
-                RETURNING id
-                """,
-                (
-                    payload["fingerprint"], payload["created_at"], payload["pair"],
-                    payload["timeframe"], payload["direction"], payload["forecast_weight"],
-                    payload.get("weight_label", "scenario_weight"), payload.get("setup_type"),
-                    payload.get("session"), payload.get("volatility_regime"), payload.get("score"),
-                    payload.get("setup_quality_score"), payload.get("execution_readiness_score"),
-                    payload.get("entry"), payload.get("stop_loss"), payload.get("target"),
-                    payload.get("engine_version"), json.dumps(payload.get("metadata") or {}),
-                    payload.get("status", "PENDING"),
-                ),
-            )
-            return int(cur.fetchone()["id"])
+                return int(cur.fetchone()["id"])
 
     def save_forecast_outcome(self, payload: dict) -> None:
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO forecast_outcomes (
-                    forecast_id, resolved_at, outcome, r_multiple, mae_r, mfe_r,
-                    holding_bars, exit_reason, review
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
-                ON CONFLICT (forecast_id) DO UPDATE SET
-                    resolved_at = EXCLUDED.resolved_at, outcome = EXCLUDED.outcome,
-                    r_multiple = EXCLUDED.r_multiple, mae_r = EXCLUDED.mae_r,
-                    mfe_r = EXCLUDED.mfe_r, holding_bars = EXCLUDED.holding_bars,
-                    exit_reason = EXCLUDED.exit_reason, review = EXCLUDED.review
-                """,
-                (
-                    payload["forecast_id"], payload["resolved_at"], bool(payload["outcome"]),
-                    payload.get("r_multiple"), payload.get("mae_r"), payload.get("mfe_r"),
-                    payload.get("holding_bars"), payload.get("exit_reason"),
-                    json.dumps(payload.get("review") or {}),
-                ),
-            )
-            cur.execute("UPDATE analysis_forecasts SET status = 'RESOLVED' WHERE id = %s", (payload["forecast_id"],))
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO forecast_outcomes (
+                        forecast_id, resolved_at, outcome, r_multiple, mae_r, mfe_r,
+                        holding_bars, exit_reason, review
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                    ON CONFLICT (forecast_id) DO UPDATE SET
+                        resolved_at = EXCLUDED.resolved_at, outcome = EXCLUDED.outcome,
+                        r_multiple = EXCLUDED.r_multiple, mae_r = EXCLUDED.mae_r,
+                        mfe_r = EXCLUDED.mfe_r, holding_bars = EXCLUDED.holding_bars,
+                        exit_reason = EXCLUDED.exit_reason, review = EXCLUDED.review
+                    """,
+                    (
+                        payload["forecast_id"], payload["resolved_at"], bool(payload["outcome"]),
+                        payload.get("r_multiple"), payload.get("mae_r"), payload.get("mfe_r"),
+                        payload.get("holding_bars"), payload.get("exit_reason"),
+                        json.dumps(payload.get("review") or {}),
+                    ),
+                )
+                cur.execute("UPDATE analysis_forecasts SET status = 'RESOLVED' WHERE id = %s", (payload["forecast_id"],))
 
     def forecast_rows(self, limit: int = 5000) -> List[dict]:
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT f.*, o.resolved_at, o.outcome, o.r_multiple, o.mae_r,
-                       o.mfe_r, o.holding_bars, o.exit_reason, o.review
-                FROM analysis_forecasts f
-                LEFT JOIN forecast_outcomes o ON o.forecast_id = f.id
-                ORDER BY f.created_at DESC LIMIT %s
-                """,
-                (limit,),
-            )
-            return list(cur.fetchall())
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT f.*, o.resolved_at, o.outcome, o.r_multiple, o.mae_r,
+                           o.mfe_r, o.holding_bars, o.exit_reason, o.review
+                    FROM analysis_forecasts f
+                    LEFT JOIN forecast_outcomes o ON o.forecast_id = f.id
+                    ORDER BY f.created_at DESC LIMIT %s
+                    """,
+                    (limit,),
+                )
+                return list(cur.fetchall())
 
     def close(self) -> None:
         self.conn.close()
