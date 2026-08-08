@@ -1,7 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries, createSeriesMarkers, type SeriesMarker, type Time } from 'lightweight-charts';
 import { createVolumePane, createRsiPane, computeVolume, computeRsi, detectDivergence, divergenceStyle, type Divergence } from '../components/chartPanes';
-import { computeEma, computeBollinger, mergeLineWithTime } from '../components/chartIndicators';
+import { computeBollinger, mergeLineWithTime } from '../components/chartIndicators';
+import { useEma } from '../hooks/useEma';
+import { EmaLegend } from '../components/EmaLegend';
+import { EmaSettingsPanel } from '../components/EmaSettingsPanel';
+import type { EmaConfig, CandleData as EmaCandleData } from '../indicators/ema/types';
 import { V2ScoreBadge, MtfBar, TradeLevels, TechnicalAnalysisTable, SetupGuideHero, CandlePatternMarkers, detectCandlePatterns } from '../components/ChartUxEnhancements';
 import {
   Settings,
@@ -200,8 +204,7 @@ const TradingView: React.FC = () => {
   const chartRef = useRef<IChartApi | null>(null);
   const volumeChartRef = useRef<IChartApi | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
-  const emaFastRef = useRef<ISeriesApi<'Line'> | null>(null);
-  const emaSlowRef = useRef<ISeriesApi<'Line'> | null>(null);
+  // Old EMA refs removed - now using useEma hook with dynamic configs
   const bollingerUpperRef = useRef<ISeriesApi<'Line'> | null>(null);
   const bollingerLowerRef = useRef<ISeriesApi<'Line'> | null>(null);
   const rsiChartRef = useRef<IChartApi | null>(null);
@@ -226,8 +229,15 @@ const TradingView: React.FC = () => {
   const [chartType, setChartType] = useState<ChartType>('candlestick');
   const [showVolume, setShowVolume] = useState(false);
   const [showRsi, setShowRsi] = useState(false);
-  const [showEma, setShowEma] = useState(false);
+  const [showEma, setShowEma] = useState(true);
   const [showBands, setShowBands] = useState(false);
+  const [emaSettingsOpen, setEmaSettingsOpen] = useState(false);
+  const [emaConfigs, setEmaConfigs] = useState<EmaConfig[]>([
+    { period: 9, source: 'close', color: '#22D3EE', width: 1.5, opacity: 1, visible: true, label: 'EMA 9' },
+    { period: 21, source: 'close', color: '#F472B6', width: 1.5, opacity: 1, visible: true, label: 'EMA 21' },
+    { period: 50, source: 'close', color: '#FBBF24', width: 2, opacity: 1, visible: true, label: 'EMA 50' },
+    { period: 200, source: 'close', color: '#A855F7', width: 2, opacity: 1, visible: true, label: 'EMA 200' },
+  ]);
   const [chartTheme, setChartTheme] = useState<'dark' | 'light'>('dark');
   const [chartRevision, setChartRevision] = useState(0);
   const [chartUpdatedAt, setChartUpdatedAt] = useState<Date | null>(null);
@@ -252,6 +262,36 @@ const TradingView: React.FC = () => {
     () => candleCacheRef.current[`${selectedSymbol}:${timeframe}`] || [],
     [selectedSymbol, timeframe, chartRevision],
   );
+  
+  // Convert candles to EMA format
+  const emaCandles = useMemo<EmaCandleData[]>(() => {
+    return candles.map(c => ({
+      time: c.time as any,
+      open: Number(c.open),
+      high: Number(c.high),
+      low: Number(c.low),
+      close: Number(c.close),
+    }));
+  }, [candles]);
+  
+  // Initialize EMA system
+  const {
+    emaResults,
+    emaState,
+    trendScore,
+    crossoverState,
+    legendItems,
+    trendBadge,
+    aiData: emaAiData,
+    alerts: emaAlerts,
+    setConfigs: setEmaConfigsInternal,
+    resetConfigs: resetEmaConfigs,
+    getEmaValuesAtCandle,
+  } = useEma({
+    candles: emaCandles,
+    configs: emaConfigs,
+  });
+  
   const [symbolSuggestions, setSymbolSuggestions] = useState<SymbolInfo[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
@@ -1518,16 +1558,11 @@ const TradingView: React.FC = () => {
     }
   }, [harmonicPatterns, showHarmonics]);
 
-  // Lightweight in-place indicators (EMA 20/50, Bollinger 20, 2). Drawing
-  // tools and overlays from TradingView proper are exposed in the toolbar
-  // below; these on-chart studies are part of the product.
+  // Bollinger Bands indicator (EMA now handled by useEma hook)
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
     const closeSeries = candles.length ? candles.map((c) => c.close) : [];
-    const periods = 20;
-    const fastKey = computeEma(closeSeries, 20);
-    const slowKey = computeEma(closeSeries, 50);
     const bollinger = computeBollinger(closeSeries, 20, 2);
 
     const ensureLine = (ref: React.MutableRefObject<ISeriesApi<'Line'> | null>, color: string, lineWidth: 1, lineStyle: LineStyle.Solid | LineStyle.Dashed = LineStyle.Solid, title: string) => {
@@ -1543,16 +1578,6 @@ const TradingView: React.FC = () => {
       }
     };
 
-    if (showEma && fastKey.length) {
-      ensureLine(emaFastRef, '#22d3ee', 1, LineStyle.Solid, 'EMA 20');
-      emaFastRef.current?.setData(mergeLineWithTime(candles, fastKey));
-    } else removeIfExists(emaFastRef);
-
-    if (showEma && slowKey.length) {
-      ensureLine(emaSlowRef, '#a78bfa', 1, LineStyle.Solid, 'EMA 50');
-      emaSlowRef.current?.setData(mergeLineWithTime(candles, slowKey));
-    } else removeIfExists(emaSlowRef);
-
     if (showBands && bollinger.upper.length) {
       ensureLine(bollingerUpperRef, '#f59e0b', 1, LineStyle.Dashed, 'BB upper');
       ensureLine(bollingerLowerRef, '#f59e0b', 1, LineStyle.Dashed, 'BB lower');
@@ -1562,7 +1587,56 @@ const TradingView: React.FC = () => {
       removeIfExists(bollingerUpperRef);
       removeIfExists(bollingerLowerRef);
     }
-  }, [candles, showEma, showBands, timeframe, selectedSymbol]);
+  }, [candles, showBands, timeframe, selectedSymbol]);
+
+  // EMA system: render EMA lines on chart using the new comprehensive EMA module
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !showEma || emaCandles.length === 0) return;
+
+    // Create/update EMA series for each visible config
+    const emaSeriesRefs = new Map<number, ISeriesApi<'Line'>>();
+    
+    for (const config of emaConfigs) {
+      if (!config.visible) continue;
+      
+      const result = emaResults.get(config.period);
+      if (!result) continue;
+
+      const series = chart.addSeries(LineSeries, {
+        color: config.color,
+        lineWidth: config.width as 1 | 2 | 3 | 4,
+        lineStyle: LineStyle.Solid,
+        title: `EMA ${config.period}`,
+        lastValueVisible: false,
+        priceLineVisible: false,
+      });
+
+      const lineData = result.values
+        .filter(v => v.isValid)
+        .map(v => ({
+          time: v.time as UTCTimestamp,
+          value: v.value,
+        }));
+
+      if (lineData.length > 0) {
+        series.setData(lineData);
+      }
+
+      emaSeriesRefs.set(config.period, series);
+    }
+
+    // Cleanup function
+    return () => {
+      for (const [period, series] of emaSeriesRefs) {
+        try {
+          chart.removeSeries(series);
+        } catch {
+          // Series might already be removed
+        }
+      }
+    };
+  }, [chart, showEma, emaConfigs, emaResults, emaCandles]);
 
   // Prominent filled XABCD geometry, rendered above the chart canvases.
   useEffect(() => {
@@ -2482,6 +2556,23 @@ const TradingView: React.FC = () => {
                 size="lg"
               />
             )}
+            
+            {/* EMA Legend and Settings */}
+            {showEma && legendItems.length > 0 && (
+              <div className="flex items-center gap-3">
+                <EmaLegend
+                  items={legendItems}
+                  trendBadge={trendBadge}
+                />
+                <EmaSettingsPanel
+                  configs={emaConfigs}
+                  onChange={setEmaConfigsInternal}
+                  onReset={resetEmaConfigs}
+                  isOpen={emaSettingsOpen}
+                  onToggle={() => setEmaSettingsOpen(!emaSettingsOpen)}
+                />
+              </div>
+            )}
           </div>
 
           {/* Center Section - Timeframes */}
@@ -2630,15 +2721,23 @@ const TradingView: React.FC = () => {
             </div>
             <div className="mt-3 mb-2 border-t cx-border pt-2 text-[9px] font-black tracking-widest cx-text-faint">ON-CHART</div>
             <div className="space-y-1">
-              <label className="flex items-center justify-between py-1.5 text-xs cx-text-muted hover:cx-bg-card rounded px-1">
-                <span>EMA 20 / 50</span>
-                <input
-                  type="checkbox"
-                  checked={showEma}
-                  onChange={(e) => setShowEma(e.target.checked)}
-                  className="rounded border-slate-500 text-emerald-500 focus:ring-emerald-500"
-                />
-              </label>
+              <div className="flex items-center justify-between py-1.5 text-xs cx-text-muted hover:cx-bg-card rounded px-1">
+                <span>EMA System</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={showEma}
+                    onChange={(e) => setShowEma(e.target.checked)}
+                    className="rounded border-slate-500 text-emerald-500 focus:ring-emerald-500"
+                  />
+                  <button
+                    onClick={() => setEmaSettingsOpen(!emaSettingsOpen)}
+                    className="rounded px-1.5 py-0.5 text-[9px] font-bold text-cyan-400 hover:bg-cyan-400/10"
+                  >
+                    Settings
+                  </button>
+                </div>
+              </div>
               <label className="flex items-center justify-between py-1.5 text-xs cx-text-muted hover:cx-bg-card rounded px-1">
                 <span>Bollinger Bands (20, 2)</span>
                 <input
@@ -2777,6 +2876,19 @@ const TradingView: React.FC = () => {
             className="w-full min-w-0 min-h-0 overflow-hidden"
             style={{ flex: '1 1 60%' }}
           />
+          
+          {/* EMA Settings Panel - floating over chart */}
+          {showEma && (
+            <div className="absolute top-2 right-2 z-30">
+              <EmaSettingsPanel
+                configs={emaConfigs}
+                onChange={setEmaConfigsInternal}
+                onReset={resetEmaConfigs}
+                isOpen={emaSettingsOpen}
+                onToggle={() => setEmaSettingsOpen(!emaSettingsOpen)}
+              />
+            </div>
+          )}
           {/* Swing candle outlines: per-candle colored rectangles around swing highs/lows. */}
           {showSwingMarkers && swingOverlayRects.length > 0 && (
             <div className="pointer-events-none absolute inset-0 z-[15]" style={{ flex: '1 1 60%' }}>
@@ -3171,10 +3283,18 @@ const TradingView: React.FC = () => {
               </label>
 
               <div className="border-t cx-border pt-2 mt-2 text-[9px] font-black uppercase tracking-widest cx-text-faint">ON-CHART</div>
-              <label className="flex items-center justify-between rounded px-2 py-1.5 cx-text-muted hover:cx-bg-card-hover text-xs">
-                <span>EMA 20 / 50</span>
-                <input type="checkbox" checked={showEma} onChange={(e) => setShowEma(e.target.checked)} className="rounded border-gray-600 text-emerald-500 focus:ring-emerald-500" />
-              </label>
+              <div className="flex items-center justify-between rounded px-2 py-1.5 cx-text-muted hover:cx-bg-card-hover text-xs">
+                <span>EMA System</span>
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" checked={showEma} onChange={(e) => setShowEma(e.target.checked)} className="rounded border-gray-600 text-emerald-500 focus:ring-emerald-500" />
+                  <button
+                    onClick={() => setEmaSettingsOpen(!emaSettingsOpen)}
+                    className="rounded px-1.5 py-0.5 text-[9px] font-bold text-cyan-400 hover:bg-cyan-400/10"
+                  >
+                    Settings
+                  </button>
+                </div>
+              </div>
               <label className="flex items-center justify-between rounded px-2 py-1.5 cx-text-muted hover:cx-bg-card-hover text-xs">
                 <span>Bollinger Bands</span>
                 <input type="checkbox" checked={showBands} onChange={(e) => setShowBands(e.target.checked)} className="rounded border-gray-600 text-blue-500 focus:ring-blue-500" />
