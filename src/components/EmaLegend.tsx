@@ -27,30 +27,31 @@ export const EmaLegend: React.FC<EmaLegendProps> = ({
   if (items.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
       {/* EMA Values */}
       {items.map((item) => {
         const displayValue = hoveredValues?.[item.period] ?? item.value;
         const isHovered = hoveredValues !== null && hoveredValues !== undefined;
-        
+
         return (
           <div
             key={item.period}
-            className="flex items-center gap-2"
+            className="flex items-center gap-1"
+            title={`EMA ${item.period}: ${formatPrice(displayValue)}${item.change !== 0 ? ` (${item.change > 0 ? '+' : ''}${item.changePercent.toFixed(2)}%)` : ''}`}
           >
             <div
-              className="h-2 w-2 rounded-full"
+              className="h-1.5 w-1.5 shrink-0 rounded-full"
               style={{ backgroundColor: item.color }}
             />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
-              EMA {item.period}
+            <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400">
+              {item.period}
             </span>
-            <span className="font-mono text-xs tabular-nums text-white">
+            <span className="font-mono text-[11px] tabular-nums text-white">
               {formatPrice(displayValue)}
             </span>
             {!isHovered && item.change !== 0 && (
               <span
-                className={`text-[10px] font-bold ${
+                className={`text-[9px] font-bold ${
                   item.change > 0 ? 'text-emerald-400' : 'text-rose-400'
                 }`}
               >
@@ -63,7 +64,7 @@ export const EmaLegend: React.FC<EmaLegendProps> = ({
 
       {/* Trend Badge */}
       {trendBadge && (
-        <div className="ml-2 border-l border-white/10 pl-3">
+        <div className="ml-1 border-l border-white/10 pl-2">
           <TrendBadge
             state={trendBadge.state}
             score={trendBadge.score}

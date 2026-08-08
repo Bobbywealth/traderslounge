@@ -2550,18 +2550,8 @@ const TradingView: React.FC = () => {
                 </div>
               </div>
             )}
-            {/* Hero V2 badge - the conviction signal the trader checks first */}
-            {cryptoAnalysis && (
-              <V2ScoreBadge
-                score={cryptoAnalysis.total_score}
-                direction={cryptoAnalysis.direction}
-                lifecycle={cryptoAnalysis.direction_stability?.lifecycle}
-                timingStatus={setupTimingStatus}
-                calendarStatus={setupCalendarStatus}
-                size="lg"
-              />
-            )}
-            
+            {/* Hero V2 badge moved to a top-left overlay over the chart canvas (see below) */}
+
             {/* EMA Legend and Settings */}
             {showEma && legendItems.length > 0 && (
               <div className="flex items-center gap-3">
@@ -2881,6 +2871,20 @@ const TradingView: React.FC = () => {
             className="w-full min-w-0 min-h-0 overflow-hidden"
             style={{ flex: '1 1 60%' }}
           />
+
+          {/* Hero V2 badge overlay - top-left of the chart canvas */}
+          {cryptoAnalysis && (
+            <div className="pointer-events-none absolute left-3 top-3 z-30">
+              <V2ScoreBadge
+                score={cryptoAnalysis.total_score}
+                direction={cryptoAnalysis.direction}
+                lifecycle={cryptoAnalysis.direction_stability?.lifecycle}
+                timingStatus={setupTimingStatus}
+                calendarStatus={setupCalendarStatus}
+                size="lg"
+              />
+            </div>
+          )}
           
           {/* EMA Settings Panel - floating over chart */}
           {showEma && (
