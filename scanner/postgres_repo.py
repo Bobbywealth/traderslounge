@@ -419,18 +419,32 @@ class PostgresRepository:
                 "psycopg is not installed — pip install 'psycopg[binary]' to enable Postgres"
             )
         self.dsn = dsn
+        self.conn = None
+        self._pool = None
+        
         # Use connection pool if available, otherwise create direct connection
-        from .db_pool import get_connection_pool
-        self._pool = get_connection_pool()
+        try:
+            from .db_pool import get_connection_pool
+            self._pool = get_connection_pool()
+        except Exception as e:
+            log.warning("Failed to create connection pool: %s", e)
+        
         if self._pool is None:
             # Fallback to direct connection (legacy behavior)
-            self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
-        else:
-            self.conn = None  # Will use pool connections
+            try:
+                self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+            except Exception as e:
+                log.error("Failed to connect to PostgreSQL: %s", e)
+                raise
+        
         # Initialize schema
-        with self._get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(SCHEMA)
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(SCHEMA)
+        except Exception as e:
+                log.error("Failed to initialize schema: %s", e)
+                raise
     
     def _get_connection(self):
         """Get a connection from the pool or use direct connection."""
@@ -715,7 +729,11 @@ class PostgresUserRepository:
         if not _AVAILABLE:
             raise RuntimeError("psycopg is not installed")
         self.dsn = dsn
-        self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+        try:
+            self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+        except Exception as e:
+            log.error("Failed to connect to PostgreSQL for user repo: %s", e)
+            raise
 
     def get_by_email(self, email: str) -> Optional[dict]:
         with self.conn.cursor() as cur:
@@ -780,7 +798,11 @@ class PostgresPositionRepository:
         if not _AVAILABLE:
             raise RuntimeError("psycopg is not installed")
         self.dsn = dsn
-        self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+        try:
+            self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+        except Exception as e:
+            log.error("Failed to connect to PostgreSQL for position repo: %s", e)
+            raise
 
     def upsert(self, pos: "Position") -> None:
         with self.conn.cursor() as cur:
@@ -832,7 +854,11 @@ class PostgresClosedTradeRepository:
         if not _AVAILABLE:
             raise RuntimeError("psycopg is not installed")
         self.dsn = dsn
-        self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+        try:
+            self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+        except Exception as e:
+            log.error("Failed to connect to PostgreSQL for closed trade repo: %s", e)
+            raise
 
     def save(self, trade: dict) -> int:
         with self.conn.cursor() as cur:
@@ -913,7 +939,11 @@ class PostgresTradeManagerStateRepository:
         if not _AVAILABLE:
             raise RuntimeError("psycopg is not installed")
         self.dsn = dsn
-        self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+        try:
+            self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+        except Exception as e:
+            log.error("Failed to connect to PostgreSQL for trade manager state repo: %s", e)
+            raise
 
     def upsert_state(self, position_id: str, tp1_taken: bool, opened_state: dict) -> None:
         with self.conn.cursor() as cur:
@@ -977,7 +1007,11 @@ class PostgresLastAnalysisRepository:
         if not _AVAILABLE:
             raise RuntimeError("psycopg is not installed")
         self.dsn = dsn
-        self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+        try:
+            self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+        except Exception as e:
+            log.error("Failed to connect to PostgreSQL for last analysis repo: %s", e)
+            raise
 
     def save_snapshot(self, pair: str, snapshot: dict) -> None:
         with self.conn.cursor() as cur:
