@@ -198,6 +198,205 @@ CREATE TABLE IF NOT EXISTS trade_manager_state (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- ===================================================================
+-- AUTONOMY TABLES (Phase A-E)
+-- ===================================================================
+
+-- Autonomous setups — persistent setup lifecycle tracking
+CREATE TABLE IF NOT EXISTS autonomy_setups (
+    setup_id TEXT PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    asset_class TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    timeframe TEXT NOT NULL DEFAULT 'H1',
+    macro_timeframe TEXT NOT NULL DEFAULT 'D1',
+    strategy_type TEXT NOT NULL DEFAULT 'confluence',
+    engine_version TEXT NOT NULL DEFAULT '2.0.0-alpha',
+    market_regime TEXT DEFAULT '',
+    session TEXT DEFAULT '',
+    score INTEGER NOT NULL DEFAULT 0,
+    score_components JSONB NOT NULL DEFAULT '{}'::jsonb,
+    entry_low DOUBLE PRECISION DEFAULT 0,
+    entry_high DOUBLE PRECISION DEFAULT 0,
+    entry_type TEXT DEFAULT '',
+    stop_loss DOUBLE PRECISION DEFAULT 0,
+    tp1 DOUBLE PRECISION DEFAULT 0,
+    tp2 DOUBLE PRECISION DEFAULT 0,
+    tp3 DOUBLE PRECISION DEFAULT 0,
+    expected_rr_tp1 DOUBLE PRECISION DEFAULT 0,
+    expected_rr_tp2 DOUBLE PRECISION DEFAULT 0,
+    expected_rr_tp3 DOUBLE PRECISION DEFAULT 0,
+    invalidation_price DOUBLE PRECISION DEFAULT 0,
+    invalidation_condition TEXT DEFAULT '',
+    technical_reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
+    macro_reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
+    risk_reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
+    news_state TEXT DEFAULT '',
+    data_quality TEXT DEFAULT 'healthy',
+    state TEXT NOT NULL DEFAULT 'detected',
+    state_reason TEXT DEFAULT '',
+    expires_at TIMESTAMPTZ,
+    forecast_id TEXT,
+    position_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_setups_symbol ON autonomy_setups(symbol);
+CREATE INDEX IF NOT EXISTS idx_setups_state ON autonomy_setups(state);
+CREATE INDEX IF NOT EXISTS idx_setups_score ON autonomy_setups(score DESC);
+
+-- Setup events — state transition history
+CREATE TABLE IF NOT EXISTS setup_events (
+    event_id TEXT PRIMARY KEY,
+    setup_id TEXT NOT NULL REFERENCES autonomy_setups(setup_id),
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    from_state TEXT,
+    to_state TEXT NOT NULL,
+    reason TEXT DEFAULT '',
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS idx_setup_events_setup ON setup_events(setup_id, timestamp DESC);
+
+-- Journal entries — complete trade history
+CREATE TABLE IF NOT EXISTS journal_entries (
+    setup_id TEXT PRIMARY KEY REFERENCES autonomy_setups(setup_id),
+    symbol TEXT NOT NULL,
+    asset_class TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    strategy_type TEXT NOT NULL,
+    engine_version TEXT NOT NULL,
+    detected_at TIMESTAMPTZ NOT NULL,
+    triggered_at TIMESTAMPTZ,
+    entry_at TIMESTAMPTZ,
+    closed_at TIMESTAMPTZ,
+    score INTEGER NOT NULL DEFAULT 0,
+    score_components JSONB NOT NULL DEFAULT '{}'::jsonb,
+    market_regime TEXT DEFAULT '',
+    session TEXT DEFAULT '',
+    news_state TEXT DEFAULT '',
+    data_quality TEXT DEFAULT '',
+    entry_price DOUBLE PRECISION DEFAULT 0,
+    stop_loss DOUBLE PRECISION DEFAULT 0,
+    tp1 DOUBLE PRECISION DEFAULT 0,
+    tp2 DOUBLE PRECISION DEFAULT 0,
+    tp3 DOUBLE PRECISION DEFAULT 0,
+    actual_entry DOUBLE PRECISION DEFAULT 0,
+    actual_exit DOUBLE PRECISION DEFAULT 0,
+    lot_size DOUBLE PRECISION DEFAULT 0,
+    fees DOUBLE PRECISION DEFAULT 0,
+    spread DOUBLE PRECISION DEFAULT 0,
+    slippage DOUBLE PRECISION DEFAULT 0,
+    outcome TEXT DEFAULT '',
+    r_multiple DOUBLE PRECISION DEFAULT 0,
+    pnl_usd DOUBLE PRECISION DEFAULT 0,
+    mfe_r DOUBLE PRECISION DEFAULT 0,
+    mae_r DOUBLE PRECISION DEFAULT 0,
+    exit_reason TEXT DEFAULT '',
+    holding_bars INTEGER DEFAULT 0,
+    holding_time_seconds DOUBLE PRECISION DEFAULT 0,
+    technical_reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
+    macro_reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
+    risk_reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
+    state_history JSONB NOT NULL DEFAULT '[]'::jsonb
+);
+CREATE INDEX IF NOT EXISTS idx_journal_symbol ON journal_entries(symbol);
+CREATE INDEX IF NOT EXISTS idx_journal_closed ON journal_entries(closed_at DESC);
+
+-- Forward forecasts — recorded before outcomes
+CREATE TABLE IF NOT EXISTS forward_forecasts (
+    forecast_id TEXT PRIMARY KEY,
+    fingerprint TEXT NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    entry_price DOUBLE PRECISION NOT NULL,
+    stop_loss DOUBLE PRECISION NOT NULL,
+    target_price DOUBLE PRECISION NOT NULL,
+    score INTEGER NOT NULL DEFAULT 0,
+    score_components JSONB NOT NULL DEFAULT '{}'::jsonb,
+    setup_type TEXT DEFAULT '',
+    session TEXT DEFAULT '',
+    volatility_regime TEXT DEFAULT '',
+    market_regime TEXT DEFAULT '',
+    engine_version TEXT DEFAULT '',
+    scoring_version TEXT DEFAULT '',
+    predicted_probability DOUBLE PRECISION DEFAULT 0.5,
+    confidence_class TEXT DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    resolved_at TIMESTAMPTZ,
+    outcome BOOLEAN,
+    r_multiple DOUBLE PRECISION,
+    mfe_r DOUBLE PRECISION,
+    mae_r DOUBLE PRECISION,
+    exit_price DOUBLE PRECISION,
+    exit_reason TEXT DEFAULT '',
+    holding_bars INTEGER DEFAULT 0,
+    holding_time_seconds DOUBLE PRECISION DEFAULT 0,
+    fees DOUBLE PRECISION DEFAULT 0,
+    spread DOUBLE PRECISION DEFAULT 0,
+    slippage DOUBLE PRECISION DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_forecasts_symbol ON forward_forecasts(symbol);
+CREATE INDEX IF NOT EXISTS idx_forecasts_status ON forward_forecasts(status);
+CREATE INDEX IF NOT EXISTS idx_forecasts_created ON forward_forecasts(created_at DESC);
+
+-- Market snapshots — persistent market memory
+CREATE TABLE IF NOT EXISTS market_snapshots (
+    id BIGSERIAL PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    price DOUBLE PRECISION DEFAULT 0,
+    bid DOUBLE PRECISION DEFAULT 0,
+    ask DOUBLE PRECISION DEFAULT 0,
+    spread DOUBLE PRECISION DEFAULT 0,
+    regime TEXT DEFAULT 'neutral',
+    trend TEXT DEFAULT '',
+    volatility TEXT DEFAULT 'normal',
+    last_bos TEXT,
+    last_choch TEXT,
+    key_support JSONB NOT NULL DEFAULT '[]'::jsonb,
+    key_resistance JSONB NOT NULL DEFAULT '[]'::jsonb,
+    liquidity_highs JSONB NOT NULL DEFAULT '[]'::jsonb,
+    liquidity_lows JSONB NOT NULL DEFAULT '[]'::jsonb,
+    swept_highs JSONB NOT NULL DEFAULT '[]'::jsonb,
+    swept_lows JSONB NOT NULL DEFAULT '[]'::jsonb,
+    session TEXT DEFAULT '',
+    session_high DOUBLE PRECISION DEFAULT 0,
+    session_low DOUBLE PRECISION DEFAULT 0,
+    ema_20 DOUBLE PRECISION DEFAULT 0,
+    ema_50 DOUBLE PRECISION DEFAULT 0,
+    rsi DOUBLE PRECISION DEFAULT 50,
+    adx DOUBLE PRECISION DEFAULT 0,
+    atr DOUBLE PRECISION DEFAULT 0,
+    news_state TEXT DEFAULT '',
+    next_event TEXT,
+    active_fib_leg JSONB
+);
+CREATE INDEX IF NOT EXISTS idx_snapshots_symbol ON market_snapshots(symbol, timestamp DESC);
+
+-- Worker heartbeats — system health monitoring
+CREATE TABLE IF NOT EXISTS worker_heartbeats (
+    worker_id TEXT PRIMARY KEY,
+    last_heartbeat TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    status TEXT NOT NULL DEFAULT 'healthy',
+    lag_seconds DOUBLE PRECISION DEFAULT 0,
+    version TEXT DEFAULT '',
+    message TEXT DEFAULT ''
+);
+
+-- Provider health — data source monitoring
+CREATE TABLE IF NOT EXISTS provider_health (
+    provider_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'healthy',
+    last_success TIMESTAMPTZ,
+    last_failure TIMESTAMPTZ,
+    error_count INTEGER DEFAULT 0,
+    latency_ms DOUBLE PRECISION DEFAULT 0,
+    message TEXT DEFAULT ''
+);
+
 -- Last analysis snapshot per pair — feeds the invalidation detector so
 -- it doesn't fire on every cycle after a restart. Replaces the in-memory
 -- last_analysis_by_pair dict.

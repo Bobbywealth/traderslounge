@@ -548,6 +548,21 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 return self._telegram_status()
             if path == "/api/validation/report":
                 return self._validation_report(query)
+            # Autonomy endpoints
+            if path == "/api/autonomy/status":
+                return self._autonomy_status()
+            if path == "/api/autonomy/setups":
+                return self._autonomy_setups(query)
+            if path == "/api/autonomy/opportunities":
+                return self._autonomy_opportunities(query)
+            if path == "/api/autonomy/journal":
+                return self._autonomy_journal(query)
+            if path == "/api/autonomy/regime":
+                return self._autonomy_regime(query)
+            if path == "/api/autonomy/news":
+                return self._autonomy_news()
+            if path == "/api/autonomy/alerts":
+                return self._autonomy_alerts(query)
             return self._error(404, f"unknown route: {path}")
         finally:
             duration_ms = (time.time() - start_time) * 1000
@@ -1944,6 +1959,101 @@ class _ApiHandler(BaseHTTPRequestHandler):
             })
         except Exception as exc:
             return self._error(500, f"validation report unavailable: {exc}")
+
+    # --- Autonomy endpoints ---
+
+    def _autonomy_status(self) -> None:
+        """Return autonomy system status."""
+        try:
+            from .autonomy import get_autonomy_status, get_autonomy_config
+            status = get_autonomy_status()
+            config = get_autonomy_config()
+            return self._json(200, {
+                'mode': config.mode.value,
+                'health': status.health.overall.value,
+                'components': {
+                    'market_data': status.health.market_data.value,
+                    'database': status.health.database.value,
+                    'scanner': status.health.scanner.value,
+                    'news': status.health.news.value,
+                    'execution': status.health.execution.value,
+                    'alerts': status.health.alerts.value,
+                },
+                'active_setups': status.active_setups,
+                'active_positions': status.active_positions,
+                'last_scan_time': status.last_scan_time,
+                'scan_count': status.instruments_scanned,
+                'engine_version': config.engine_version,
+            })
+        except Exception as exc:
+            return self._error(500, f'autonomy status unavailable: {exc}')
+
+    def _autonomy_setups(self, query: dict) -> None:
+        """Return active setups."""
+        try:
+            from .autonomy import get_autonomy_config
+            # This would query the setup lifecycle
+            # For now, return placeholder
+            return self._json(200, {
+                'setups': [],
+                'total': 0,
+                'message': 'Setup lifecycle endpoint ready',
+            })
+        except Exception as exc:
+            return self._error(500, f'autonomy setups unavailable: {exc}')
+
+    def _autonomy_opportunities(self, query: dict) -> None:
+        """Return ranked opportunities."""
+        try:
+            return self._json(200, {
+                'opportunities': [],
+                'total': 0,
+                'message': 'Opportunity scanner endpoint ready',
+            })
+        except Exception as exc:
+            return self._error(500, f'autonomy opportunities unavailable: {exc}')
+
+    def _autonomy_journal(self, query: dict) -> None:
+        """Return journal entries."""
+        try:
+            return self._json(200, {
+                'entries': [],
+                'total': 0,
+                'stats': {},
+                'message': 'Journal endpoint ready',
+            })
+        except Exception as exc:
+            return self._error(500, f'autonomy journal unavailable: {exc}')
+
+    def _autonomy_regime(self, query: dict) -> None:
+        """Return market regime data."""
+        try:
+            return self._json(200, {
+                'regimes': {},
+                'message': 'Regime engine endpoint ready',
+            })
+        except Exception as exc:
+            return self._error(500, f'autonomy regime unavailable: {exc}')
+
+    def _autonomy_news(self) -> None:
+        """Return news status."""
+        try:
+            from .autonomy import NewsEngine
+            engine = NewsEngine()
+            return self._json(200, engine.get_global_status())
+        except Exception as exc:
+            return self._error(500, f'autonomy news unavailable: {exc}')
+
+    def _autonomy_alerts(self, query: dict) -> None:
+        """Return active alerts."""
+        try:
+            return self._json(200, {
+                'alerts': [],
+                'total': 0,
+                'message': 'Alert engine endpoint ready',
+            })
+        except Exception as exc:
+            return self._error(500, f'autonomy alerts unavailable: {exc}')
 
     def _kill_status(self) -> None:
         ks = _STATE.kill_switch
