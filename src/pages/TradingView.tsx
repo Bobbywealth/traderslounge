@@ -146,6 +146,52 @@ const BWTS_SYMBOLS: SymbolInfo[] = [
   { symbol: 'QQQ', name: 'Invesco QQQ Trust (Nasdaq 100)', exchange: 'Financial Modeling Prep', type: 'stock' },
 ];
 
+// Pattern detector scoped to a single candle + its previous one. Mirrors the
+// detection rules in ChartUxEnhancements.detectCandlePatterns but works on
+// any candle in the array (not just the last), so we can label swing candles
+// with doji / hammer / shooting star / engulfing / spinning_top text.
+const PATTERN_LABELS: Record<string, string> = {
+  doji: 'DOJI',
+  hammer: 'HAMMER',
+  shooting_star: 'STAR',
+  engulfing: 'ENGULF',
+  spinning_top: 'SPIN',
+};
+function detectPatternAt(candle: any, prev: any): { type: string; direction: 'bullish' | 'bearish' | 'neutral'; label: string } | null {
+  const open = Number(candle?.open ?? candle?.o ?? 0);
+  const high = Number(candle?.high ?? candle?.h ?? 0);
+  const low = Number(candle?.low ?? candle?.l ?? 0);
+  const close = Number(candle?.close ?? candle?.c ?? 0);
+  if (!open || !high || !low || !close) return null;
+  const body = Math.abs(close - open);
+  const range = Math.max(high - low, 1e-9);
+  const upperWick = high - Math.max(close, open);
+  const lowerWick = Math.min(close, open) - low;
+  if (body / range < 0.1) return { type: 'doji', direction: 'neutral', label: PATTERN_LABELS.doji };
+  if (body / range < 0.3 && upperWick > body && lowerWick > body) return { type: 'spinning_top', direction: 'neutral', label: PATTERN_LABELS.spinning_top };
+  if (lowerWick > body * 2 && upperWick < body * 0.5) return { type: 'hammer', direction: 'bullish', label: PATTERN_LABELS.hammer };
+  if (upperWick > body * 2 && lowerWick < body * 0.5) return { type: 'shooting_star', direction: 'bearish', label: PATTERN_LABELS.shooting_star };
+  if (prev) {
+    const pOpen = Number(prev?.open ?? prev?.o ?? 0);
+    const pClose = Number(prev?.close ?? prev?.c ?? 0);
+    const prevBody = Math.abs(pClose - pOpen);
+    if (prevBody > 0 && body > prevBody) {
+      const prevDir = pClose > pOpen ? 'bullish' : 'bearish';
+      const currDir = close > open ? 'bullish' : 'bearish';
+      if (prevDir !== currDir) {
+        const prevHigh = Math.max(pClose, pOpen);
+        const prevLow = Math.min(pClose, pOpen);
+        const currHigh = Math.max(close, open);
+        const currLow = Math.min(close, open);
+        if (currHigh > prevHigh && currLow < prevLow) {
+          return { type: 'engulfing', direction: currDir, label: PATTERN_LABELS.engulfing };
+        }
+      }
+    }
+  }
+  return null;
+}
+
 const TradingView: React.FC = () => {
   const workspaceRef = useRef<HTMLDivElement>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -1275,6 +1321,7 @@ const TradingView: React.FC = () => {
     const markers: import('lightweight-charts').SeriesMarker<Time>[] = [];
     for (let i = start; i < candles.length - lookback; i++) {
       const c = candles[i] as any;
+      const prev = candles[i - 1] as any;
       const high = Number(c.high ?? c.h ?? 0);
       const low = Number(c.low ?? c.l ?? 0);
       const time = Number(c.time ?? c.t ?? 0);
@@ -1291,21 +1338,26 @@ const TradingView: React.FC = () => {
         if (high <= bH || high <= aH) isHigh = false;
         if (low >= bL || low >= aL) isLow = false;
       }
+      const pattern = detectPatternAt(c, prev);
+      const patternLabel = pattern ? pattern.label : '';
+      const isConfluence = pattern && ((pattern.direction === 'bullish' && isLow) || (pattern.direction === 'bearish' && isHigh));
       if (isHigh && !isLow) {
+        const isAligned = dir === 'SELL';
         markers.push({
           time: time as UTCTimestamp,
           position: 'aboveBar',
-          color: dir === 'SELL' ? '#ef4444' : '#94a3b8',
-          shape: 'arrowDown',
-          text: '',
+          color: isConfluence ? '#fbbf24' : isAligned ? '#ef4444' : '#94a3b8',
+          shape: isConfluence ? 'square' : 'arrowDown',
+          text: patternLabel,
         });
       } else if (isLow && !isHigh) {
+        const isAligned = dir === 'BUY';
         markers.push({
           time: time as UTCTimestamp,
           position: 'belowBar',
-          color: dir === 'BUY' ? '#10b981' : '#94a3b8',
-          shape: 'arrowUp',
-          text: '',
+          color: isConfluence ? '#fbbf24' : isAligned ? '#10b981' : '#94a3b8',
+          shape: isConfluence ? 'square' : 'arrowUp',
+          text: patternLabel,
         });
       }
     }
@@ -1363,16 +1415,22 @@ const TradingView: React.FC = () => {
           const yLow = series.priceToCoordinate(low);
           if (yHigh == null || yLow == null) continue;
           const isSwingHigh = isHigh && !isLow;
-          const color = isSwingHigh
-            ? (dir === 'SELL' ? '#ef4444' : '#94a3b8')
-            : (dir === 'BUY' ? '#10b981' : '#94a3b8');
+          const prev = candles[i - 1] as any;
+          const pattern = detectPatternAt(c, prev);
+          const isConfluence = pattern && ((pattern.direction === 'bullish' && isLow) || (pattern.direction === 'bearish' && isHigh));
+          const color = isConfluence
+            ? '#fbbf24'
+            : isSwingHigh
+              ? (dir === 'SELL' ? '#ef4444' : '#94a3b8')
+              : (dir === 'BUY' ? '#10b981' : '#94a3b8');
+          const labelSuffix = pattern ? ` ${pattern.label}` : '';
           rects.push({
             x: xCenter - candleWidth / 2,
             y: Math.min(yHigh, yLow),
             width: candleWidth,
             height: Math.max(2, Math.abs(yLow - yHigh)),
             color,
-            label: isSwingHigh ? 'SH' : 'SL',
+            label: (isSwingHigh ? 'SH' : 'SL') + labelSuffix,
             key: `${time}-${isSwingHigh ? 'H' : 'L'}`,
           });
         }
