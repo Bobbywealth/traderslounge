@@ -563,6 +563,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 return self._autonomy_news()
             if path == "/api/autonomy/alerts":
                 return self._autonomy_alerts(query)
+            if path == "/api/autonomy/activity":
+                return self._autonomy_activity(query)
             return self._error(404, f"unknown route: {path}")
         finally:
             duration_ms = (time.time() - start_time) * 1000
@@ -2110,6 +2112,18 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._json(200, {'alerts': rows, 'total': len(rows)})
         except Exception as exc:
             return self._error(500, f'autonomy alerts unavailable: {exc}')
+
+    def _autonomy_activity(self, query: dict) -> None:
+        """Return autonomous activity feed (real-time decision timeline)."""
+        try:
+            from .autonomy.loop import get_activity_feed
+            feed = get_activity_feed()
+            limit = _clamp_int(query.get('limit'), default=50, lo=1, hi=200)
+            category = str(query.get('category') or '') or None
+            entries = feed.get_recent(limit=limit, category=category)
+            return self._json(200, {'entries': entries, 'total': len(entries)})
+        except Exception as exc:
+            return self._error(500, f'autonomy activity unavailable: {exc}')
 
     def _kill_status(self) -> None:
         ks = _STATE.kill_switch

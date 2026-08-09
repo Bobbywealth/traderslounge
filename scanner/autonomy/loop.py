@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from typing import Optional
 
 from .config import AutonomyConfig, AutonomyMode, get_autonomy_config
@@ -22,6 +23,7 @@ from .news import NewsEngine, NewsRiskStatus
 from .regime import RegimeEngine
 from .alerts import AlertEngine, AlertType, AlertSeverity
 from .monitoring import SetupMonitor
+from .monitoring.activity_feed import ActivityFeed, ActivityEntry
 from .journal import TradingJournal
 from .memory import MarketMemory, MarketSnapshot
 from .paper import PaperBrokerAdapter, PaperPositionManager
@@ -31,6 +33,17 @@ from .ai import AIEngine
 from . import persistence as _persist
 
 log = logging.getLogger(__name__)
+
+# Module-level activity feed singleton so the API can read it
+_activity_feed: Optional[ActivityFeed] = None
+
+
+def get_activity_feed() -> ActivityFeed:
+    """Get the global activity feed (creates empty one if loop hasn't started)."""
+    global _activity_feed
+    if _activity_feed is None:
+        _activity_feed = ActivityFeed()
+    return _activity_feed
 
 
 class AutonomousLoop:
@@ -73,7 +86,11 @@ class AutonomousLoop:
         self.regime_engine = RegimeEngine()
         self.alert_engine = AlertEngine()
         self.setup_monitor = SetupMonitor(self.setup_lifecycle)
+        self.activity_feed = ActivityFeed()
         self.journal = TradingJournal()
+        # Register as global singleton so API can read it
+        global _activity_feed
+        _activity_feed = self.activity_feed
         self.memory = MarketMemory()
         self.paper_broker = PaperBrokerAdapter()
         self.position_manager = PaperPositionManager()
@@ -176,6 +193,7 @@ class AutonomousLoop:
             return
         
         cycle_start = time.time()
+        correlation_id = str(uuid.uuid4())[:8]
         
         try:
             # 1. Update market data + feed prices into paper broker
@@ -239,6 +257,10 @@ class AutonomousLoop:
                 news_risk = news_risks.get(symbol)
                 if news_risk and news_risk.status in (NewsRiskStatus.BLOCKED, NewsRiskStatus.POST_NEWS):
                     log.info("Skipping %s: news risk %s", symbol, news_risk.status.value)
+                    self.activity_feed.add('news', 'blocked', symbol,
+                        f'{symbol} blocked: {news_risk.status.value}',
+                        severity='warning',
+                        event_title=news_risk.event_title or '')
                     continue
                 
                 # Regime info for scanner (item 8)
@@ -364,6 +386,9 @@ class AutonomousLoop:
             
             if not assessment.approved:
                 log.debug("Risk rejected %s: %s", setup.symbol, assessment.reasons)
+                self.activity_feed.add('risk', 'rejected', setup.symbol,
+                    f'{setup.symbol} {setup.direction} rejected: {"; ".join(assessment.reasons[:2])}',
+                    severity='warning', setup_id=setup.setup_id)
                 # Transition to WATCH if not already
                 if setup.state == SetupState.READY:
                     self.setup_lifecycle.transition(
@@ -426,6 +451,9 @@ class AutonomousLoop:
                     log.info("Paper trade: %s %s @ %.5f, SL=%.5f, TP1=%.5f, forecast=%s",
                             setup.direction, setup.symbol, order.filled_price,
                             setup.stop_loss, setup.tp1, forecast.forecast_id)
+                    self.activity_feed.add('execution', 'filled', setup.symbol,
+                        f'{setup.direction} {setup.symbol} filled @ {order.filled_price:.5f}, SL={setup.stop_loss:.5f}, TP1={setup.tp1:.5f}',
+                        severity='info', setup_id=setup.setup_id)
             
             # If WATCH and risk approved → promote to READY
             elif setup.state == SetupState.WATCH and timing_status == 'READY':
@@ -505,6 +533,12 @@ class AutonomousLoop:
                 message=f"Setup {setup_id} changed to {state}",
                 setup_id=setup_id,
             )
+        
+        # Activity feed entry for all state changes
+        self.activity_feed.add('setup', state, event.get('symbol', ''),
+            f'{event.get("symbol", "?")} moved to {state.upper()} (score {event.get("score", 0)})',
+            severity='info' if state not in ('invalidated', 'expired') else 'warning',
+            setup_id=setup_id)
     
     def _on_monitor_alert(self, alert):
         """Handle monitoring alert."""
