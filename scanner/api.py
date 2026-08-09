@@ -483,7 +483,9 @@ class _ApiHandler(BaseHTTPRequestHandler):
 
             # Legacy protected paths check (signals/positions/journal)
             protected_paths = ['/api/signals', '/api/positions', '/api/journal', '/api/alerts',
-                               '/api/alerts/preferences', '/api/alerts/feed', '/api/alerts/activity']
+                               '/api/alerts/preferences', '/api/alerts/feed', '/api/alerts/activity',
+                               '/api/autonomy/setups', '/api/autonomy/journal',
+                               '/api/autonomy/alerts', '/api/autonomy/activity']
             if path in protected_paths or path.startswith("/api/signals/"):
                 result = self._require_auth(self.headers)
                 if isinstance(result, tuple):
