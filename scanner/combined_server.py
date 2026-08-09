@@ -99,7 +99,6 @@ def main() -> int:
             from .autonomy.loop import AutonomousLoop
             loop = AutonomousLoop()
             loop.set_repository(repo)
-            loop.set_telegram_bot(telegram_bot)
             loop.start()
 
             def _autonomy_feeder():
@@ -174,6 +173,11 @@ def main() -> int:
     # require every user to re-link their Telegram chat.
     telegram_bot = TelegramBot()
     state.telegram_bot = telegram_bot
+    # Wire telegram bot to autonomous loop if it was started
+    try:
+        loop.set_telegram_bot(telegram_bot)
+    except Exception:
+        pass  # loop may not be defined if RUN_SCANNER_THREAD=0
     if telegram_bot.is_configured:
         for uid in state.alert_preferences_store.all_user_ids():
             prefs = state.alert_preferences_store.get(int(uid))
