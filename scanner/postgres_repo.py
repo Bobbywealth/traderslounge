@@ -12,6 +12,8 @@ from typing import List
 
 from .signal import Signal
 
+log = logging.getLogger(__name__)
+
 try:
     import psycopg  # type: ignore
     from psycopg.rows import dict_row  # type: ignore
@@ -245,6 +247,9 @@ CREATE TABLE IF NOT EXISTS autonomy_setups (
 CREATE INDEX IF NOT EXISTS idx_setups_symbol ON autonomy_setups(symbol);
 CREATE INDEX IF NOT EXISTS idx_setups_state ON autonomy_setups(state);
 CREATE INDEX IF NOT EXISTS idx_setups_score ON autonomy_setups(score DESC);
+
+-- Migration: add fingerprint column to existing autonomy_setups table (must be before index)
+ALTER TABLE autonomy_setups ADD COLUMN IF NOT EXISTS fingerprint TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_setups_fingerprint ON autonomy_setups(fingerprint);
 
 -- Setup events — state transition history
