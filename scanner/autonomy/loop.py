@@ -15,7 +15,7 @@ from typing import Optional
 
 from .config import AutonomyConfig, AutonomyMode, get_autonomy_config
 from .status import AutonomyStatus, ComponentStatus, get_autonomy_status
-from .market import MarketWatcher, DataQualityEngine
+from .market import MarketWatcher, DataQualityEngine, MarketTick
 from .sessions import SessionEngine
 from .setup import SetupLifecycle, SetupState
 from .scanner import AutonomousScanner
@@ -224,7 +224,11 @@ class AutonomousLoop:
             for symbol, data in market_data.items():
                 price = data.get('price', 0)
                 if price > 0:
-                    self.market_watcher.update_tick(symbol, price)
+                    tick = MarketTick(
+                        symbol=symbol, bid=price, ask=price, mid=price,
+                        spread=0, timestamp=time.time(), provider='feeder',
+                    )
+                    self.market_watcher.update_tick(tick)
                     self.memory.record_snapshot(MarketSnapshot(
                         symbol=symbol,
                         price=price,
@@ -324,13 +328,26 @@ class AutonomousLoop:
             # 9. Update AI context (item R)
             try:
                 active_setup_dicts = [s.__dict__ if hasattr(s, '__dict__') else s for s in self.setup_lifecycle.get_active_setups()]
+                news_val = 'UNKNOWN'
+                if news_risks and market_data:
+                    first_sym = list(market_data.keys())[0]
+                    nr = news_risks.get(first_sym)
+                    if nr and hasattr(nr, 'status'):
+                        news_val = nr.status.value if hasattr(nr.status, 'value') else str(nr.status)
+                regime_val = 'unknown'
+                if regime_snapshots:
+                    first_reg = list(regime_snapshots.values())[0]
+                    regime_val = first_reg.regime.value if hasattr(first_reg, 'regime') else 'unknown'
+                session_val = 'unknown'
+                if regime_snapshots:
+                    session_val = list(regime_snapshots.values())[0].symbol
                 self.ai_engine.update_system_context(
                     active_setups=active_setup_dicts,
                     open_positions=[p.__dict__ for p in self.paper_broker.get_positions()],
                     daily_pnl=self.paper_broker.get_account().get('realized_pnl', 0),
-                    news_status=news_risks.get(list(market_data.keys())[0] if market_data else '', type('', (), {'status': type('', (), {'value': 'UNKNOWN'})()})()).status.value if news_risks else 'UNKNOWN',
-                    regime=str(list(regime_snapshots.values())[0].regime.value if regime_snapshots else 'unknown'),
-                    session=str(list(regime_snapshots.values())[0].symbol if regime_snapshots else 'unknown'),
+                    news_status=news_val,
+                    regime=regime_val,
+                    session=session_val,
                 )
             except Exception:
                 pass  # AI context is best-effort
