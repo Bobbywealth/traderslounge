@@ -11,6 +11,9 @@ from scanner.modules.classical import (
     _wedge,
     _range,
     _cup_and_handle,
+    _scan_windows,
+    _triangle_scanner,
+    _double_scanner,
 )
 
 
@@ -296,6 +299,127 @@ class TestDetectAll(unittest.TestCase):
         # Should not have both H&S and Triple Top for the same pivots
         if "Head and Shoulders" in names:
             self.assertNotIn("Triple Top", names)
+
+
+class TestWindowScanners(unittest.TestCase):
+    """Triangle and double are now scanned across a window, not just the last
+    N pivots. These tests confirm the scanner picks up patterns that formed
+    several pivots ago when the very last pivots don't fit any template."""
+
+    def _alternating_swings(self, prices_and_types):
+        return _make_swings(prices_and_types)
+
+    def test_triangle_in_earlier_window(self):
+        """Ascending triangle in pivots 0-3, then divergent noise to pivot 7.
+        With the strict last-4 behaviour this would be missed; the scanner
+        should now find it inside its 20-pivot lookback."""
+        swings = self._alternating_swings([
+            (95.0, "low"),       # 0: ascending-triangle left rim
+            (110.0, "high"),     # 1: ascending-triangle flat top #1
+            (100.0, "low"),      # 2: rising low #1
+            (110.0, "high"),     # 3: ascending-triangle flat top #2
+            (92.0, "low"),       # 4: structure break — divergent noise begins
+            (105.0, "high"),     # 5
+            (90.0, "low"),       # 6
+            (100.0, "high"),     # 7: lower highs and lower lows, no convergence
+        ])
+        candles = _make_candles(30, base=100.0)
+
+        # The strict last-4 behaviour sees pivots 4-7: L 92, H 105, L 90, H 100
+        # — diverging pivots, no triangle.
+        strict = _triangle(swings[-4:])
+        self.assertIsNone(strict)
+
+        # The scanner reaches back to pivots 0-3 and finds the ascending triangle.
+        scanned = _triangle_scanner(swings)
+        self.assertIsNotNone(scanned)
+        self.assertEqual(scanned["name"], "Ascending Triangle")
+        self.assertEqual(scanned["direction"], "bullish")
+        self.assertEqual(scanned["family"], "classical")
+        # Pivots A-D should map to the original triangle's four pivots.
+        pivot_indexes = sorted(int(p["index"]) for p in scanned["points"].values())
+        self.assertEqual(pivot_indexes, [0, 1, 2, 3])
+
+    def test_double_bottom_in_earlier_window(self):
+        """Double bottom in pivots 0-2, then noise. The strict last-3
+        behaviour sees pivots 3-5 (H-L-H, wrong shape); the scanner must
+        reach back to find the double bottom inside its 12-pivot lookback."""
+        swings = self._alternating_swings([
+            (95.0, "low"),       # 0: double bottom left
+            (110.0, "high"),     # 1: trough neckline
+            (95.5, "low"),       # 2: double bottom right (within 6% tolerance)
+            (108.0, "high"),     # 3: noise — pattern ends here
+            (92.0, "low"),       # 4
+            (105.0, "high"),     # 5: last 3 pivots are H 108, L 92, H 105
+        ])
+        candles = _make_candles(30, base=100.0)
+
+        # Strict last-3 sees H-L-H, which is not the L-H-L shape double needs.
+        strict = _double(swings[-3:])
+        self.assertIsNone(strict)
+
+        scanned = _double_scanner(swings)
+        self.assertIsNotNone(scanned)
+        self.assertEqual(scanned["name"], "Double Bottom")
+        self.assertEqual(scanned["direction"], "bullish")
+        pivot_indexes = sorted(int(p["index"]) for p in scanned["points"].values())
+        self.assertEqual(pivot_indexes, [0, 1, 2])
+
+    def test_pattern_beyond_lookback_missed(self):
+        """A triangle far enough back must NOT fire — the lookback ceiling
+        keeps the detector from reporting a stale, possibly-broken formation."""
+        # 30 pivots of divergent noise, then 4 pivots forming an ascending
+        # triangle at the very start (indices 0-3). With _TRIANGLE_LOOKBACK=20,
+        # the scanner only inspects windows ending in the last 20 pivots, so
+        # the triangle at indices 0-3 should be missed.
+        prices_types = []
+        for i in range(30):
+            if i % 2 == 0:
+                # Diverging pivots: high climbs, low climbs faster
+                prices_types.append((100.0 + i * 0.5, "high"))
+            else:
+                prices_types.append((50.0 + i * 0.4, "low"))
+        # Overwrite the first 4 pivots with a clean ascending triangle.
+        prices_types[0] = (95.0, "low")
+        prices_types[1] = (110.0, "high")
+        prices_types[2] = (100.0, "low")
+        prices_types[3] = (110.0, "high")
+        swings = _make_swings(prices_types)
+
+        scanned = _triangle_scanner(swings)
+        self.assertIsNone(scanned, "Triangle at the very start should fall "
+                                  "outside the 20-pivot lookback")
+
+    def test_scan_windows_helper_returns_none_for_empty(self):
+        swings = _make_swings([(100.0, "low"), (110.0, "high")])
+        self.assertIsNone(_scan_windows(swings, _triangle, window_size=4,
+                                        max_lookback=20))
+
+    def test_scan_windows_helper_finds_recent(self):
+        """The helper returns the most recent qualifying match first."""
+        # Two ascending triangles: one at [0:4], another at [5:9].
+        swings = _make_swings([
+            (95.0, "low"), (110.0, "high"), (100.0, "low"), (110.0, "high"),  # 0-3
+            (97.0, "low"), (110.0, "high"), (102.0, "low"), (110.0, "high"),  # 4-7
+        ])
+        result = _scan_windows(swings, _triangle, window_size=4, max_lookback=20)
+        self.assertIsNotNone(result)
+        # The most recent window [4:8] should be the one returned.
+        pivot_indexes = sorted(int(p["index"]) for p in result["points"].values())
+        self.assertEqual(pivot_indexes, [4, 5, 6, 7])
+
+    def test_detect_all_picks_up_triangle_via_scanner(self):
+        """End-to-end check: an ascending triangle 4 pivots back is surfaced
+        by detect_all_from_swings even when the most recent 4 pivots diverge."""
+        swings = _make_swings([
+            (95.0, "low"), (110.0, "high"), (100.0, "low"), (110.0, "high"),
+            (92.0, "low"), (105.0, "high"), (90.0, "low"), (100.0, "high"),
+        ])
+        candles = _make_candles(30, base=100.0)
+        results = detect_all_from_swings(swings, candles)
+        names = [r["name"] for r in results]
+        self.assertIn("Ascending Triangle", names,
+                      "Scanner should surface the triangle 4 pivots back")
 
 
 if __name__ == "__main__":

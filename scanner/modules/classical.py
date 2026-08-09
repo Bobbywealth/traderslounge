@@ -384,14 +384,67 @@ def _pivot_indexes(match: Dict[str, Any]) -> set:
     return {int(p["index"]) for p in match["points"].values()}
 
 
+def _scan_windows(swings: List[Swing], detector, window_size: int,
+                  max_lookback: int) -> Optional[Dict[str, Any]]:
+    """Slide a fixed-size window across the most recent pivots, most-recent first.
+
+    The classical detectors historically took only the last N pivots. That is
+    correct when the active pattern happens to be the most recent formation,
+    but it silently misses any 3- or 4-pivot template (double, triangle) that
+    ended a few pivots ago and was followed by noise. This helper re-runs the
+    detector on every sliding window of `window_size` pivots inside the last
+    `max_lookback` pivots, returning the first match. The outer dispatch in
+    `detect_all_from_swings` already de-duplicates overlapping pivots, so two
+    different windows returning the same pattern is harmless.
+    """
+    if len(swings) < window_size:
+        return None
+    n = min(len(swings), max_lookback)
+    start_min = len(swings) - n
+    for end in range(len(swings), start_min, -1):
+        start = end - window_size
+        if start < start_min:
+            break
+        window = swings[start:end]
+        try:
+            match = detector(window)
+        except Exception:  # pragma: no cover — a detector must never break analysis
+            continue
+        if match:
+            return match
+    return None
+
+
+# How far back each short-pivot detector is allowed to look. Triangle needs 4
+# pivots in its template and is the noisiest formation, so it gets the widest
+# lookback; double needs only 3 pivots and short lookback is enough.
+_TRIANGLE_LOOKBACK = 20
+_DOUBLE_LOOKBACK = 12
+
+
+def _triangle_scanner(swings: List[Swing]) -> Optional[Dict[str, Any]]:
+    return _scan_windows(swings, _triangle, window_size=4,
+                         max_lookback=_TRIANGLE_LOOKBACK)
+
+
+def _double_scanner(swings: List[Swing]) -> Optional[Dict[str, Any]]:
+    return _scan_windows(swings, _double, window_size=3,
+                         max_lookback=_DOUBLE_LOOKBACK)
+
+
 def detect_all_from_swings(swings: List[Swing], candles: List[Candle]) -> List[Dict[str, Any]]:
-    """Classical formations the most recent pivots support, most specific first.
+    """Classical formations the recent pivots support, most specific first.
 
     Detectors are tried in descending specificity. The same pivots frequently
     satisfy several templates — a head and shoulders is also, loosely, a triple
     top and a double top — so once a pattern claims a set of pivots, weaker
     templates sharing three or more of them are suppressed. Without this the
     chart reports three contradictory patterns drawn over one formation.
+
+    Triangle and double are wrapped in window scanners so a pattern that
+    completed a few pivots ago is still surfaced; the strict "last N pivots
+    only" behaviour was silently dropping every template that wasn't currently
+    the most recent formation.
     """
     found: List[Dict[str, Any]] = []
     claimed: List[set] = []
@@ -414,10 +467,10 @@ def detect_all_from_swings(swings: List[Swing], candles: List[Candle]) -> List[D
         _triple,
         lambda s: _cup_and_handle(s, candles),
         lambda s: _flag(s, candles),
-        _triangle,
+        _triangle_scanner,
         _wedge,
         _range,
-        _double,
+        _double_scanner,
     )
     for detector in detectors:
         try:
