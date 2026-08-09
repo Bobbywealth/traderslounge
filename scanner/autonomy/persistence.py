@@ -21,7 +21,7 @@ def save_setup(conn, setup) -> None:
             cur.execute(
                 """
                 INSERT INTO autonomy_setups (
-                    setup_id, symbol, asset_class, direction, state,
+                    setup_id, fingerprint, symbol, asset_class, direction, state,
                     detected_at, updated_at, timeframe, macro_timeframe,
                     strategy_type, engine_version, market_regime, session,
                     score, score_components,
@@ -62,7 +62,7 @@ def save_setup(conn, setup) -> None:
                     technical_reasons = EXCLUDED.technical_reasons
                 """,
                 (
-                    setup.setup_id, setup.symbol, setup.asset_class,
+                    setup.setup_id, getattr(setup, 'fingerprint', ''), setup.symbol, setup.asset_class,
                     setup.direction, setup.state.value,
                     setup.detected_at, setup.updated_at,
                     setup.timeframe, setup.macro_timeframe,
@@ -249,3 +249,100 @@ def save_market_snapshot(conn, snapshot) -> None:
             )
     except Exception:
         log.exception("Failed to save market snapshot for %s", getattr(snapshot, 'symbol', '?'))
+
+
+def save_paper_order(conn, order) -> None:
+    """Persist a paper order to Postgres."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO paper_orders (
+                    order_id, setup_id, idempotency_key, symbol, direction,
+                    order_type, requested_quantity, requested_price,
+                    fill_price, status, spread_pips, slippage_pips,
+                    commission, created_at, filled_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, to_timestamp(%s), to_timestamp(%s))
+                ON CONFLICT (order_id) DO UPDATE SET
+                    fill_price = EXCLUDED.fill_price,
+                    status = EXCLUDED.status,
+                    filled_at = EXCLUDED.filled_at
+                """,
+                (
+                    order.order_id, order.setup_id, order.idempotency_key,
+                    order.symbol, order.direction, order.order_type.value,
+                    order.quantity, order.price, order.filled_price,
+                    order.status.value, order.spread_pips, order.slippage_pips,
+                    order.commission, order.created_at,
+                    order.filled_at or 0,
+                ),
+            )
+    except Exception:
+        log.exception("Failed to save paper order %s", getattr(order, 'order_id', '?'))
+
+
+def save_paper_position(conn, position) -> None:
+    """Persist a paper position to Postgres."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO paper_positions (
+                    position_id, setup_id, symbol, direction,
+                    original_quantity, remaining_quantity, average_entry,
+                    stop_loss, tp1, tp2, tp3,
+                    tp1_hit, tp2_hit, tp3_hit, break_even_moved,
+                    realized_pnl, unrealized_pnl, total_fees,
+                    opened_at, closed_at, state
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, to_timestamp(%s), to_timestamp(%s), %s
+                )
+                ON CONFLICT (position_id) DO UPDATE SET
+                    remaining_quantity = EXCLUDED.remaining_quantity,
+                    stop_loss = EXCLUDED.stop_loss,
+                    tp1_hit = EXCLUDED.tp1_hit,
+                    tp2_hit = EXCLUDED.tp2_hit,
+                    tp3_hit = EXCLUDED.tp3_hit,
+                    break_even_moved = EXCLUDED.break_even_moved,
+                    realized_pnl = EXCLUDED.realized_pnl,
+                    unrealized_pnl = EXCLUDED.unrealized_pnl,
+                    total_fees = EXCLUDED.total_fees,
+                    closed_at = EXCLUDED.closed_at,
+                    state = EXCLUDED.state
+                """,
+                (
+                    position.position_id, getattr(position, 'setup_id', ''),
+                    position.symbol, position.direction,
+                    position.original_quantity, position.quantity, position.entry_price,
+                    position.stop_loss, position.take_profit_1, position.take_profit_2,
+                    position.take_profit_3, position.tp1_hit, position.tp2_hit,
+                    position.tp3_hit, position.break_even_moved,
+                    position.realized_pnl, position.unrealized_pnl, position.total_fees,
+                    position.opened_at, position.closed_at or 0,
+                    'open' if position.is_open else 'closed',
+                ),
+            )
+    except Exception:
+        log.exception("Failed to save paper position %s", getattr(position, 'position_id', '?'))
+
+
+def save_position_event(conn, position_id: str, event_type: str,
+                       event_data: dict) -> None:
+    """Persist a position event (fill, TP, SL, BE, close, etc.)"""
+    try:
+        import uuid
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO position_events (
+                    event_id, position_id, event_type, data, created_at
+                ) VALUES (%s, %s, %s, %s::jsonb, NOW())
+                """,
+                (
+                    str(uuid.uuid4())[:12], position_id, event_type,
+                    json.dumps(event_data),
+                ),
+            )
+    except Exception:
+        log.exception("Failed to save position event for %s", position_id)

@@ -205,6 +205,7 @@ CREATE TABLE IF NOT EXISTS trade_manager_state (
 -- Autonomous setups — persistent setup lifecycle tracking
 CREATE TABLE IF NOT EXISTS autonomy_setups (
     setup_id TEXT PRIMARY KEY,
+    fingerprint TEXT NOT NULL DEFAULT '',
     symbol TEXT NOT NULL,
     asset_class TEXT NOT NULL,
     direction TEXT NOT NULL,
@@ -244,6 +245,7 @@ CREATE TABLE IF NOT EXISTS autonomy_setups (
 CREATE INDEX IF NOT EXISTS idx_setups_symbol ON autonomy_setups(symbol);
 CREATE INDEX IF NOT EXISTS idx_setups_state ON autonomy_setups(state);
 CREATE INDEX IF NOT EXISTS idx_setups_score ON autonomy_setups(score DESC);
+CREATE INDEX IF NOT EXISTS idx_setups_fingerprint ON autonomy_setups(fingerprint);
 
 -- Setup events — state transition history
 CREATE TABLE IF NOT EXISTS setup_events (
@@ -375,6 +377,64 @@ CREATE TABLE IF NOT EXISTS market_snapshots (
     active_fib_leg JSONB
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots_symbol ON market_snapshots(symbol, timestamp DESC);
+
+-- Paper orders — autonomous paper trading order log
+CREATE TABLE IF NOT EXISTS paper_orders (
+    order_id TEXT PRIMARY KEY,
+    setup_id TEXT,
+    idempotency_key TEXT UNIQUE,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    order_type TEXT NOT NULL DEFAULT 'market',
+    requested_quantity DOUBLE PRECISION NOT NULL DEFAULT 0,
+    requested_price DOUBLE PRECISION DEFAULT 0,
+    fill_price DOUBLE PRECISION DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending',
+    spread_pips DOUBLE PRECISION DEFAULT 0,
+    slippage_pips DOUBLE PRECISION DEFAULT 0,
+    commission DOUBLE PRECISION DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    filled_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_paper_orders_setup ON paper_orders(setup_id);
+CREATE INDEX IF NOT EXISTS idx_paper_orders_symbol ON paper_orders(symbol, created_at DESC);
+
+-- Paper positions — autonomous paper trading position state
+CREATE TABLE IF NOT EXISTS paper_positions (
+    position_id TEXT PRIMARY KEY,
+    setup_id TEXT,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    original_quantity DOUBLE PRECISION NOT NULL DEFAULT 0,
+    remaining_quantity DOUBLE PRECISION NOT NULL DEFAULT 0,
+    average_entry DOUBLE PRECISION NOT NULL DEFAULT 0,
+    stop_loss DOUBLE PRECISION DEFAULT 0,
+    tp1 DOUBLE PRECISION DEFAULT 0,
+    tp2 DOUBLE PRECISION DEFAULT 0,
+    tp3 DOUBLE PRECISION DEFAULT 0,
+    tp1_hit BOOLEAN NOT NULL DEFAULT FALSE,
+    tp2_hit BOOLEAN NOT NULL DEFAULT FALSE,
+    tp3_hit BOOLEAN NOT NULL DEFAULT FALSE,
+    break_even_moved BOOLEAN NOT NULL DEFAULT FALSE,
+    realized_pnl DOUBLE PRECISION NOT NULL DEFAULT 0,
+    unrealized_pnl DOUBLE PRECISION NOT NULL DEFAULT 0,
+    total_fees DOUBLE PRECISION NOT NULL DEFAULT 0,
+    opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    closed_at TIMESTAMPTZ,
+    state TEXT NOT NULL DEFAULT 'open'
+);
+CREATE INDEX IF NOT EXISTS idx_paper_positions_setup ON paper_positions(setup_id);
+CREATE INDEX IF NOT EXISTS idx_paper_positions_state ON paper_positions(state);
+
+-- Position events — audit trail for every position lifecycle event
+CREATE TABLE IF NOT EXISTS position_events (
+    event_id TEXT PRIMARY KEY,
+    position_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_position_events_pos ON position_events(position_id, created_at DESC);
 
 -- Worker heartbeats — system health monitoring
 CREATE TABLE IF NOT EXISTS worker_heartbeats (

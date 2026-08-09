@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+import hashlib
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional
@@ -120,8 +121,36 @@ class SetupRecord:
     forecast_id: Optional[str] = None
     position_id: Optional[str] = None
     
+    # Fingerprint for deduplication
+    fingerprint: str = ''
+    
     # Events history
     events: List[SetupEvent] = field(default_factory=list)
+
+
+def _build_fingerprint(symbol: str, direction: str, timeframe: str,
+                       strategy_type: str, entry_zone_center: float,
+                       macro_timeframe: str = '', session: str = '') -> str:
+    """Build a deterministic fingerprint for a setup idea.
+    
+    Two setups are 'the same idea' if they share the same symbol, direction,
+    timeframe, strategy, and entry zone (rounded to avoid noise from tiny
+    price changes).  This prevents the scanner from creating a brand-new
+    setup every 60 seconds for the same market thesis.
+    """
+    # Use fixed-size buckets based on asset class to round entry zones.
+    # Bucket ≈ 0.5-1% of typical price to group nearby entries.
+    if entry_zone_center > 10000:
+        bucket_size = 500.0   # BTC (~0.8%)
+    elif entry_zone_center > 100:
+        bucket_size = 10.0    # Gold (~0.3%)
+    elif entry_zone_center > 1:
+        bucket_size = 0.05    # JPY pairs (~0.3%)
+    else:
+        bucket_size = 0.002   # Standard FX (~0.2%)
+    zone_bucket = round(entry_zone_center / bucket_size) * bucket_size
+    raw = f"{symbol}|{direction}|{timeframe}|{strategy_type}|{round(zone_bucket, 2)}|{macro_timeframe}|{session}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:20]
 
 
 class SetupLifecycle:
@@ -141,7 +170,9 @@ class SetupLifecycle:
         self._callbacks.append(callback)
     
     def create_setup(self, symbol: str, asset_class: str, direction: str,
-                     timeframe: str = 'H1', score: int = 0, **kwargs) -> SetupRecord:
+                     timeframe: str = 'H1', score: int = 0,
+                     fingerprint: str = '',
+                     **kwargs) -> SetupRecord:
         """Create a new setup record."""
         # Generate unique setup ID
         timestamp_str = time.strftime('%Y%m%d-%H%M%S')
@@ -155,6 +186,7 @@ class SetupLifecycle:
             direction=direction,
             timeframe=timeframe,
             score=score,
+            fingerprint=fingerprint,
             **kwargs,
         )
         
@@ -237,6 +269,16 @@ class SetupLifecycle:
             if setup.state not in (SetupState.CLOSED, SetupState.INVALIDATED,
                                    SetupState.EXPIRED, SetupState.CANCELLED)
         ]
+
+    def find_by_fingerprint(self, fingerprint: str) -> Optional[SetupRecord]:
+        """Find an active setup by its fingerprint (for deduplication)."""
+        for setup in self._setups.values():
+            if setup.fingerprint == fingerprint and setup.state not in (
+                SetupState.CLOSED, SetupState.INVALIDATED,
+                SetupState.EXPIRED, SetupState.CANCELLED
+            ):
+                return setup
+        return None
     
     def get_setups_by_state(self, state: SetupState) -> List[SetupRecord]:
         """Get all setups in a specific state."""

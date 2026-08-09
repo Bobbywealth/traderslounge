@@ -14,7 +14,7 @@ from typing import Callable, Dict, List, Optional
 from ..config import AutonomyConfig, get_autonomy_config
 from ..market.data_quality import DataQualityEngine
 from ..sessions.session_engine import SessionEngine
-from ..setup.setup_lifecycle import SetupLifecycle, SetupRecord, SetupState
+from ..setup.setup_lifecycle import SetupLifecycle, SetupRecord, SetupState, _build_fingerprint
 
 log = logging.getLogger(__name__)
 
@@ -126,22 +126,32 @@ class AutonomousScanner:
             reward = abs(tp1 - entry)
             expected_rr = reward / risk if risk > 0 else 0
         
-                # Check for existing setup
+                # Build fingerprint for duplicate detection
+        entry_price = float(trade_plan.get('entry') or 0) or current_price
+        fingerprint = _build_fingerprint(
+            symbol=symbol, direction=direction,
+            timeframe=str((analysis.get('data_quality') or {}).get('primary_timeframe', 'H1')),
+            strategy_type='confluence',
+            entry_zone_center=entry_price,
+            macro_timeframe='',
+            session=session_context.current_session.value if session_context else '',
+        )
+        
+        # Check for existing setup by fingerprint (prevents duplicates)
+        existing_by_fp = self.setup_lifecycle.find_by_fingerprint(fingerprint)
         existing_setups = self.setup_lifecycle.get_active_setups(symbol)
         setup_state = 'none'
         setup_id = None
-        if existing_setups:
-            # Update highest-scored active setup with latest analysis data
-            best_setup = max(existing_setups, key=lambda s: s.score)
+        if existing_by_fp:
+            # Update the existing setup — same market idea getting stronger
+            best_setup = existing_by_fp
             setup_state = best_setup.state.value
             setup_id = best_setup.setup_id
-            # Update score and levels on every scan so the setup stays current
             best_setup.score = score
             best_setup.score_components = analysis.get('category_breakdown', {})
             best_setup.direction = direction
             best_setup.market_regime = analysis.get('market_regime', '')
             best_setup.updated_at = time.time()
-            # Update trade levels from the latest trade_plan
             if trade_plan:
                 best_setup.entry_low = float(trade_plan.get('entry') or 0)
                 best_setup.entry_high = float(trade_plan.get('entry') or 0)
@@ -151,13 +161,34 @@ class AutonomousScanner:
                 best_setup.tp2 = float(targets[1]['price']) if len(targets) > 1 else 0
                 best_setup.tp3 = float(targets[2]['price']) if len(targets) > 2 else 0
                 best_setup.technical_reasons = [r.get('message', str(r)) if isinstance(r, dict) else str(r) for r in (trade_plan.get('reasons') or [])[:5]]
-            # Promote state if score improved enough
+            # Promote state if score improved
+            if best_setup.state == SetupState.DETECTED and score >= self.config.scanner.good_threshold:
+                self.setup_lifecycle.transition(setup_id, SetupState.DEVELOPING, reason=f'Score improved to {score}')
+                setup_state = 'developing'
+        elif existing_setups:
+            # No fingerprint match but other active setups exist — update best
+            best_setup = max(existing_setups, key=lambda s: s.score)
+            setup_state = best_setup.state.value
+            setup_id = best_setup.setup_id
+            best_setup.score = score
+            best_setup.score_components = analysis.get('category_breakdown', {})
+            best_setup.direction = direction
+            best_setup.market_regime = analysis.get('market_regime', '')
+            best_setup.updated_at = time.time()
+            if trade_plan:
+                best_setup.entry_low = float(trade_plan.get('entry') or 0)
+                best_setup.entry_high = float(trade_plan.get('entry') or 0)
+                best_setup.stop_loss = float(trade_plan.get('stop') or 0)
+                targets = trade_plan.get('targets') or []
+                best_setup.tp1 = float(targets[0]['price']) if len(targets) > 0 else 0
+                best_setup.tp2 = float(targets[1]['price']) if len(targets) > 1 else 0
+                best_setup.tp3 = float(targets[2]['price']) if len(targets) > 2 else 0
+                best_setup.technical_reasons = [r.get('message', str(r)) if isinstance(r, dict) else str(r) for r in (trade_plan.get('reasons') or [])[:5]]
             if best_setup.state == SetupState.DETECTED and score >= self.config.scanner.good_threshold:
                 self.setup_lifecycle.transition(setup_id, SetupState.DEVELOPING, reason=f'Score improved to {score}')
                 setup_state = 'developing'
         elif score >= _SETUP_SCORE_THRESHOLD and direction in ('BUY', 'SELL'):
             # Create a new setup — first time this symbol qualifies
-            entry_price = float(trade_plan.get('entry') or 0) or current_price
             stop_price = float(trade_plan.get('stop') or 0)
             targets = trade_plan.get('targets') or []
             tp1 = float(targets[0]['price']) if len(targets) > 0 else 0
@@ -169,13 +200,14 @@ class AutonomousScanner:
                 direction=direction,
                 timeframe=analysis.get('data_quality', {}).get('primary_timeframe', 'H1'),
                 score=score,
+                fingerprint=fingerprint,
                 score_components=analysis.get('category_breakdown', {}),
                 entry_low=entry_price,
                 entry_high=entry_price,
                 stop_loss=stop_price,
                 tp1=tp1, tp2=tp2, tp3=tp3,
                 market_regime=analysis.get('market_regime', ''),
-                session=session_context.current_session.value,
+                session=session_context.current_session.value if session_context else '',
                 news_state=trade_plan.get('calendar_status', ''),
                 data_quality=self.data_quality.get_quality(symbol).status.value if self.data_quality.get_quality(symbol) else 'unknown',
                 technical_reasons=[r.get('message', str(r)) if isinstance(r, dict) else str(r) for r in (trade_plan.get('reasons') or [])[:5]],

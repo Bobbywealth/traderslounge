@@ -1989,69 +1989,125 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._error(500, f'autonomy status unavailable: {exc}')
 
     def _autonomy_setups(self, query: dict) -> None:
-        """Return active setups."""
+        """Return active setups from Postgres."""
         try:
-            from .autonomy import get_autonomy_config
-            # This would query the setup lifecycle
-            # For now, return placeholder
-            return self._json(200, {
-                'setups': [],
-                'total': 0,
-                'message': 'Setup lifecycle endpoint ready',
-            })
+            repo = _STATE.repository
+            if not hasattr(repo, '_get_connection'):
+                return self._json(200, {'setups': [], 'total': 0, 'message': 'Database not available'})
+            limit = _clamp_int(query.get('limit'), default=50, lo=1, hi=200)
+            state_filter = str(query.get('state') or '').upper() or None
+            with repo._get_connection() as conn:
+                with conn.cursor() as cur:
+                    if state_filter:
+                        cur.execute(
+                            "SELECT * FROM autonomy_setups WHERE state = %s ORDER BY score DESC LIMIT %s",
+                            (state_filter.lower(), limit),
+                        )
+                    else:
+                        cur.execute(
+                            "SELECT * FROM autonomy_setups WHERE state NOT IN ('closed','invalidated','expired','cancelled') ORDER BY score DESC LIMIT %s",
+                            (limit,),
+                        )
+                    rows = cur.fetchall()
+            return self._json(200, {'setups': rows, 'total': len(rows)})
         except Exception as exc:
             return self._error(500, f'autonomy setups unavailable: {exc}')
 
     def _autonomy_opportunities(self, query: dict) -> None:
-        """Return ranked opportunities."""
+        """Return ranked opportunities from active setups."""
         try:
-            return self._json(200, {
-                'opportunities': [],
-                'total': 0,
-                'message': 'Opportunity scanner endpoint ready',
-            })
+            repo = _STATE.repository
+            if not hasattr(repo, '_get_connection'):
+                return self._json(200, {'opportunities': [], 'total': 0})
+            with repo._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT setup_id, symbol, direction, score, state, "
+                        "entry_low, stop_loss, tp1, tp2, tp3, market_regime, session, "
+                        "data_quality, detected_at, updated_at "
+                        "FROM autonomy_setups WHERE state NOT IN ('closed','invalidated','expired','cancelled') "
+                        "ORDER BY score DESC LIMIT 20"
+                    )
+                    rows = cur.fetchall()
+            return self._json(200, {'opportunities': rows, 'total': len(rows)})
         except Exception as exc:
             return self._error(500, f'autonomy opportunities unavailable: {exc}')
 
     def _autonomy_journal(self, query: dict) -> None:
-        """Return journal entries."""
+        """Return journal entries from Postgres."""
         try:
-            return self._json(200, {
-                'entries': [],
-                'total': 0,
-                'stats': {},
-                'message': 'Journal endpoint ready',
-            })
+            repo = _STATE.repository
+            if not hasattr(repo, '_get_connection'):
+                return self._json(200, {'entries': [], 'total': 0, 'stats': {}})
+            limit = _clamp_int(query.get('limit'), default=50, lo=1, hi=200)
+            with repo._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT * FROM journal_entries ORDER BY detected_at DESC LIMIT %s",
+                        (limit,),
+                    )
+                    rows = cur.fetchall()
+            return self._json(200, {'entries': rows, 'total': len(rows)})
         except Exception as exc:
             return self._error(500, f'autonomy journal unavailable: {exc}')
 
     def _autonomy_regime(self, query: dict) -> None:
-        """Return market regime data."""
+        """Return latest regime snapshot from market memory."""
         try:
-            return self._json(200, {
-                'regimes': {},
-                'message': 'Regime engine endpoint ready',
-            })
+            repo = _STATE.repository
+            if not hasattr(repo, '_get_connection'):
+                return self._json(200, {'regimes': {}})
+            with repo._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT DISTINCT ON (symbol) symbol, regime, trend, volatility, "
+                        "price, timestamp FROM market_snapshots ORDER BY symbol, timestamp DESC"
+                    )
+                    rows = cur.fetchall()
+            regimes = {r['symbol']: r for r in rows}
+            return self._json(200, {'regimes': regimes})
         except Exception as exc:
             return self._error(500, f'autonomy regime unavailable: {exc}')
 
     def _autonomy_news(self) -> None:
-        """Return news status."""
+        """Return upcoming news events from calendar."""
         try:
-            from .autonomy import NewsEngine
-            engine = NewsEngine()
-            return self._json(200, engine.get_global_status())
+            repo = _STATE.repository
+            if not hasattr(repo, '_get_connection'):
+                return self._json(200, {'total_upcoming': 0, 'events': []})
+            with repo._get_connection() as conn:
+                with conn.cursor() as cur:
+                    # Try reading from the calendar events table if it exists
+                    try:
+                        cur.execute(
+                            "SELECT * FROM calendar_events WHERE scheduled_at > NOW() "
+                            "ORDER BY scheduled_at LIMIT 20"
+                        )
+                        rows = cur.fetchall()
+                    except Exception:
+                        rows = []
+            return self._json(200, {
+                'total_upcoming': len(rows),
+                'events': rows,
+            })
         except Exception as exc:
             return self._error(500, f'autonomy news unavailable: {exc}')
 
     def _autonomy_alerts(self, query: dict) -> None:
-        """Return active alerts."""
+        """Return recent alert events."""
         try:
-            return self._json(200, {
-                'alerts': [],
-                'total': 0,
-                'message': 'Alert engine endpoint ready',
-            })
+            repo = _STATE.repository
+            if not hasattr(repo, '_get_connection'):
+                return self._json(200, {'alerts': [], 'total': 0})
+            limit = _clamp_int(query.get('limit'), default=20, lo=1, hi=100)
+            with repo._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT * FROM alert_events ORDER BY created_at DESC LIMIT %s",
+                        (limit,),
+                    )
+                    rows = cur.fetchall()
+            return self._json(200, {'alerts': rows, 'total': len(rows)})
         except Exception as exc:
             return self._error(500, f'autonomy alerts unavailable: {exc}')
 

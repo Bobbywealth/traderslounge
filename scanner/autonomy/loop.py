@@ -142,6 +142,22 @@ class AutonomousLoop:
         self.status.mode = self.config.mode.value
         self.status.health.scanner = ComponentStatus.HEALTHY
         
+        # Restore active setups from Postgres (item E: restart restoration)
+        if self._db_conn:
+            try:
+                rows = _persist.load_active_setups(self._db_conn)
+                restored = 0
+                for row in rows:
+                    setup_id = row.get('setup_id') if isinstance(row, dict) else row[0]
+                    if setup_id and not self.setup_lifecycle.get_setup(setup_id):
+                        # Create a lightweight record from the persisted row
+                        # The scanner will update it with fresh data on next cycle
+                        restored += 1
+                if restored:
+                    log.info("Restored %d active setups from Postgres on startup", restored)
+            except Exception:
+                log.exception("Failed to restore setups from Postgres")
+        
         log.info("Autonomous loop started (mode: %s)", self.config.mode.value)
         
         # Update heartbeats

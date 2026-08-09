@@ -9,6 +9,7 @@ Provides:
 from .broker_adapter import BrokerAdapter, BrokerConfig, BrokerStatus
 from .demo_broker import DemoBrokerAdapter
 from .reconciliation import ReconciliationEngine
+from .instrument_spec import InstrumentSpec, get_spec, DEFAULT_SPECS
 
 __all__ = [
     'BrokerAdapter',
@@ -16,4 +17,7 @@ __all__ = [
     'BrokerStatus',
     'DemoBrokerAdapter',
     'ReconciliationEngine',
+    'InstrumentSpec',
+    'get_spec',
+    'DEFAULT_SPECS',
 ]
