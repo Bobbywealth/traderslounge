@@ -103,13 +103,21 @@ def main() -> int:
 
             def _autonomy_feeder():
                 import time as _t
+                from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+                _pool = ThreadPoolExecutor(max_workers=2)
                 while True:
                     try:
                         data = {}
                         from .crypto_analysis import analyze_crypto
                         for pair in cfg.pairs:
                             try:
-                                snapshot = client.fetch_snapshot(pair)
+                                # Fetch with 15s timeout to avoid hanging on rate-limited providers
+                                future = _pool.submit(client.fetch_snapshot, pair)
+                                try:
+                                    snapshot = future.result(timeout=15)
+                                except (FuturesTimeout, Exception):
+                                    logging.debug("autonomy feeder: timeout fetching %s", pair)
+                                    continue
                                 if not snapshot or not snapshot.h1:
                                     continue
                                 analysis = analyze_crypto(snapshot)
