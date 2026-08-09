@@ -22,6 +22,13 @@ from ..indicators import detect_swings
 _LEVEL_TOLERANCE = 0.06
 _MIN_PIVOT_SPACING = 2
 
+# Triangle compression requirement: the second half of the 4-pivot window
+# must have a range at most this fraction of the first half's range. Real
+# triangles compress meaningfully (typically 30-50%); anything looser than
+# this fires on every quiet oscillation and adds noise. 0.65 means at
+# least 35% compression must be present.
+_TRIANGLE_COMPRESSION = 0.65
+
 
 def _pivot(swing: Swing) -> Dict[str, Any]:
     return {"index": swing.index, "time": swing.time, "price": swing.price,
@@ -194,17 +201,26 @@ def _triangle(swings: List[Swing]) -> Optional[Dict[str, Any]]:
     rising_lows = l2.price > l1.price and not flat_base
     falling_highs = h2.price < h1.price and not flat_top
 
-    if flat_top and rising_lows:
+    # Compression check: the second half of the window must be meaningfully
+    # narrower than the first. Any "converging" pivots will satisfy this, but
+    # barely-compressing noise (a few dollars of drift on a tall pattern) does
+    # not — that's just oscillation, not a real triangle. We require the late
+    # range to be at most 75% of the early range.
+    early_range = abs(window[0].price - window[1].price)
+    late_range = abs(window[2].price - window[3].price)
+    compressed = early_range > 0 and late_range <= early_range * _TRIANGLE_COMPRESSION
+
+    if flat_top and rising_lows and compressed:
         level = (h1.price + h2.price) / 2.0
         return _result("Ascending Triangle", "bullish", window, level,
                        entry=level, stop=l2.price, target=level + height,
                        note="a close back below the rising base negates the triangle")
-    if flat_base and falling_highs:
+    if flat_base and falling_highs and compressed:
         level = (l1.price + l2.price) / 2.0
         return _result("Descending Triangle", "bearish", window, level,
                        entry=level, stop=h2.price, target=level - height,
                        note="a close back above the falling top negates the triangle")
-    if rising_lows and falling_highs:
+    if rising_lows and falling_highs and compressed:
         # Symmetrical: break direction unknown, so quote the prevailing leg.
         direction = "bullish" if l2.price - l1.price > h1.price - h2.price else "bearish"
         level = (h2.price + l2.price) / 2.0

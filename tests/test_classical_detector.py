@@ -143,9 +143,11 @@ class TestHeadAndShoulders(unittest.TestCase):
 
 class TestTriangle(unittest.TestCase):
     def test_ascending_triangle(self):
+        # Ascending: flat top (110, 110), rising lows (90 → 100).
+        # Compression: early range 20, late range 10 → 0.5 ratio ✓
         swings = _make_swings([
             (90.0, "low"), (110.0, "high"),
-            (95.0, "low"), (110.5, "high"),
+            (100.0, "low"), (110.0, "high"),
         ])
         result = _triangle(swings)
         self.assertIsNotNone(result)
@@ -153,9 +155,11 @@ class TestTriangle(unittest.TestCase):
         self.assertEqual(result["direction"], "bullish")
 
     def test_descending_triangle(self):
+        # Descending: flat base (90, 90), falling highs (110 → 100).
+        # Compression: early range 20, late range 10 → 0.5 ratio ✓
         swings = _make_swings([
             (110.0, "high"), (90.0, "low"),
-            (105.0, "high"), (90.5, "low"),
+            (100.0, "high"), (90.0, "low"),
         ])
         result = _triangle(swings)
         self.assertIsNotNone(result)
@@ -163,13 +167,40 @@ class TestTriangle(unittest.TestCase):
         self.assertEqual(result["direction"], "bearish")
 
     def test_symmetrical_triangle(self):
+        # Symmetrical: rising lows (90 → 100), falling highs (110 → 105).
+        # Compression: early range 20, late range 5 → 0.25 ratio ✓
         swings = _make_swings([
             (90.0, "low"), (110.0, "high"),
-            (95.0, "low"), (105.0, "high"),
+            (100.0, "low"), (105.0, "high"),
         ])
         result = _triangle(swings)
         self.assertIsNotNone(result)
         self.assertEqual(result["name"], "Symmetrical Triangle")
+
+    def test_no_triangle_without_compression(self):
+        """Barely-converging pivots (high falls 1, low rises 5, late range
+        is 70% of early range) must NOT fire — that's oscillation, not a
+        triangle. Real triangles compress at least 25% (late range ≤ 75%)."""
+        swings = _make_swings([
+            (90.0, "low"), (110.0, "high"),     # early range = 20
+            (95.0, "low"), (109.0, "high"),     # late range = 14 → ratio 0.7
+        ])
+        # Pivots technically converge (L rises 5, H falls 1) but the late
+        # half is still 70% as wide as the early half — not enough
+        # compression to call this a triangle.
+        result = _triangle(swings)
+        self.assertIsNone(result)
+
+    def test_ascending_requires_flat_top(self):
+        """An ascending sequence where the highs diverge (110 → 115) must
+        not fire ascending (no flat top) and must not fall through to
+        symmetrical either (no falling highs)."""
+        swings = _make_swings([
+            (90.0, "low"), (110.0, "high"),
+            (95.0, "low"), (115.0, "high"),     # rising highs — diverging
+        ])
+        result = _triangle(swings)
+        self.assertIsNone(result)
 
 
 class TestWedge(unittest.TestCase):
@@ -316,7 +347,7 @@ class TestWindowScanners(unittest.TestCase):
         swings = self._alternating_swings([
             (95.0, "low"),       # 0: ascending-triangle left rim
             (110.0, "high"),     # 1: ascending-triangle flat top #1
-            (100.0, "low"),      # 2: rising low #1
+            (101.0, "low"),      # 2: rising low (early range 15, late range 9, ratio 0.6)
             (110.0, "high"),     # 3: ascending-triangle flat top #2
             (92.0, "low"),       # 4: structure break — divergent noise begins
             (105.0, "high"),     # 5
@@ -412,7 +443,7 @@ class TestWindowScanners(unittest.TestCase):
         """End-to-end check: an ascending triangle 4 pivots back is surfaced
         by detect_all_from_swings even when the most recent 4 pivots diverge."""
         swings = _make_swings([
-            (95.0, "low"), (110.0, "high"), (100.0, "low"), (110.0, "high"),
+            (95.0, "low"), (110.0, "high"), (101.0, "low"), (110.0, "high"),
             (92.0, "low"), (105.0, "high"), (90.0, "low"), (100.0, "high"),
         ])
         candles = _make_candles(30, base=100.0)
