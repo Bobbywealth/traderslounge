@@ -887,7 +887,7 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
             confluence = fib_zone.get("sr_confluence") or []
             in_golden_pocket = bool((fib_zone.get("golden_pocket") or {}).get("contains_price"))
             aligned_leg = sign and ((leg_dir == "up") == (sign > 0))
-            scores["fibonacci"] = _clamp((4 if aligned_leg else 0) + (3 if .382 <= retrace <= .786 else 0) + (2 if confluence else 0) + (1 if in_golden_pocket else 0), 0, 10)
+            scores["fibonacci"] = _clamp((4 if aligned_leg else 0) + (3 if .382 <= retrace <= .786 else 0) + (2 if confluence else 0) + (1 if in_golden_pocket else 0), 0, 10) if sign else 0
             htf_fibs = []
             primary_frame_key = _canonical_frame_key(primary_name)
             for tf_name in ("h1", "h4", "d1"):
@@ -1023,10 +1023,16 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
     weights = {"mn1": 3, "w1": 2, "d1": 1, "h4": 1}
     macro_value = sum((1 if bias[name]["trend"] == "bullish" else -1 if bias[name]["trend"] == "bearish" else 0)*weight for name, weight in weights.items())
     macro_bias = "bullish" if macro_value > 1 else "bearish" if macro_value < -1 else "neutral"
-    expected_trend = "bullish" if sign > 0 else "bearish" if sign < 0 else "neutral"
-    opposing_frames = [name for name in ("mn1", "w1", "d1", "h4") if bias[name]["trend"] not in ("neutral", expected_trend)]
-    aligned_frames = [name for name in ("mn1", "w1", "d1", "h4") if bias[name]["trend"] == expected_trend]
-    market_context = {"macro_bias": macro_bias, "timeframes": bias, "aligned_frames": aligned_frames, "opposing_frames": opposing_frames, "alignment_score": round(len(aligned_frames)/4*100), "session": _session, "in_kill_zone": _in_kill_zone, "sub_h1_trends": sub_h1_trends}
+    expected_trend = "bullish" if sign > 0 else "bearish" if sign < 0 else None
+    if expected_trend:
+        opposing_frames = [name for name in ("mn1", "w1", "d1", "h4") if bias[name]["trend"] not in ("neutral", expected_trend)]
+        aligned_frames = [name for name in ("mn1", "w1", "d1", "h4") if bias[name]["trend"] == expected_trend]
+    else:
+        # No direction assigned — don't misleadingly label frames as "opposing"
+        opposing_frames = []
+        aligned_frames = []
+    alignment_score = round(len(aligned_frames)/4*100) if expected_trend else 0
+    market_context = {"macro_bias": macro_bias, "timeframes": bias, "aligned_frames": aligned_frames, "opposing_frames": opposing_frames, "alignment_score": alignment_score, "session": _session, "in_kill_zone": _in_kill_zone, "sub_h1_trends": sub_h1_trends}
 
     atr_now = indicators.get("atr") or (price*.01 if price else 1)
     sr_for_direction = next((zone for zone in zones.get("support_resistance", []) if zone["type"] == ("support" if sign > 0 else "resistance") and zone["distance_atr"] <= .6 and zone["strength_score"] >= 4), None) if sign else None

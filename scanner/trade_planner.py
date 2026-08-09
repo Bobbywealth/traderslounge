@@ -107,6 +107,19 @@ def _generate_blocking_reasons(analysis: dict, direction: str, timing_status: st
                 "severity": "high"
             })
 
+    if timing_status == "WAIT":
+        # Surface technical-check failures from the analysis engine.
+        # crypto_analysis.py already computes wait_for / blocking_reasons
+        # for exactly this case — fold them in so the trade plan explains
+        # WHY timing is WAIT rather than silently returning [].
+        wait_for = timing.get("wait_for") or timing.get("blocking_reasons") or []
+        for reason in wait_for:
+            blocking.append({
+                "code": "TIMING_WAIT",
+                "message": str(reason).replace("_", " ").title(),
+                "severity": "low"
+            })
+
     return blocking
 
 
@@ -343,6 +356,7 @@ class TradePlanner:
             "minimum_rr": 2.0, "targets": [], "daily_range": {},
             "structural_targets": [], "account_risk_percent": 0,
             "calendar_status": calendar_status, "timing_status": "WAIT", "timing": {}, "reasons": reasons,
+            "blocking_reasons": [r for r in reasons if isinstance(r, dict)],
             "position_size_formula": "account_equity * account_risk_percent / 100 / risk_distance",
             "position_size": {
                 'lot_size': 0.0,
@@ -611,7 +625,7 @@ def _empty_plan(direction, score, calendar_status, reasons):
         "structural_targets": [], "account_risk_percent": 0,
         "calendar_status": calendar_status, "calendar_degraded": calendar_status == "UNAVAILABLE",
         "timing_status": "WAIT", "timing": {}, "reasons": reasons,
-        "triggers": [], "blocking_reasons": [],
+        "triggers": [], "blocking_reasons": [r for r in reasons if isinstance(r, dict)],
         "position_size_formula": "account_equity * account_risk_percent / 100 / risk_distance",
     }
 

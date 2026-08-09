@@ -2529,7 +2529,7 @@ def start_signal_monitor(
             interval_seconds = int(raw) if raw else int(state.config.scan_interval_seconds)
         except (TypeError, ValueError):
             interval_seconds = 300
-    interval_seconds = max(30, int(interval_seconds))
+    interval_seconds = max(25, int(interval_seconds))
 
     def run() -> None:
         handler = object.__new__(_ApiHandler)

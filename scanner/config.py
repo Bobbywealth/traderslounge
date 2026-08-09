@@ -26,7 +26,7 @@ class Config:
         "BTCUSD", "ETHUSD", "XRPUSD", "LTCUSD", "DOTUSD", "XLMUSD", "BATUSD", "NEOUSD",
     ])
     # Seconds between full scans of all pairs.
-    scan_interval_seconds: int = 300  # 5 minutes
+    scan_interval_seconds: int = 25  # fast enough for H1 calls while respecting data budget
     # Per-tier score thresholds (mirror spec §2.1; tweakable via env)
     strong_threshold: int = 65
     good_threshold: int = 50

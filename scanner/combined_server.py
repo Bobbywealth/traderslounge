@@ -91,6 +91,34 @@ def main() -> int:
         t.start()
         logging.info("scanner thread started (%d pairs, %ds interval)",
                      len(cfg.pairs), cfg.scan_interval_seconds)
+
+        # Start the autonomous loop (market watcher, session, regime, alert
+        # engine, opportunity scanner, setup lifecycle, paper trading, etc.).
+        # A daemon thread feeds it fresh market data every 60 seconds.
+        try:
+            from .autonomy.loop import AutonomousLoop
+            loop = AutonomousLoop()
+            loop.start()
+
+            def _autonomy_feeder():
+                import time as _t
+                while True:
+                    try:
+                        data = {}
+                        for pair in cfg.pairs:
+                            pd = scanner._pair_data.get(pair) or {}
+                            analysis = pd.get("analysis")
+                            price = (analysis or {}).get("data_quality", {}).get("reference_price") or 0
+                            data[pair] = {"price": price, "analysis": analysis or {}}
+                        loop.run_cycle(data)
+                    except Exception:
+                        logging.exception("autonomy feeder cycle error")
+                    _t.sleep(60)
+
+            threading.Thread(target=_autonomy_feeder, name="autonomy-feeder", daemon=True).start()
+            logging.info("autonomous loop started (mode: %s)", loop.config.mode.value)
+        except Exception:
+            logging.exception("autonomous loop failed to start")
     else:
         logging.info("RUN_SCANNER_THREAD=0 — serving API only")
 
