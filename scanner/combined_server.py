@@ -106,12 +106,21 @@ def main() -> int:
                 while True:
                     try:
                         data = {}
+                        from .crypto_analysis import analyze_crypto
                         for pair in cfg.pairs:
-                            pd = scanner._pair_data.get(pair) or {}
-                            analysis = pd.get("analysis")
-                            price = (analysis or {}).get("data_quality", {}).get("reference_price") or 0
-                            data[pair] = {"price": price, "analysis": analysis or {}}
-                        loop.run_cycle(data)
+                            try:
+                                snapshot = client.fetch_snapshot(pair)
+                                if not snapshot or not snapshot.h1:
+                                    continue
+                                analysis = analyze_crypto(snapshot)
+                                ref_price = analysis.get('data_quality', {}).get('reference_price') or 0
+                                if ref_price <= 0:
+                                    continue
+                                data[pair] = {"price": ref_price, "analysis": analysis}
+                            except Exception:
+                                logging.debug("autonomy feeder: failed to analyze %s", pair)
+                        if data:
+                            loop.run_cycle(data)
                     except Exception:
                         logging.exception("autonomy feeder cycle error")
                     _t.sleep(60)
