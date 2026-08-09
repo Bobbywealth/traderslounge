@@ -103,30 +103,45 @@ def main() -> int:
 
             def _autonomy_feeder():
                 import time as _t
-                from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
-                _pool = ThreadPoolExecutor(max_workers=2)
+                import threading as _threading
                 while True:
                     try:
                         data = {}
                         from .crypto_analysis import analyze_crypto
+                        fetched = 0
+                        analyzed = 0
                         for pair in cfg.pairs:
                             try:
-                                # Fetch with 15s timeout to avoid hanging on rate-limited providers
-                                future = _pool.submit(client.fetch_snapshot, pair)
-                                try:
-                                    snapshot = future.result(timeout=15)
-                                except (FuturesTimeout, Exception):
-                                    logging.debug("autonomy feeder: timeout fetching %s", pair)
+                                # Use a dedicated thread with timeout to avoid blocking
+                                result = [None]
+                                error = [None]
+                                def _fetch(p=pair):
+                                    try:
+                                        result[0] = client.fetch_snapshot(p)
+                                    except Exception as e:
+                                        error[0] = e
+                                t = _threading.Thread(target=_fetch, daemon=True)
+                                t.start()
+                                t.join(timeout=20)  # 20s max per pair
+                                if t.is_alive():
+                                    logging.warning("autonomy feeder: timeout fetching %s (20s)", pair)
                                     continue
+                                if error[0]:
+                                    logging.debug("autonomy feeder: fetch error %s: %s", pair, error[0])
+                                    continue
+                                snapshot = result[0]
                                 if not snapshot or not snapshot.h1:
                                     continue
+                                fetched += 1
                                 analysis = analyze_crypto(snapshot)
                                 ref_price = analysis.get('data_quality', {}).get('reference_price') or 0
                                 if ref_price <= 0:
                                     continue
                                 data[pair] = {"price": ref_price, "analysis": analysis}
+                                analyzed += 1
                             except Exception:
                                 logging.debug("autonomy feeder: failed to analyze %s", pair)
+                        logging.info("autonomy feeder: fetched=%d analyzed=%d pairs", fetched, analyzed)
                         if data:
                             loop.run_cycle(data)
                     except Exception:
