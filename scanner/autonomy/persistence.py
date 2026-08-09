@@ -346,3 +346,54 @@ def save_position_event(conn, position_id: str, event_type: str,
             )
     except Exception:
         log.exception("Failed to save position event for %s", position_id)
+
+
+def check_idempotency_key(conn, key: str) -> Optional[str]:
+    """Check if an idempotency key already exists in Postgres.
+    Returns the existing order_id if found, None otherwise.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT order_id FROM paper_orders WHERE idempotency_key = %s",
+                (key,),
+            )
+            row = cur.fetchone()
+            return row['order_id'] if row else None
+    except Exception:
+        log.exception("Failed to check idempotency key %s", key)
+        return None
+
+
+def acquire_setup_lock(conn, setup_id: str, timeout_seconds: int = 30) -> bool:
+    """Acquire a Postgres advisory lock for a setup.
+    Returns True if lock acquired, False if already locked.
+    Prevents two workers from executing the same setup simultaneously.
+    """
+    try:
+        # Use pg_try_advisory_lock with a hash of the setup_id as the lock key
+        lock_key = hash(setup_id) % (2**31)  # Fit in int32
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(%s)", (lock_key,))
+            row = cur.fetchone()
+            acquired = bool(row and row[0])
+            if acquired:
+                log.debug("Acquired lock for setup %s (key=%d)", setup_id, lock_key)
+            else:
+                log.info("Setup %s is already locked by another worker", setup_id)
+            return acquired
+    except Exception:
+        log.exception("Failed to acquire lock for setup %s", setup_id)
+        return False
+
+
+def release_setup_lock(conn, setup_id: str) -> bool:
+    """Release a Postgres advisory lock for a setup."""
+    try:
+        lock_key = hash(setup_id) % (2**31)
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_unlock(%s)", (lock_key,))
+            return True
+    except Exception:
+        log.exception("Failed to release lock for setup %s", setup_id)
+        return False

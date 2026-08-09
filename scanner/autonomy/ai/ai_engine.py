@@ -48,6 +48,61 @@ class AIEngine:
         """Set context for AI responses."""
         self._context[key] = value
     
+    def update_system_context(self, active_setups: list, open_positions: list,
+                              daily_pnl: float = 0.0, news_status: str = 'CLEAR',
+                              regime: str = 'unknown', session: str = 'unknown'):
+        """Update AI context with current system state.
+        Called every cycle by the autonomous loop.
+        """
+        self._context['active_setups'] = active_setups
+        self._context['open_positions'] = open_positions
+        self._context['daily_pnl'] = daily_pnl
+        self._context['news_status'] = news_status
+        self._context['regime'] = regime
+        self._context['session'] = session
+    
+    def answer_system_question(self, question: str) -> AIResponse:
+        """Answer a question about current system state using deterministic data."""
+        q = question.lower()
+        setups = self._context.get('active_setups', [])
+        positions = self._context.get('open_positions', [])
+        
+        if 'strongest' in q or 'best' in q:
+            if not setups:
+                return AIResponse(content='No active setups right now.', query_type='system')
+            best = max(setups, key=lambda s: s.get('score', 0))
+            return AIResponse(
+                content=f"Strongest setup: {best.get('symbol','')} {best.get('direction','')} "
+                        f"score {best.get('score',0)}/100, state {best.get('state','')}",
+                query_type='system', sources=['setup_lifecycle'])
+        
+        if 'position' in q or 'risk' in q or 'open' in q:
+            n = len(positions)
+            pnl = self._context.get('daily_pnl', 0)
+            return AIResponse(
+                content=f"Open positions: {n}. Daily P&L: ${pnl:+.2f}.",
+                query_type='system', sources=['paper_broker'])
+        
+        if 'news' in q:
+            ns = self._context.get('news_status', 'UNKNOWN')
+            return AIResponse(content=f"News status: {ns}", query_type='system', sources=['news_engine'])
+        
+        if 'session' in q:
+            s = self._context.get('session', 'unknown')
+            return AIResponse(content=f"Current session: {s}", query_type='system', sources=['session_engine'])
+        
+        if 'regime' in q:
+            r = self._context.get('regime', 'unknown')
+            return AIResponse(content=f"Market regime: {r}", query_type='system', sources=['regime_engine'])
+        
+        # Default: describe current state
+        ready = [s for s in setups if s.get('state') == 'ready']
+        developing = [s for s in setups if s.get('state') in ('detected', 'developing', 'watch')]
+        parts = [f"{len(setups)} active setups ({len(ready)} ready, {len(developing)} developing)."]
+        parts.append(f"{len(positions)} open positions.")
+        parts.append(f"News: {self._context.get('news_status', 'UNKNOWN')}.")
+        return AIResponse(content=' '.join(parts), query_type='system')
+    
     def explain_setup(self, setup_data: dict) -> AIResponse:
         """Explain why a setup is READY or not ready."""
         

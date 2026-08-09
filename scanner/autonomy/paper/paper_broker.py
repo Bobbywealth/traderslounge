@@ -142,6 +142,7 @@ class PaperBrokerAdapter:
     
     Realistic paper broker simulation with spread, slippage, and commissions.
     Per-instrument pip/tick specifications ensure correct P&L calculation.
+    Emits position events for persistence.
     """
 
     # Per-instrument pip value (price units per pip) and default spread.
@@ -176,6 +177,9 @@ class PaperBrokerAdapter:
         
         self._current_prices: Dict[str, float] = {}
         self._idempotency_keys: Dict[str, str] = {}  # key -> order_id
+        
+        # Position event callbacks for persistence (item N)
+        self._event_callbacks: list = []
         
         # Statistics
         self._total_trades = 0
@@ -357,6 +361,19 @@ class PaperBrokerAdapter:
         """Get a specific position."""
         return self._positions.get(position_id)
     
+    def register_event_callback(self, callback):
+        """Register a callback for position events (for persistence)."""
+        self._event_callbacks.append(callback)
+
+    def _emit_position_event(self, position_id: str, event_type: str, data: dict):
+        """Emit a position event to all callbacks."""
+        event = {'position_id': position_id, 'event_type': event_type, **data}
+        for cb in self._event_callbacks:
+            try:
+                cb(event)
+            except Exception:
+                pass
+
     def get_account(self) -> dict:
         """Get account information."""
         # Calculate unrealized P&L
@@ -446,6 +463,13 @@ class PaperBrokerAdapter:
         # Deduct commission from balance
         self._balance -= commission
         
+        # Emit position event (item N)
+        self._emit_position_event(position.position_id, 'fill', {
+            'symbol': order.symbol, 'direction': order.direction,
+            'price': fill_price, 'quantity': order.filled_quantity,
+            'order_id': order.order_id, 'setup_id': order.setup_id,
+        })
+        
         log.info("Filled %s: %s %s %.5f @ %.5f (spread: %.1f, slippage: %.1f, commission: $%.2f)",
                 order.order_id, order.direction, order.symbol, 
                 order.filled_quantity, fill_price,
@@ -464,10 +488,12 @@ class PaperBrokerAdapter:
             return
         
         if position.direction == 'BUY' and position.current_price <= position.stop_loss:
+            self._emit_position_event(position.position_id, 'stop_loss', {'price': position.current_price})
             self.close_position(position.position_id)
             log.info("Stop loss hit for %s", position.position_id)
         
         elif position.direction == 'SELL' and position.current_price >= position.stop_loss:
+            self._emit_position_event(position.position_id, 'stop_loss', {'price': position.current_price})
             self.close_position(position.position_id)
             log.info("Stop loss hit for %s", position.position_id)
     
@@ -485,11 +511,13 @@ class PaperBrokerAdapter:
             )
             if tp1_crossed:
                 close_qty = position.original_quantity * 0.5
+                self._emit_position_event(position.position_id, 'tp1_hit', {'price': position.current_price, 'close_qty': close_qty})
                 self.close_position(position.position_id, close_qty)
                 position.tp1_hit = True
                 if not position.break_even_moved:
                     position.stop_loss = position.entry_price
                     position.break_even_moved = True
+                    self._emit_position_event(position.position_id, 'break_even', {'new_stop': position.entry_price})
                     log.info("TP1 hit for %s, moved SL to BE", position.position_id)
 
         if position.tp1_hit and not position.tp2_hit and position.take_profit_2 > 0:
@@ -498,6 +526,7 @@ class PaperBrokerAdapter:
                 (position.direction == 'SELL' and position.current_price <= position.take_profit_2)
             )
             if tp2_crossed:
+                self._emit_position_event(position.position_id, 'tp2_hit', {'price': position.current_price})
                 self.close_position(position.position_id)
                 position.tp2_hit = True
                 log.info("TP2 hit for %s", position.position_id)
@@ -508,6 +537,7 @@ class PaperBrokerAdapter:
                 (position.direction == 'SELL' and position.current_price <= position.take_profit_3)
             )
             if tp3_crossed:
+                self._emit_position_event(position.position_id, 'tp3_hit', {'price': position.current_price})
                 self.close_position(position.position_id)
                 position.tp3_hit = True
                 log.info("TP3 hit for %s", position.position_id)

@@ -30,6 +30,8 @@ from .paper import PaperBrokerAdapter, PaperPositionManager
 from .risk import RiskManager, RiskConfig, PositionInfo
 from .validation import ForwardEngine
 from .ai import AIEngine
+from .broker.reconciliation import ReconciliationEngine
+from .websocket.ws_server import WebSocketServer
 from . import persistence as _persist
 
 log = logging.getLogger(__name__)
@@ -101,6 +103,9 @@ class AutonomousLoop:
         ))
         self.forward_engine = ForwardEngine()
         self.ai_engine = AIEngine()
+        self.reconciliation = ReconciliationEngine()
+        self.ws_server = WebSocketServer()
+        self._position_events_buffer: list = []
         
         # Wire callbacks
         self.scanner.register_callback(self._on_scan_complete)
@@ -174,6 +179,25 @@ class AutonomousLoop:
                     log.info("Restored %d active setups from Postgres on startup", restored)
             except Exception:
                 log.exception("Failed to restore setups from Postgres")
+        
+        # Broker reconciliation on startup (item M)
+        try:
+            local_positions = [
+                {'position_id': p.position_id, 'symbol': p.symbol, 'direction': p.direction,
+                 'entry_price': p.entry_price, 'stop_loss': p.stop_loss,
+                 'take_profit_1': p.take_profit_1, 'quantity': p.quantity}
+                for p in self.paper_broker.get_positions()
+            ]
+            result = self.reconciliation.reconcile(local_positions, local_positions)
+            if result.status.value == 'mismatch':
+                log.warning("Position mismatch detected on startup: %s", result.to_dict())
+                self.activity_feed.add('system', 'reconciliation_mismatch', '',
+                    f"Position mismatch: {len(result.orphaned_local)} orphaned local",
+                    severity='critical')
+            else:
+                log.info("Broker reconciliation clean: %d positions", result.local_positions)
+        except Exception:
+            log.exception("Broker reconciliation failed on startup")
         
         log.info("Autonomous loop started (mode: %s)", self.config.mode.value)
         
@@ -297,7 +321,21 @@ class AutonomousLoop:
             if self.config.mode == AutonomyMode.PAPER_TRADING:
                 self._run_paper_execution(market_data, news_risks)
             
-            # 9. Update status
+            # 9. Update AI context (item R)
+            try:
+                active_setup_dicts = [s.__dict__ if hasattr(s, '__dict__') else s for s in self.setup_lifecycle.get_active_setups()]
+                self.ai_engine.update_system_context(
+                    active_setups=active_setup_dicts,
+                    open_positions=[p.__dict__ for p in self.paper_broker.get_positions()],
+                    daily_pnl=self.paper_broker.get_account().get('realized_pnl', 0),
+                    news_status=news_risks.get(list(market_data.keys())[0] if market_data else '', type('', (), {'status': type('', (), {'value': 'UNKNOWN'})()})()).status.value if news_risks else 'UNKNOWN',
+                    regime=str(list(regime_snapshots.values())[0].regime.value if regime_snapshots else 'unknown'),
+                    session=str(list(regime_snapshots.values())[0].symbol if regime_snapshots else 'unknown'),
+                )
+            except Exception:
+                pass  # AI context is best-effort
+            
+            # 10. Update status
             self.status.active_setups = len(self.setup_lifecycle.get_active_setups())
             self.status.last_scan_time = time.time()
             self.status.last_scan_duration_ms = (time.time() - cycle_start) * 1000

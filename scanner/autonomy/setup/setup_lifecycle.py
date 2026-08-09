@@ -317,6 +317,7 @@ class SetupLifecycle:
         
         return {
             'setup_id': setup.setup_id,
+            'fingerprint': setup.fingerprint,
             'symbol': setup.symbol,
             'asset_class': setup.asset_class,
             'direction': setup.direction,
