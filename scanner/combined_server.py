@@ -99,6 +99,7 @@ def main() -> int:
             from .autonomy.loop import AutonomousLoop
             loop = AutonomousLoop()
             loop.set_repository(repo)
+            loop.set_telegram_bot(telegram_bot)
             loop.start()
 
             def _autonomy_feeder():

@@ -142,6 +142,9 @@ class AlertEngine:
         log.info("Alert created: %s [%s] %s - %s", 
                 alert.alert_id, alert_type.value, symbol, title)
         
+        # Deliver to registered callbacks (Telegram, push, etc.)
+        self._emit_alert(alert)
+        
         return alert
     
     def _is_duplicate(self, dedupe_key: str) -> bool:

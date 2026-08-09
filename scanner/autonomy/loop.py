@@ -105,6 +105,36 @@ class AutonomousLoop:
                 self._db_conn = repo._pool
             except Exception:
                 pass
+
+    def set_telegram_bot(self, bot):
+        """Attach a TelegramBot for alert delivery (optional)."""
+        self._telegram_bot = bot
+        # Register Telegram delivery as an alert callback
+        self.alert_engine.register_callback(self._deliver_alert_telegram)
+
+    def _deliver_alert_telegram(self, alert):
+        """Deliver an alert via Telegram to all linked chats."""
+        if not getattr(self, '_telegram_bot', None):
+            return
+        try:
+            bot = self._telegram_bot
+            # Build message
+            severity_icon = {'high': '\u26a0\ufe0f', 'critical': '\ud83d\udea8', 'medium': '\ud83d\udfe1', 'low': '\u2139\ufe0f'}.get(
+                alert.severity.value if hasattr(alert.severity, 'value') else str(alert.severity), '\u2139\ufe0f')
+            text = (
+                f"<b>{severity_icon} {alert.title}</b>\n"
+                f"<i>{alert.symbol}</i> — {alert.message}"
+            )
+            if alert.setup_id:
+                text += f"\n<code>{alert.setup_id}</code>"
+            # Send to all linked chats
+            for chat_id in list(getattr(bot, '_chat_user_map', {}).keys()):
+                try:
+                    bot.send_message(chat_id, text)
+                except Exception:
+                    log.debug("Failed to send alert to chat %s", chat_id)
+        except Exception:
+            log.exception("Telegram alert delivery failed")
     
     def start(self):
         """Start the autonomous loop."""
@@ -237,6 +267,20 @@ class AutonomousLoop:
             self._scan_count += 1
             
             self.status.update_heartbeat('autonomous_loop', ComponentStatus.HEALTHY)
+            
+            # Persist market snapshot periodically (item 11, every 5th cycle ~5min)
+            if self._db_conn and self._scan_count % 5 == 0:
+                try:
+                    for symbol, data in market_data.items():
+                        snapshot = MarketSnapshot(symbol=symbol, price=data.get('price', 0))
+                        regime = regime_snapshots.get(symbol)
+                        if regime:
+                            snapshot.regime = regime.regime.value
+                            snapshot.trend = regime.macro_direction
+                            snapshot.volatility = regime.volatility_regime
+                        _persist.save_market_snapshot(self._db_conn, snapshot)
+                except Exception:
+                    log.exception("Failed to persist market snapshots")
             
         except Exception as e:
             log.exception("Error in autonomous cycle: %s", e)
@@ -425,6 +469,15 @@ class AutonomousLoop:
         
         # Record state change in journal
         self.journal.record_state_change(setup_id, state, event.get('reason', ''))
+        
+        # Persist journal entry to Postgres (item 11)
+        if self._db_conn:
+            try:
+                journal_entry = self.journal._entries.get(setup_id)
+                if journal_entry:
+                    _persist.save_journal_entry(self._db_conn, journal_entry)
+            except Exception:
+                log.exception("Failed to persist journal entry %s", setup_id)
         
         # Generate alert for significant state changes
         if state in ('ready', 'triggered', 'invalidated', 'expired'):

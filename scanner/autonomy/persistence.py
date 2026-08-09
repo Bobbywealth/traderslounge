@@ -160,3 +160,92 @@ def load_active_setups(conn) -> list:
     except Exception:
         log.exception("Failed to load active setups")
         return []
+
+
+def save_journal_entry(conn, entry) -> None:
+    """Upsert a journal entry into Postgres."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO journal_entries (
+                    setup_id, symbol, asset_class, direction, timeframe,
+                    strategy_type, engine_version,
+                    detected_at, triggered_at, entry_at, closed_at,
+                    score, score_components, market_regime, session,
+                    news_state, data_quality,
+                    entry_price, stop_loss, tp1, tp2, tp3,
+                    actual_entry, actual_exit, lot_size, fees, spread, slippage,
+                    outcome, r_multiple, pnl_usd, mfe_r, mae_r,
+                    exit_reason, holding_bars, holding_time_seconds,
+                    technical_reasons, macro_reasons, risk_reasons
+                ) VALUES (
+                    %s, %s, %s, %s, %s,
+                    %s, %s,
+                    to_timestamp(%s), to_timestamp(%s), to_timestamp(%s), to_timestamp(%s),
+                    %s, %s::jsonb, %s, %s,
+                    %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s,
+                    %s::jsonb, %s::jsonb, %s::jsonb
+                )
+                ON CONFLICT (setup_id) DO UPDATE SET
+                    triggered_at = COALESCE(EXCLUDED.triggered_at, journal_entries.triggered_at),
+                    entry_at = COALESCE(EXCLUDED.entry_at, journal_entries.entry_at),
+                    closed_at = COALESCE(EXCLUDED.closed_at, journal_entries.closed_at),
+                    actual_entry = COALESCE(EXCLUDED.actual_entry, journal_entries.actual_entry),
+                    actual_exit = COALESCE(EXCLUDED.actual_exit, journal_entries.actual_exit),
+                    outcome = COALESCE(EXCLUDED.outcome, journal_entries.outcome),
+                    r_multiple = COALESCE(EXCLUDED.r_multiple, journal_entries.r_multiple),
+                    pnl_usd = COALESCE(EXCLUDED.pnl_usd, journal_entries.pnl_usd),
+                    exit_reason = COALESCE(EXCLUDED.exit_reason, journal_entries.exit_reason),
+                    state_history = EXCLUDED.technical_reasons
+                """,
+                (
+                    entry.setup_id, entry.symbol, entry.asset_class,
+                    entry.direction, entry.timeframe,
+                    entry.strategy_type, entry.engine_version,
+                    entry.detected_at or 0, entry.triggered_at or 0,
+                    entry.entry_at or 0, entry.closed_at or 0,
+                    entry.score, json.dumps(entry.score_components),
+                    entry.market_regime, entry.session,
+                    entry.news_state, entry.data_quality,
+                    entry.entry_price, entry.stop_loss,
+                    entry.tp1, entry.tp2, entry.tp3,
+                    entry.actual_entry, entry.actual_exit,
+                    entry.lot_size, entry.fees, entry.spread, entry.slippage,
+                    entry.outcome, entry.r_multiple, entry.pnl_usd,
+                    entry.mfe_r, entry.mae_r,
+                    entry.exit_reason, entry.holding_bars,
+                    entry.holding_time_seconds,
+                    json.dumps(entry.technical_reasons),
+                    json.dumps(entry.macro_reasons),
+                    json.dumps(entry.risk_reasons),
+                ),
+            )
+    except Exception:
+        log.exception("Failed to save journal entry %s", getattr(entry, 'setup_id', '?'))
+
+
+def save_market_snapshot(conn, snapshot) -> None:
+    """Insert a market snapshot into Postgres."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO market_snapshots (
+                    symbol, timestamp, price, regime, trend, volatility,
+                    session, ema_20, ema_50, rsi, adx, atr, news_state
+                ) VALUES (%s, to_timestamp(%s), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    snapshot.symbol, snapshot.timestamp, snapshot.price,
+                    snapshot.regime, snapshot.trend, snapshot.volatility,
+                    snapshot.session, snapshot.ema_20, snapshot.ema_50,
+                    snapshot.rsi, snapshot.adx, snapshot.atr, snapshot.news_state,
+                ),
+            )
+    except Exception:
+        log.exception("Failed to save market snapshot for %s", getattr(snapshot, 'symbol', '?'))
