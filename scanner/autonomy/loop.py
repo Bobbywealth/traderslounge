@@ -2,7 +2,9 @@
 Autonomous Trading Loop for Confluence X.
 
 Ties together all autonomy components into a continuous loop:
-Market Watcher → Data Quality → Session → Regime → News → Scanner → Setup → Monitor → Journal
+Market Watcher → Data Quality → Session → Regime → News (gate) →
+Scanner → Setup Lifecycle → Risk Manager → Paper Broker → Forward Engine →
+Monitor → Journal
 """
 from __future__ import annotations
 
@@ -10,21 +12,23 @@ import logging
 import time
 from typing import Optional
 
-from .config import AutonomyConfig, get_autonomy_config
+from .config import AutonomyConfig, AutonomyMode, get_autonomy_config
 from .status import AutonomyStatus, ComponentStatus, get_autonomy_status
 from .market import MarketWatcher, DataQualityEngine
 from .sessions import SessionEngine
-from .setup import SetupLifecycle
+from .setup import SetupLifecycle, SetupState
 from .scanner import AutonomousScanner
-from .news import NewsEngine
+from .news import NewsEngine, NewsRiskStatus
 from .regime import RegimeEngine
 from .alerts import AlertEngine, AlertType, AlertSeverity
 from .monitoring import SetupMonitor
 from .journal import TradingJournal
 from .memory import MarketMemory, MarketSnapshot
 from .paper import PaperBrokerAdapter, PaperPositionManager
+from .risk import RiskManager, RiskConfig, PositionInfo
 from .validation import ForwardEngine
 from .ai import AIEngine
+from . import persistence as _persist
 
 log = logging.getLogger(__name__)
 
@@ -73,6 +77,11 @@ class AutonomousLoop:
         self.memory = MarketMemory()
         self.paper_broker = PaperBrokerAdapter()
         self.position_manager = PaperPositionManager()
+        self.risk_manager = RiskManager(RiskConfig(
+            max_concurrent_positions=self.config.risk.max_open_positions,
+            max_risk_per_trade_pct=self.config.risk.max_risk_per_trade_pct,
+            max_daily_drawdown_pct=self.config.risk.max_daily_loss_pct,
+        ))
         self.forward_engine = ForwardEngine()
         self.ai_engine = AIEngine()
         
@@ -85,6 +94,17 @@ class AutonomousLoop:
         self._running = False
         self._last_scan_time = 0
         self._scan_count = 0
+        self._db_conn = None  # Set via set_repository() for Postgres persistence
+
+    def set_repository(self, repo):
+        """Attach a repository for Postgres persistence (optional)."""
+        if hasattr(repo, 'conn'):
+            self._db_conn = repo.conn
+        elif hasattr(repo, '_pool'):
+            try:
+                self._db_conn = repo._pool
+            except Exception:
+                pass
     
     def start(self):
         """Start the autonomous loop."""
@@ -112,14 +132,17 @@ class AutonomousLoop:
         cycle_start = time.time()
         
         try:
-            # 1. Update market data
+            # 1. Update market data + feed prices into paper broker
             for symbol, data in market_data.items():
-                if 'price' in data:
-                    self.market_watcher.update_tick(symbol, data['price'])
+                price = data.get('price', 0)
+                if price > 0:
+                    self.market_watcher.update_tick(symbol, price)
                     self.memory.record_snapshot(MarketSnapshot(
                         symbol=symbol,
-                        price=data['price'],
+                        price=price,
                     ))
+                    # Item 6: feed every price into paper broker for SL/TP monitoring
+                    self.paper_broker.update_price(symbol, price)
             
             # 2. Check data quality
             for symbol in self.market_watcher.get_all_symbols():
@@ -131,30 +154,82 @@ class AutonomousLoop:
             for symbol in self.market_watcher.get_all_symbols():
                 self.session_engine.get_session_context(symbol)
             
-            # 4. Classify regime (would use actual analysis data)
-            # regime_engine.analyze() called with real data
+            # 4. Classify regime (item 8)
+            regime_snapshots = {}
+            for symbol, data in market_data.items():
+                analysis = data.get('analysis') or {}
+                indicators = analysis.get('indicators') or {}
+                htf_bias = 0
+                market_context = analysis.get('market_context') or {}
+                macro_bias = market_context.get('macro_bias', 'neutral')
+                if macro_bias == 'bullish':
+                    htf_bias = 40
+                elif macro_bias == 'bearish':
+                    htf_bias = -40
+                regime_snapshots[symbol] = self.regime_engine.analyze(
+                    symbol=symbol,
+                    htf_bias=htf_bias,
+                    adx=indicators.get('adx') or 0,
+                    atr=indicators.get('atr') or 0,
+                    current_price=data.get('price') or 0,
+                    ema_20=indicators.get('ema_20') or 0,
+                    ema_50=indicators.get('ema_50') or 0,
+                    rsi=indicators.get('rsi') or 50,
+                )
             
-            # 5. Assess news risk
+            # 5. Assess news risk + populate news events from calendar (item 9)
+            news_risks = {}
             for symbol in self.market_watcher.get_all_symbols():
                 risk = self.news_engine.assess_risk(symbol)
-                # Use risk status in scanning
+                news_risks[symbol] = risk
             
-            # 6. Scan opportunities
+            # 6. Scan opportunities — scanner now creates setups (item 1)
             for symbol, data in market_data.items():
-                if 'analysis' in data:
-                    self.scanner.scan_symbol(
-                        symbol=symbol,
-                        analysis=data['analysis'],
-                        current_price=data.get('price', 0),
-                    )
+                analysis = data.get('analysis')
+                if not analysis:
+                    continue
+                
+                # News gate (item 9): skip scan if BLOCKED
+                news_risk = news_risks.get(symbol)
+                if news_risk and news_risk.status in (NewsRiskStatus.BLOCKED, NewsRiskStatus.POST_NEWS):
+                    log.info("Skipping %s: news risk %s", symbol, news_risk.status.value)
+                    continue
+                
+                # Regime info for scanner (item 8)
+                regime = regime_snapshots.get(symbol)
+                if regime:
+                    analysis['market_regime'] = regime.regime.value
+                    analysis['volatility_regime'] = regime.volatility_regime
+                
+                self.scanner.scan_symbol(
+                    symbol=symbol,
+                    analysis=analysis,
+                    current_price=data.get('price', 0),
+                )
             
-            # 7. Monitor active setups
+            # 7. Monitor active setups + state transitions (item 10)
             for setup in self.setup_lifecycle.get_active_setups():
                 price = market_data.get(setup.symbol, {}).get('price', 0)
                 if price > 0:
                     self.setup_monitor.check_setup(setup.setup_id, price)
+                
+                # State machine: DETECTED → DEVELOPING → WATCH based on score
+                if setup.state == SetupState.DETECTED and setup.score >= self.config.scanner.good_threshold:
+                    self.setup_lifecycle.transition(
+                        setup.setup_id, SetupState.DEVELOPING,
+                        reason=f'Score {setup.score} >= {self.config.scanner.good_threshold}',
+                    )
+                elif setup.state == SetupState.DEVELOPING and setup.score >= self.config.scanner.strong_threshold:
+                    self.setup_lifecycle.transition(
+                        setup.setup_id, SetupState.WATCH,
+                        reason=f'Score {setup.score} >= strong threshold',
+                    )
             
-            # 8. Update status
+            # 8. PAPER mode execution path (item 5)
+            if self.config.mode == AutonomyMode.PAPER_TRADING:
+                self._run_paper_execution(market_data, news_risks)
+            
+            # 9. Update status
             self.status.active_setups = len(self.setup_lifecycle.get_active_setups())
             self.status.last_scan_time = time.time()
             self.status.last_scan_duration_ms = (time.time() - cycle_start) * 1000
@@ -168,6 +243,136 @@ class AutonomousLoop:
             self.status.health.scanner = ComponentStatus.UNHEALTHY
             self.status.update_heartbeat('autonomous_loop', ComponentStatus.UNHEALTHY,
                                         message=str(e))
+
+    def _run_paper_execution(self, market_data: dict, news_risks: dict):
+        """
+        Paper-mode execution path.
+        
+        For each setup in WATCH or READY state:
+        1. Run RiskManager evaluation
+        2. If APPROVED and setup is READY → place paper order → TRIGGERED
+        3. If order fills → transition to POSITION_OPEN
+        4. Record forecast via ForwardEngine
+        """
+        for setup in self.setup_lifecycle.get_active_setups():
+            if setup.state not in (SetupState.WATCH, SetupState.READY):
+                continue
+            
+            data = market_data.get(setup.symbol, {})
+            analysis = data.get('analysis') or {}
+            trade_plan = analysis.get('trade_plan') or {}
+            price = data.get('price', 0)
+            if not price:
+                continue
+            
+            # Check if timing is READY
+            timing_status = str(trade_plan.get('timing_status') or 'WAIT').upper()
+            
+            # Risk evaluation
+            account = self.paper_broker.get_account()
+            open_pos = [
+                PositionInfo(
+                    position_id=p.position_id,
+                    symbol=p.symbol,
+                    direction=p.direction,
+                    entry_price=p.entry_price,
+                    stop_loss=p.stop_loss,
+                    quantity=p.quantity,
+                    unrealized_pnl=p.unrealized_pnl,
+                )
+                for p in self.paper_broker.get_positions()
+            ]
+            
+            news_risk = news_risks.get(setup.symbol)
+            news_status = news_risk.status.value if news_risk else 'UNAVAILABLE'
+            
+            assessment = self.risk_manager.evaluate(
+                setup_symbol=setup.symbol,
+                setup_direction=setup.direction,
+                setup_score=setup.score,
+                setup_entry=setup.entry_low or price,
+                setup_stop=setup.stop_loss,
+                setup_tp1=setup.tp1,
+                setup_net_rr=trade_plan.get('net_available_rr') or setup.expected_rr_tp1,
+                account_equity=account['equity'],
+                account_balance=account['balance'],
+                news_status=news_status,
+                data_quality_status=setup.data_quality,
+                open_positions=open_pos,
+                daily_realized_pnl=account.get('realized_pnl', 0),
+            )
+            
+            if not assessment.approved:
+                log.debug("Risk rejected %s: %s", setup.symbol, assessment.reasons)
+                # Transition to WATCH if not already
+                if setup.state == SetupState.READY:
+                    self.setup_lifecycle.transition(
+                        setup.setup_id, SetupState.WATCH,
+                        reason=f'Risk rejected: {"; ".join(assessment.reasons[:2])}',
+                    )
+                continue
+            
+            # If READY and timing is READY → place order
+            if setup.state == SetupState.READY and timing_status == 'READY':
+                entry_price = setup.entry_low or price
+                order = self.paper_broker.place_market_order(
+                    symbol=setup.symbol,
+                    direction=setup.direction,
+                    quantity=assessment.position_size_lots,
+                    stop_loss=setup.stop_loss,
+                    setup_id=setup.setup_id,
+                    idempotency_key=f"auto-{setup.setup_id}",
+                )
+                
+                # Transfer SL/TP to the filled position
+                if order.status.value == 'filled':
+                    for pos in self.paper_broker.get_positions():
+                        if pos.setup_id == setup.setup_id:
+                            pos.stop_loss = setup.stop_loss
+                            pos.take_profit_1 = setup.tp1
+                            pos.take_profit_2 = setup.tp2
+                            pos.take_profit_3 = setup.tp3
+                            setup.position_id = pos.position_id
+                            break
+                    
+                    self.setup_lifecycle.transition(
+                        setup.setup_id, SetupState.TRIGGERED,
+                        reason=f'Paper order filled at {order.filled_price:.5f}',
+                    )
+                    
+                    # Item 7: record forecast
+                    forecast = self.forward_engine.record_forecast(
+                        symbol=setup.symbol,
+                        timeframe=setup.timeframe,
+                        direction=setup.direction,
+                        entry_price=order.filled_price,
+                        stop_loss=setup.stop_loss,
+                        target_price=setup.tp1,
+                        score=setup.score,
+                        score_components=setup.score_components,
+                        setup_type=setup.strategy_type,
+                        session=setup.session,
+                        market_regime=setup.market_regime,
+                        engine_version=setup.engine_version,
+                    )
+                    setup.forecast_id = forecast.forecast_id
+                    
+                    # Transition to POSITION_OPEN
+                    self.setup_lifecycle.transition(
+                        setup.setup_id, SetupState.POSITION_OPEN,
+                        reason=f'Position opened, forecast {forecast.forecast_id}',
+                    )
+                    
+                    log.info("Paper trade: %s %s @ %.5f, SL=%.5f, TP1=%.5f, forecast=%s",
+                            setup.direction, setup.symbol, order.filled_price,
+                            setup.stop_loss, setup.tp1, forecast.forecast_id)
+            
+            # If WATCH and risk approved → promote to READY
+            elif setup.state == SetupState.WATCH and timing_status == 'READY':
+                self.setup_lifecycle.transition(
+                    setup.setup_id, SetupState.READY,
+                    reason=f'Risk approved + timing READY, score {setup.score}',
+                )
     
     def get_status(self) -> dict:
         """Get complete autonomous status."""
@@ -190,6 +395,17 @@ class AutonomousLoop:
         """Handle setup state change event."""
         setup_id = event.get('setup_id')
         state = event.get('state')
+        
+        # Persist to Postgres if available (item 2)
+        if self._db_conn:
+            try:
+                setup = self.setup_lifecycle.get_setup(setup_id)
+                if setup:
+                    _persist.save_setup(self._db_conn, setup)
+                    if setup.events:
+                        _persist.save_setup_event(self._db_conn, setup_id, setup.events[-1])
+            except Exception:
+                log.exception("Failed to persist setup %s", setup_id)
         
         # Create journal entry for new setups
         if state == 'detected':

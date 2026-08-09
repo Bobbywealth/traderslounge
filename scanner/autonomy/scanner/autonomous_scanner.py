@@ -37,14 +37,20 @@ class RankedOpportunity:
     timestamp: float = field(default_factory=time.time)
 
 
+# Minimum score to create or update a setup.
+_SETUP_SCORE_THRESHOLD = 35
+
+
 class AutonomousScanner:
     """
     Autonomous Scanner.
     
     Continuously scans the instrument universe, detects opportunities,
-    and ranks them by confluence score.
+    and ranks them by confluence score.  Qualified opportunities are
+    automatically promoted into SetupLifecycle so the rest of the
+    autonomy stack (monitoring, risk, execution) can act on them.
     """
-    
+
     def __init__(self, 
                  config: Optional[AutonomyConfig] = None,
                  data_quality: Optional[DataQualityEngine] = None,
@@ -120,16 +126,63 @@ class AutonomousScanner:
             reward = abs(tp1 - entry)
             expected_rr = reward / risk if risk > 0 else 0
         
-        # Check for existing setup
+                # Check for existing setup
         existing_setups = self.setup_lifecycle.get_active_setups(symbol)
         setup_state = 'none'
         setup_id = None
         if existing_setups:
-            # Use highest-scored active setup
+            # Update highest-scored active setup with latest analysis data
             best_setup = max(existing_setups, key=lambda s: s.score)
             setup_state = best_setup.state.value
             setup_id = best_setup.setup_id
-        
+            # Update score and levels on every scan so the setup stays current
+            best_setup.score = score
+            best_setup.score_components = analysis.get('category_breakdown', {})
+            best_setup.direction = direction
+            best_setup.market_regime = analysis.get('market_regime', '')
+            best_setup.updated_at = time.time()
+            # Update trade levels from the latest trade_plan
+            if trade_plan:
+                best_setup.entry_low = float(trade_plan.get('entry') or 0)
+                best_setup.entry_high = float(trade_plan.get('entry') or 0)
+                best_setup.stop_loss = float(trade_plan.get('stop') or 0)
+                targets = trade_plan.get('targets') or []
+                best_setup.tp1 = float(targets[0]['price']) if len(targets) > 0 else 0
+                best_setup.tp2 = float(targets[1]['price']) if len(targets) > 1 else 0
+                best_setup.tp3 = float(targets[2]['price']) if len(targets) > 2 else 0
+                best_setup.technical_reasons = [r.get('message', str(r)) if isinstance(r, dict) else str(r) for r in (trade_plan.get('reasons') or [])[:5]]
+            # Promote state if score improved enough
+            if best_setup.state == SetupState.DETECTED and score >= self.config.scanner.good_threshold:
+                self.setup_lifecycle.transition(setup_id, SetupState.DEVELOPING, reason=f'Score improved to {score}')
+                setup_state = 'developing'
+        elif score >= _SETUP_SCORE_THRESHOLD and direction in ('BUY', 'SELL'):
+            # Create a new setup — first time this symbol qualifies
+            entry_price = float(trade_plan.get('entry') or 0) or current_price
+            stop_price = float(trade_plan.get('stop') or 0)
+            targets = trade_plan.get('targets') or []
+            tp1 = float(targets[0]['price']) if len(targets) > 0 else 0
+            tp2 = float(targets[1]['price']) if len(targets) > 1 else 0
+            tp3 = float(targets[2]['price']) if len(targets) > 2 else 0
+            new_setup = self.setup_lifecycle.create_setup(
+                symbol=symbol,
+                asset_class=analysis.get('asset_class', 'cryptocurrency'),
+                direction=direction,
+                timeframe=analysis.get('data_quality', {}).get('primary_timeframe', 'H1'),
+                score=score,
+                score_components=analysis.get('category_breakdown', {}),
+                entry_low=entry_price,
+                entry_high=entry_price,
+                stop_loss=stop_price,
+                tp1=tp1, tp2=tp2, tp3=tp3,
+                market_regime=analysis.get('market_regime', ''),
+                session=session_context.current_session.value,
+                news_state=trade_plan.get('calendar_status', ''),
+                data_quality=self.data_quality.get_quality(symbol).status.value if self.data_quality.get_quality(symbol) else 'unknown',
+                technical_reasons=[r.get('message', str(r)) if isinstance(r, dict) else str(r) for r in (trade_plan.get('reasons') or [])[:5]],
+            )
+            setup_id = new_setup.setup_id
+            setup_state = new_setup.state.value
+
         # Create ranked opportunity
         opportunity = RankedOpportunity(
             symbol=symbol,

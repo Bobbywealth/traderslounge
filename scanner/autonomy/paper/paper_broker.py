@@ -88,7 +88,10 @@ class PaperPosition:
     original_quantity: float = 0.0
     tp1_quantity: float = 0.0
     tp1_hit: bool = False
+    tp2_hit: bool = False
+    tp3_hit: bool = False
     break_even_moved: bool = False
+
     
     # Trailing stop
     trailing_stop_active: bool = False
@@ -138,8 +141,22 @@ class PaperBrokerAdapter:
     Paper Broker Adapter.
     
     Realistic paper broker simulation with spread, slippage, and commissions.
+    Per-instrument pip/tick specifications ensure correct P&L calculation.
     """
-    
+
+    # Per-instrument pip value (price units per pip) and default spread.
+    # Unlisted instruments fall back to 0.0001 (FX standard).
+    PIP_SPECS: Dict[str, dict] = {
+        'BTCUSD':  {'pip_size': 1.0,    'spread_pips': 10.0,  'lot_size': 1.0},
+        'ETHUSD':  {'pip_size': 0.01,   'spread_pips': 5.0,   'lot_size': 1.0},
+        'XRPUSD':  {'pip_size': 0.0001, 'spread_pips': 5.0,   'lot_size': 1.0},
+        'LTCUSD':  {'pip_size': 0.01,   'spread_pips': 5.0,   'lot_size': 1.0},
+        'XAUUSD':  {'pip_size': 0.01,   'spread_pips': 3.0,   'lot_size': 1.0},
+        'EURUSD':  {'pip_size': 0.0001, 'spread_pips': 1.2,   'lot_size': 100000},
+        'GBPUSD':  {'pip_size': 0.0001, 'spread_pips': 1.5,   'lot_size': 100000},
+        'USDJPY':  {'pip_size': 0.01,   'spread_pips': 1.5,   'lot_size': 100000},
+    }
+
     def __init__(self, 
                  initial_balance: float = 10000.0,
                  default_spread_pips: float = 1.0,
@@ -365,7 +382,7 @@ class PaperBrokerAdapter:
         self._current_prices[symbol] = price
         
         # Update all positions for this symbol
-        for position in self._positions.values():
+        for position in list(self._positions.values()):
             if position.symbol == symbol:
                 position.current_price = price
                 self._update_position_pnl(position)
@@ -418,6 +435,10 @@ class PaperBrokerAdapter:
             original_quantity=order.filled_quantity,
             total_fees=commission,
             setup_id=order.setup_id,
+            stop_loss=order.stop_loss if hasattr(order, 'stop_loss') else 0.0,
+            take_profit_1=order.take_profit_1 if hasattr(order, 'take_profit_1') else 0.0,
+            take_profit_2=order.take_profit_2 if hasattr(order, 'take_profit_2') else 0.0,
+            take_profit_3=order.take_profit_3 if hasattr(order, 'take_profit_3') else 0.0,
         )
         
         self._positions[position.position_id] = position
@@ -451,38 +472,45 @@ class PaperBrokerAdapter:
             log.info("Stop loss hit for %s", position.position_id)
     
     def _check_take_profits(self, position: PaperPosition):
-        """Check if take profit levels are hit."""
-        if not position.tp1_hit and position.take_profit_1 > 0:
-            if position.direction == 'BUY' and position.current_price >= position.take_profit_1:
-                # Close 50% at TP1
-                close_qty = position.original_quantity * 0.5
-                self.close_position(position.position_id, close_qty)
-                position.tp1_hit = True
-                
-                # Move stop to break-even
-                if not position.break_even_moved:
-                    position.stop_loss = position.entry_price
-                    position.break_even_moved = True
-                    log.info("TP1 hit for %s, moved SL to BE", position.position_id)
-            
-            elif position.direction == 'SELL' and position.current_price <= position.take_profit_1:
-                close_qty = position.original_quantity * 0.5
-                self.close_position(position.position_id, close_qty)
-                position.tp1_hit = True
-                
-                if not position.break_even_moved:
-                    position.stop_loss = position.entry_price
-                    position.break_even_moved = True
-                    log.info("TP1 hit for %s, moved SL to BE", position.position_id)
+        """Check if take profit levels are hit.
         
-        if position.tp1_hit and position.take_profit_2 > 0:
-            if position.direction == 'BUY' and position.current_price >= position.take_profit_2:
+        TP1: close 50% of original quantity, move SL to break-even.
+        TP2: close remaining quantity (full close).
+        TP3: close remaining quantity if still open (full close).
+        """
+        if not position.tp1_hit and position.take_profit_1 > 0:
+            tp1_crossed = (
+                (position.direction == 'BUY' and position.current_price >= position.take_profit_1) or
+                (position.direction == 'SELL' and position.current_price <= position.take_profit_1)
+            )
+            if tp1_crossed:
+                close_qty = position.original_quantity * 0.5
+                self.close_position(position.position_id, close_qty)
+                position.tp1_hit = True
+                if not position.break_even_moved:
+                    position.stop_loss = position.entry_price
+                    position.break_even_moved = True
+                    log.info("TP1 hit for %s, moved SL to BE", position.position_id)
+
+        if position.tp1_hit and not position.tp2_hit and position.take_profit_2 > 0:
+            tp2_crossed = (
+                (position.direction == 'BUY' and position.current_price >= position.take_profit_2) or
+                (position.direction == 'SELL' and position.current_price <= position.take_profit_2)
+            )
+            if tp2_crossed:
                 self.close_position(position.position_id)
+                position.tp2_hit = True
                 log.info("TP2 hit for %s", position.position_id)
-            
-            elif position.direction == 'SELL' and position.current_price <= position.take_profit_2:
+
+        if position.tp2_hit and not position.tp3_hit and position.take_profit_3 > 0:
+            tp3_crossed = (
+                (position.direction == 'BUY' and position.current_price >= position.take_profit_3) or
+                (position.direction == 'SELL' and position.current_price <= position.take_profit_3)
+            )
+            if tp3_crossed:
                 self.close_position(position.position_id)
-                log.info("TP2 hit for %s", position.position_id)
+                position.tp3_hit = True
+                log.info("TP3 hit for %s", position.position_id)
     
     def _update_trailing_stop(self, position: PaperPosition):
         """Update trailing stop."""

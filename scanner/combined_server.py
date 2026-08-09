@@ -98,6 +98,7 @@ def main() -> int:
         try:
             from .autonomy.loop import AutonomousLoop
             loop = AutonomousLoop()
+            loop.set_repository(repo)
             loop.start()
 
             def _autonomy_feeder():
