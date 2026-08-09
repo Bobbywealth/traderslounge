@@ -216,6 +216,141 @@ def _triangle(swings: List[Swing]) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _wedge(swings: List[Swing]) -> Optional[Dict[str, Any]]:
+    """Rising wedge (bearish) or falling wedge (bullish): both trendlines
+    slope in the same direction but converge."""
+    if len(swings) < 4:
+        return None
+    window = swings[-4:]
+    highs = [p for p in window if p.type == "high"]
+    lows = [p for p in window if p.type == "low"]
+    if len(highs) < 2 or len(lows) < 2:
+        return None
+    h1, h2 = highs[-2], highs[-1]
+    l1, l2 = lows[-2], lows[-1]
+    height = abs(max(h1.price, h2.price) - min(l1.price, l2.price))
+    if height <= 0:
+        return None
+
+    # Rising wedge: both slopes positive, upper < lower (converging upward)
+    # Falling wedge: both slopes negative, upper < lower (converging downward)
+    h_rising = h2.price > h1.price
+    l_rising = l2.price > l1.price
+    h_falling = h2.price < h1.price
+    l_falling = l2.price < l1.price
+
+    if h_rising and l_rising and (l2.price - l1.price) > (h2.price - h1.price):
+        # Rising wedge: support rises faster than resistance — bearish
+        level = max(h1.price, h2.price)
+        return _result("Rising Wedge", "bearish", window, level,
+                       entry=min(l1.price, l2.price),
+                       stop=level + height * 0.1,
+                       target=level - height,
+                       note="a close above the upper trendline negates the wedge")
+    if h_falling and l_falling and (h1.price - h2.price) > (l1.price - l2.price):
+        # Falling wedge: resistance falls faster than support — bullish
+        level = min(l1.price, l2.price)
+        return _result("Falling Wedge", "bullish", window, level,
+                       entry=max(h1.price, h2.price),
+                       stop=level - height * 0.1,
+                       target=level + height,
+                       note="a close below the lower trendline negates the wedge")
+    return None
+
+
+def _range(swings: List[Swing]) -> Optional[Dict[str, Any]]:
+    """Horizontal consolidation: flat support and resistance with multiple touches."""
+    if len(swings) < 4:
+        return None
+    # Use the most recent 6+ swings if available
+    window = swings[-6:] if len(swings) >= 6 else swings[-4:]
+    highs = [p for p in window if p.type == "high"]
+    lows = [p for p in window if p.type == "low"]
+    if len(highs) < 2 or len(lows) < 2:
+        return None
+
+    resistance = (highs[-1].price + highs[-2].price) / 2.0
+    support = (lows[-1].price + lows[-2].price) / 2.0
+    height = resistance - support
+    if height <= 0:
+        return None
+
+    # All highs near resistance, all lows near support
+    for h in highs:
+        if not _similar(h.price, resistance, height):
+            return None
+    for l in lows:
+        if not _similar(l.price, support, height):
+            return None
+
+    touches = len(highs) + len(lows)
+    midpoint = (resistance + support) / 2.0
+    # Range is neutral until breakout; quote levels as breakout-aware placeholders
+    return _result("Range", "bullish", window, midpoint,
+                   entry=resistance,  # Upside breakout level
+                   stop=support,
+                   target=resistance + height,
+                   note=f"range with {touches} boundary touches; direction determined by breakout")
+
+
+def _cup_and_handle(swings: List[Swing], candles: List[Candle]) -> Optional[Dict[str, Any]]:
+    """Cup and Handle: U-shaped recovery followed by a smaller pullback."""
+    if len(swings) < 5 or len(candles) < 20:
+        return None
+    highs = [p for p in swings if p.type == "high"]
+    lows = [p for p in swings if p.type == "low"]
+    if len(highs) < 2 or len(lows) < 3:
+        return None
+
+    # Search for cup formation: left rim -> bottom -> right rim
+    for i in range(len(lows) - 1, 0, -1):
+        cup_bottom = lows[i]
+        left_rims = [h for h in highs if h.index < cup_bottom.index]
+        right_rims = [h for h in highs if h.index > cup_bottom.index]
+        if not left_rims or not right_rims:
+            continue
+        left_rim = left_rims[-1]
+        right_rim = right_rims[0]
+
+        rim_level = min(left_rim.price, right_rim.price)
+        depth = rim_level - cup_bottom.price
+        if depth <= 0:
+            continue
+
+        # Rims at similar level
+        if not _similar(left_rim.price, right_rim.price, depth):
+            continue
+
+        # Cup must span enough bars
+        cup_bars = right_rim.index - left_rim.index
+        if cup_bars < 8:
+            continue
+
+        # Handle: small pullback after right rim
+        handle_candidates = [l for l in lows if l.index > right_rim.index]
+        if not handle_candidates:
+            # Cup only, no handle yet — lower confidence
+            return _result("Cup (no handle)", "bullish",
+                           [left_rim, cup_bottom, right_rim],
+                           rim_level,
+                           entry=rim_level, stop=cup_bottom.price,
+                           target=rim_level + depth,
+                           note="awaiting handle formation for confirmation")
+
+        handle = handle_candidates[0]
+        handle_depth = rim_level - handle.price
+        if handle_depth > depth * 0.5:
+            continue  # Handle too deep
+
+        return _result("Cup and Handle", "bullish",
+                       [left_rim, cup_bottom, right_rim, handle],
+                       rim_level,
+                       entry=rim_level, stop=handle.price,
+                       target=rim_level + depth,
+                       note="a close below the handle low negates the pattern")
+    return None
+
+
 def _flag(swings: List[Swing], candles: List[Candle]) -> Optional[Dict[str, Any]]:
     """Flag: a strong impulse leg followed by a shallow counter-trend drift."""
     if len(swings) < 4 or len(candles) < 15:
@@ -277,8 +412,11 @@ def detect_all_from_swings(swings: List[Swing], candles: List[Candle]) -> List[D
     detectors = (
         _head_and_shoulders,
         _triple,
+        lambda s: _cup_and_handle(s, candles),
         lambda s: _flag(s, candles),
         _triangle,
+        _wedge,
+        _range,
         _double,
     )
     for detector in detectors:
