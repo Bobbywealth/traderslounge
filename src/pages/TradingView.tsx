@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { createChart, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp, CandlestickSeries, LineSeries, createSeriesMarkers, type SeriesMarker, type Time } from 'lightweight-charts';
 import { createVolumePane, createRsiPane, computeVolume, computeRsi, detectDivergence, divergenceStyle, type Divergence } from '../components/chartPanes';
 import { computeBollinger, mergeLineWithTime } from '../components/chartIndicators';
@@ -247,8 +248,17 @@ const TradingView: React.FC = () => {
   const [divergenceRevision, setDivergenceRevision] = useState(0);
 
   // State management
-  const [selectedSymbol, setSelectedSymbol] = useState('BTCUSD');
-  const [timeframe, setTimeframe] = useState('1h');
+  // Read initial symbol/timeframe from URL so deep-links like
+  // /tradingview?symbol=XAUUSD&timeframe=1D actually open the right chart.
+  const [searchParams] = useSearchParams();
+  const symbolFromUrl = searchParams.get('symbol');
+  const timeframeFromUrl = searchParams.get('timeframe');
+  const [selectedSymbol, setSelectedSymbol] = useState(
+    symbolFromUrl ? symbolFromUrl.toUpperCase() : 'BTCUSD'
+  );
+  const [timeframe, setTimeframe] = useState(
+    timeframeFromUrl ? timeframeFromUrl.toLowerCase() : '1h'
+  );
   const [currentPrice, setCurrentPrice] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
