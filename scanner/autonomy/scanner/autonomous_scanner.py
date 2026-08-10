@@ -39,6 +39,10 @@ class RankedOpportunity:
 
 # Minimum score to create or update a setup.
 _SETUP_SCORE_THRESHOLD = 35
+# Minimum raw confluence score to create a "forming" setup (DETECTED state)
+# before directional confirmation.  This captures setups that are building
+# confluence but haven't confirmed BUY/SELL yet.
+_FORMING_RAW_SCORE_THRESHOLD = 25
 
 
 class AutonomousScanner:
@@ -128,6 +132,7 @@ class AutonomousScanner:
         
                 # Build fingerprint for duplicate detection
         entry_price = float(trade_plan.get('entry') or 0) or current_price
+        raw_confluence = int(analysis.get('raw_confluence_score') or 0)
         fingerprint = _build_fingerprint(
             symbol=symbol, direction=direction,
             timeframe=str((analysis.get('data_quality') or {}).get('primary_timeframe', 'H1')),
@@ -238,6 +243,27 @@ class AutonomousScanner:
                 news_state=trade_plan.get('calendar_status', ''),
                 data_quality=self.data_quality.get_quality(symbol).status.value if self.data_quality.get_quality(symbol) else 'unknown',
                 technical_reasons=[r.get('message', str(r)) if isinstance(r, dict) else str(r) for r in (trade_plan.get('reasons') or [])[:5]],
+            )
+            setup_id = new_setup.setup_id
+            setup_state = new_setup.state.value
+        elif raw_confluence >= _FORMING_RAW_SCORE_THRESHOLD and not existing_setups:
+            # Forming setup: strong confluence but no confirmed direction yet.
+            # Creates a DETECTED setup so the Signals page can show it as "Forming".
+            macro_bias = (analysis.get('market_context') or {}).get('macro_bias', 'neutral')
+            forming_dir = macro_bias.upper() if macro_bias != 'neutral' else 'NEUTRAL'
+            new_setup = self.setup_lifecycle.create_setup(
+                symbol=symbol,
+                asset_class=analysis.get('asset_class', 'cryptocurrency'),
+                direction=forming_dir,
+                timeframe=analysis.get('data_quality', {}).get('primary_timeframe', 'H1'),
+                score=raw_confluence,
+                fingerprint=fingerprint,
+                score_components={'raw_confluence': raw_confluence},
+                entry_low=0, entry_high=0,
+                market_regime=analysis.get('market_regime', ''),
+                session=session_context.current_session.value if session_context else '',
+                data_quality=self.data_quality.get_quality(symbol).status.value if self.data_quality.get_quality(symbol) else 'unknown',
+                technical_reasons=[f'Raw confluence {raw_confluence}/100 — direction not yet confirmed'],
             )
             setup_id = new_setup.setup_id
             setup_state = new_setup.state.value

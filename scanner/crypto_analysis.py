@@ -1034,6 +1034,21 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
     alignment_score = round(len(aligned_frames)/4*100) if expected_trend else 0
     market_context = {"macro_bias": macro_bias, "timeframes": bias, "aligned_frames": aligned_frames, "opposing_frames": opposing_frames, "alignment_score": alignment_score, "session": _session, "in_kill_zone": _in_kill_zone, "sub_h1_trends": sub_h1_trends}
 
+    # Raw confluence: how much technical evidence is present, regardless of
+    # directional confirmation.  Used by the autonomous scanner to detect
+    # "forming" setups before direction resolves to BUY/SELL.
+    _trending_frames = sum(1 for _n in ("mn1","w1","d1","h4","h1") if bias.get(_n, {}).get("trend", "neutral") != "neutral")
+    _ema_stack_raw = 1 if indicators.get("ema_stack_aligned") else 0
+    _vol_ok_raw = 1 if (indicators.get("relative_volume") or 0) >= 1.1 else 0
+    _adx_raw = 1 if (indicators.get("adx") or 0) >= 20 else 0
+    raw_confluence = int(min(100, max(0,
+        abs(macro_value) * 8        # HTF weighted trend strength (max 56)
+        + _trending_frames * 5      # how many timeframes have a clear trend (max 25)
+        + _ema_stack_raw * 8        # EMA stack aligned in some direction
+        + _vol_ok_raw * 4           # volume above average
+        + _adx_raw * 7              # ADX showing trend
+    )))
+
     atr_now = indicators.get("atr") or (price*.01 if price else 1)
     sr_for_direction = next((zone for zone in zones.get("support_resistance", []) if zone["type"] == ("support" if sign > 0 else "resistance") and zone["distance_atr"] <= .6 and zone["strength_score"] >= 4), None) if sign else None
     fib_data = zones.get("fibonacci") or {}
@@ -1145,6 +1160,7 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
             "risk": {"atr_stop": stop, "atr_multiple": 2, "warning": "Crypto can gap and liquidity can thin; use position sizing and hard stops."},
             "monitoring": ["primary timeframe close", "volume relative to 20-bar average", "VWAP reclaim/loss", "structure break", "ATR volatility regime"],
             "confluence_score": int(_clamp(total, 0, 100)),
+            "raw_confluence_score": raw_confluence,
             "coverage": coverage,
             "confidence_tier": confidence_tier,
             "categories_available": len(available_categories),
