@@ -55,7 +55,7 @@ def main() -> int:
     
     # Configure structured JSON logging with environment context
     from .logging_config import setup_logging
-    environment = os.environ.get("ENVIRONMENT", "development")
+    environment = os.environ.get("ENVIRONMENT", "production")
     app_version = os.environ.get("APPLICATION_VERSION", "unknown")
     setup_logging(level=cfg.log_level, environment=environment, application_version=app_version)
 

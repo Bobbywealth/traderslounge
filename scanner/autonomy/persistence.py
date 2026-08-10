@@ -9,15 +9,59 @@ from __future__ import annotations
 import json
 import logging
 import time
+from contextlib import contextmanager
 from typing import Optional
 
 log = logging.getLogger(__name__)
 
 
+def _open_cursor(conn):
+    """Return a context manager yielding a psycopg cursor.
+
+    The autonomous loop sometimes passes a raw psycopg connection and
+    sometimes a ``@contextmanager`` generator (from
+    ``repo._get_connection()``).  Both have to work here, otherwise the
+    setup lifecycle blows up with
+    ``AttributeError: '_GeneratorContextManager' object has no attribute
+    'cursor'`` every cycle.  When the argument is already a connection
+    we wrap it in a no-op context manager so the call sites can use a
+    uniform ``with _open_cursor(conn) as cur:`` pattern.
+    """
+    if conn is None:
+        raise ValueError("connection is None")
+
+    if hasattr(conn, "cursor") and not hasattr(conn, "__enter__"):
+        # Already a raw psycopg connection — wrap so callers can use
+        # the same ``with`` syntax everywhere.
+        @contextmanager
+        def _wrap_raw(_raw=conn):
+            try:
+                yield _raw
+            finally:
+                pass
+
+        @contextmanager
+        def _open_raw():
+            with _wrap_raw() as _c:
+                with _c.cursor() as cur:
+                    yield cur
+
+        return _open_raw()
+
+    # It's a @contextmanager generator — enter it, then cursor().
+    @contextmanager
+    def _open_ctx():
+        with conn as _c:
+            with _c.cursor() as cur:
+                yield cur
+
+    return _open_ctx()
+
+
 def save_setup(conn, setup) -> None:
     """Upsert an autonomous setup into Postgres."""
     try:
-        with conn.cursor() as cur:
+        with _open_cursor(conn) as cur:
             cur.execute(
                 """
                 INSERT INTO autonomy_setups (
@@ -89,7 +133,7 @@ def save_setup(conn, setup) -> None:
 def save_setup_event(conn, setup_id: str, event) -> None:
     """Insert a setup event into Postgres."""
     try:
-        with conn.cursor() as cur:
+        with _open_cursor(conn) as cur:
             cur.execute(
                 """
                 INSERT INTO setup_events (
@@ -112,7 +156,7 @@ def save_setup_event(conn, setup_id: str, event) -> None:
 def save_forecast(conn, forecast) -> None:
     """Persist a forward forecast to Postgres."""
     try:
-        with conn.cursor() as cur:
+        with _open_cursor(conn) as cur:
             cur.execute(
                 """
                 INSERT INTO forward_forecasts (
@@ -150,7 +194,7 @@ def save_forecast(conn, forecast) -> None:
 def load_active_setups(conn) -> list:
     """Load active setups from Postgres on startup."""
     try:
-        with conn.cursor() as cur:
+        with _open_cursor(conn) as cur:
             cur.execute(
                 "SELECT * FROM autonomy_setups "
                 "WHERE state NOT IN ('closed', 'invalidated', 'expired', 'cancelled') "
@@ -165,7 +209,7 @@ def load_active_setups(conn) -> list:
 def save_journal_entry(conn, entry) -> None:
     """Upsert a journal entry into Postgres."""
     try:
-        with conn.cursor() as cur:
+        with _open_cursor(conn) as cur:
             cur.execute(
                 """
                 INSERT INTO journal_entries (
@@ -232,7 +276,7 @@ def save_journal_entry(conn, entry) -> None:
 def save_market_snapshot(conn, snapshot) -> None:
     """Insert a market snapshot into Postgres."""
     try:
-        with conn.cursor() as cur:
+        with _open_cursor(conn) as cur:
             cur.execute(
                 """
                 INSERT INTO market_snapshots (
@@ -254,7 +298,7 @@ def save_market_snapshot(conn, snapshot) -> None:
 def save_paper_order(conn, order) -> None:
     """Persist a paper order to Postgres."""
     try:
-        with conn.cursor() as cur:
+        with _open_cursor(conn) as cur:
             cur.execute(
                 """
                 INSERT INTO paper_orders (
@@ -284,7 +328,7 @@ def save_paper_order(conn, order) -> None:
 def save_paper_position(conn, position) -> None:
     """Persist a paper position to Postgres."""
     try:
-        with conn.cursor() as cur:
+        with _open_cursor(conn) as cur:
             cur.execute(
                 """
                 INSERT INTO paper_positions (
@@ -332,7 +376,7 @@ def save_position_event(conn, position_id: str, event_type: str,
     """Persist a position event (fill, TP, SL, BE, close, etc.)"""
     try:
         import uuid
-        with conn.cursor() as cur:
+        with _open_cursor(conn) as cur:
             cur.execute(
                 """
                 INSERT INTO position_events (
@@ -353,7 +397,7 @@ def check_idempotency_key(conn, key: str) -> Optional[str]:
     Returns the existing order_id if found, None otherwise.
     """
     try:
-        with conn.cursor() as cur:
+        with _open_cursor(conn) as cur:
             cur.execute(
                 "SELECT order_id FROM paper_orders WHERE idempotency_key = %s",
                 (key,),
@@ -373,7 +417,7 @@ def acquire_setup_lock(conn, setup_id: str, timeout_seconds: int = 30) -> bool:
     try:
         # Use pg_try_advisory_lock with a hash of the setup_id as the lock key
         lock_key = hash(setup_id) % (2**31)  # Fit in int32
-        with conn.cursor() as cur:
+        with _open_cursor(conn) as cur:
             cur.execute("SELECT pg_try_advisory_lock(%s)", (lock_key,))
             row = cur.fetchone()
             acquired = bool(row and row[0])
@@ -391,7 +435,7 @@ def release_setup_lock(conn, setup_id: str) -> bool:
     """Release a Postgres advisory lock for a setup."""
     try:
         lock_key = hash(setup_id) % (2**31)
-        with conn.cursor() as cur:
+        with _open_cursor(conn) as cur:
             cur.execute("SELECT pg_advisory_unlock(%s)", (lock_key,))
             return True
     except Exception:

@@ -182,7 +182,12 @@ class AutonomousLoop:
         if self._db_conn:
             try:
                 _startup_conn = self._get_conn()
-                if _startup_conn:
+                rows = []
+                if _startup_conn is not None:
+                    # _get_conn() can return either a raw psycopg connection
+                    # or a @contextmanager generator from repo._get_connection().
+                    # persistence._open_cursor() accepts both so the same call
+                    # site works regardless of what the pool exposes.
                     rows = _persist.load_active_setups(_startup_conn)
                 restored = 0
                 for row in rows:

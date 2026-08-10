@@ -34,6 +34,13 @@ log = logging.getLogger(__name__)
 
 def get_asset_class(pair: str) -> str:
     pair = canonicalize(pair) or pair
+    # Tolerate the FX-with-trailing-T form (e.g. "GBPUSDT") that some
+    # callers pass even though our canonical forex symbols never end
+    # in T. Strip the trailing T for non-crypto USDT inputs so Twelve
+    # Data doesn't reject them with 401 and so we don't misroute to
+    # FMP as an equity.
+    if pair.endswith('USDT') and not supports(pair):
+        pair = pair[:-1]
     CRYPTO_PAIRS = {'BTCUSD', 'ETHUSD', 'XRPUSD', 'LTCUSD'}
     JPY_PAIRS = {'USDJPY', 'GBPJPY', 'EURJPY'}
     METALS = {'XAUUSD', 'XAGUSD'}
