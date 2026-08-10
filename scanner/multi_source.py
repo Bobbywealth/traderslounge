@@ -81,6 +81,10 @@ class MultiSourceClient:
         # Normalize the pair so "BTCUSDT", "btcusdt", and " btcusdt "
         # all route to the Binance provider and share a single cache key.
         pair = canonicalize(pair) or pair
+        # Strip trailing T on FX USDT aliases so "GBPUSDT" reaches Twelve
+        # Data as "GBPUSD" instead of being misrouted to FMP.
+        if pair.endswith("USDT") and not is_crypto(pair):
+            pair = pair[:-1]
         provider, provider_name = self._provider_for(pair)
         if timeframes is None:
             # FX/gold/indices cost against the Twelve Data free-tier quota, so
@@ -139,3 +143,4 @@ class MultiSourceClient:
         # layer treats an unchanged oldest-candle timestamp as "no more
         # history" and stops paging.
         return self.fx.fetch_candles(pair, timeframe)
+
