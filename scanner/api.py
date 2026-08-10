@@ -1196,6 +1196,17 @@ class _ApiHandler(BaseHTTPRequestHandler):
             stale = self._cache_get(cache_key, allow_stale=True)
             if stale is not None:
                 return self._json(200, self._slice_candles(stale, limit, end_time_ms))
+            # Negative-cache the failure for 15s so the chart + scanner don't
+            # pile duplicate upstream requests on top of an already-throttled
+            # provider (Twelve Data free tier = 5 req/min, scanner burns that
+            # in one cycle). Without this, every poll during a rate-limit
+            # window burns one more request and extends the throttle.
+            self._cache_set(
+                cache_key,
+                {"pair": pair, "timeframe": timeframe, "candles": [],
+                 "count": 0, "has_more": False, "throttled": True},
+                ttl=15, stale_ttl=0,
+            )
             return self._error(502, f"market data unavailable: {exc}")
         rows = [
             {
