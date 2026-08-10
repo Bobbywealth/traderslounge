@@ -439,16 +439,34 @@ class AutonomousLoop:
         for setup in self.setup_lifecycle.get_active_setups():
             if setup.state not in (SetupState.WATCH, SetupState.READY):
                 continue
-            
+
             data = market_data.get(setup.symbol, {})
             analysis = data.get('analysis') or {}
             trade_plan = analysis.get('trade_plan') or {}
             price = data.get('price', 0)
             if not price:
                 continue
-            
+
             # Check if timing is READY
             timing_status = str(trade_plan.get('timing_status') or 'WAIT').upper()
+
+            # News gate: cancel/pause if news is BLOCKED for this symbol.
+            # Already-detected setups stay in their current state; only setups
+            # in WATCH/READY are held until the news window closes.
+            news_risk = news_risks.get(setup.symbol)
+            if news_risk and news_risk.status in (NewsRiskStatus.BLOCKED, NewsRiskStatus.POST_NEWS):
+                if setup.state == SetupState.READY:
+                    log.info("Holding %s: news %s (%s)", setup.setup_id, news_risk.status.value, news_risk.event_title or 'unknown')
+                    self.setup_lifecycle.transition(
+                        setup.setup_id, SetupState.WATCH,
+                        reason=f'News gate: {news_risk.status.value} ({news_risk.event_title or "unknown"})',
+                    )
+                    self.activity_feed.add('news', 'blocked', setup.symbol,
+                        f'Paused {setup.symbol} {setup.direction}: news {news_risk.status.value}',
+                        severity='warning', setup_id=setup.setup_id,
+                        correlation_id=correlation_id)
+                # Skip execution while news is blocking this symbol
+                continue
             
             # Risk evaluation
             account = self.paper_broker.get_account()
