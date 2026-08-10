@@ -156,29 +156,15 @@ class AutonomousLoop:
         return _ctx()
 
     def set_repository(self, repo):
-        """Attach a repository for Postgres persistence (optional)."""
-        conn = getattr(repo, 'conn', None)
-        if conn is not None:
-            self._db_conn = conn
-        else:
-            pool = getattr(repo, '_pool', None)
-            if pool is not None:
-                # SimplePool has ._get_connection() which lazily creates
-                # and returns the underlying psycopg connection.
-                if hasattr(pool, '_get_connection'):
-                    try:
-                        self._db_conn = pool._get_connection()
-                        log.warning("set_repository: got connection from pool (type=%s)", type(self._db_conn).__name__)
-                    except Exception as e:
-                        log.warning("Failed to get connection from pool: %s", e)
-                elif hasattr(pool, 'getconn'):
-                    # psycopg_pool.ConnectionPool
-                    try:
-                        self._db_conn = pool.getconn()
-                    except Exception:
-                        log.warning("Failed to get connection from ConnectionPool")
-            elif hasattr(repo, '_get_connection'):
-                self._db_conn = repo
+        """Attach a repository for Postgres persistence (optional).
+        
+        Stores the repo object itself; run_cycle uses repo._get_connection()
+        to get a raw connection when needed.  This avoids the problem of
+        trying to extract a raw connection at startup (which may fail if
+        the pool hasn't been initialized yet).
+        """
+        self._db_conn = repo
+        log.warning("set_repository: stored repo (type=%s)", type(repo).__name__)
 
     def set_telegram_bot(self, bot):
         """Attach a TelegramBot for alert delivery (optional)."""
@@ -354,6 +340,39 @@ class AutonomousLoop:
                     analysis=analysis,
                     current_price=data.get('price', 0),
                 )
+            
+            # 6b. Persist all active setups to Postgres (direct, not via callback)
+            if self._db_conn:
+                _conn_obj = self._db_conn
+                # If _db_conn is a repo, get a raw connection from it
+                if hasattr(_conn_obj, '_get_connection'):
+                    try:
+                        with _conn_obj._get_connection() as _raw:
+                            for setup in self.setup_lifecycle.get_active_setups():
+                                try:
+                                    _persist.save_setup(_raw, setup)
+                                except Exception as _e:
+                                    log.warning("Persist setup %s failed: %s", setup.setup_id, _e)
+                    except Exception as _e:
+                        log.warning("Failed to get connection from repo: %s", _e)
+                elif hasattr(_conn_obj, 'connection'):
+                    # Pool object
+                    try:
+                        with _conn_obj.connection() as _raw:
+                            for setup in self.setup_lifecycle.get_active_setups():
+                                try:
+                                    _persist.save_setup(_raw, setup)
+                                except Exception as _e:
+                                    log.warning("Persist setup %s failed: %s", setup.setup_id, _e)
+                    except Exception as _e:
+                        log.warning("Failed to get connection from pool: %s", _e)
+                elif hasattr(_conn_obj, 'cursor'):
+                    # Raw connection
+                    for setup in self.setup_lifecycle.get_active_setups():
+                        try:
+                            _persist.save_setup(_conn_obj, setup)
+                        except Exception as _e:
+                            log.warning("Persist setup %s failed: %s", setup.setup_id, _e)
             
             # 7. Monitor active setups + state transitions (item 10)
             for setup in self.setup_lifecycle.get_active_setups():
