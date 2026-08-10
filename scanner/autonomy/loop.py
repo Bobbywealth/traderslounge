@@ -592,6 +592,7 @@ class AutonomousLoop:
         state = event.get('state')
         
         log.warning("SETUP_EVENT: %s -> %s (db_conn=%s)", setup_id, state, 'SET' if self._db_conn else 'NONE')
+        print(f"[LOOP] SETUP_EVENT: {setup_id} -> {state} db_conn={'SET' if self._db_conn else 'NONE'}", flush=True)
         
         # Persist to Postgres if available (item 2)
         if self._db_conn:

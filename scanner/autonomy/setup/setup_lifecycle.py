@@ -204,6 +204,7 @@ class SetupLifecycle:
         self._active_setups[symbol].append(setup_id)
         
         log.info("Created setup: %s (%s %s, score=%d)", setup_id, symbol, direction, score)
+        print(f"[LIFECYCLE] Created setup: {setup_id} ({symbol} {direction}, score={score}) callbacks={len(self._callbacks)}", flush=True)
         
         self._emit_event('SETUP_DETECTED', setup)
         
