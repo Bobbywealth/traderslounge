@@ -26,6 +26,10 @@ PAIRS = ('BTCUSD', 'ETHUSD', 'XAUUSD', 'EURUSD')
 
 
 @unittest.skipIf(requests is None, 'requests not installed')
+@unittest.skipIf(
+    os.environ.get('RUN_LIVE_TESTS') != '1',
+    'live HTTP E2E skipped — set RUN_LIVE_TESTS=1 to enable',
+)
 class TestLiveAPI(unittest.TestCase):
     """Hit the live deployment end-to-end. Not authoritative — just smoke."""
 
