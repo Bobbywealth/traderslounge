@@ -118,42 +118,18 @@ class AutonomousLoop:
         self._scan_count = 0
         self._db_conn = None  # Set via set_repository() for Postgres persistence
 
-    def _get_db_cursor(self):
-        """Get a DB cursor regardless of whether _db_conn is a conn, pool, or repo."""
-        if self._db_conn is None:
+    def _get_conn(self):
+        """Get a raw psycopg connection from whatever _db_conn stores."""
+        obj = self._db_conn
+        if obj is None:
             return None
-        conn = self._db_conn
-        # If it's a repo object, use its _get_connection
-        if hasattr(conn, '_get_connection'):
-            return conn._get_connection()
-        # If it's a pool (has .connection method), get a connection from it
-        if hasattr(conn, 'connection'):
-            return conn.connection()
-        # If it's a raw connection (has .cursor), use it directly
-        if hasattr(conn, 'cursor'):
-            return conn
+        if hasattr(obj, 'cursor'):
+            return obj  # already a raw connection
+        if hasattr(obj, '_get_connection'):
+            return obj._get_connection()
+        if hasattr(obj, 'connection'):
+            return obj.connection()
         return None
-    
-    def _with_db(self):
-        """Context manager that yields a usable connection from any stored type."""
-        from contextlib import contextmanager
-        @contextmanager
-        def _ctx():
-            if self._db_conn is None:
-                yield None
-                return
-            conn = self._db_conn
-            if hasattr(conn, '_get_connection'):
-                with conn._get_connection() as c:
-                    yield c
-            elif hasattr(conn, 'connection'):
-                with conn.connection() as c:
-                    yield c
-            elif hasattr(conn, 'cursor'):
-                yield conn
-            else:
-                yield None
-        return _ctx()
 
     def set_repository(self, repo):
         """Attach a repository for Postgres persistence (optional).
@@ -205,7 +181,9 @@ class AutonomousLoop:
         # Restore active setups from Postgres (item E: restart restoration)
         if self._db_conn:
             try:
-                rows = _persist.load_active_setups(self._db_conn)
+                _startup_conn = self._get_conn()
+                if _startup_conn:
+                    rows = _persist.load_active_setups(_startup_conn)
                 restored = 0
                 for row in rows:
                     setup_id = row.get('setup_id') if isinstance(row, dict) else row[0]
@@ -342,37 +320,13 @@ class AutonomousLoop:
                 )
             
             # 6b. Persist all active setups to Postgres (direct, not via callback)
-            if self._db_conn:
-                _conn_obj = self._db_conn
-                # If _db_conn is a repo, get a raw connection from it
-                if hasattr(_conn_obj, '_get_connection'):
+            _direct_conn = self._get_conn()
+            if _direct_conn:
+                for setup in self.setup_lifecycle.get_active_setups():
                     try:
-                        with _conn_obj._get_connection() as _raw:
-                            for setup in self.setup_lifecycle.get_active_setups():
-                                try:
-                                    _persist.save_setup(_raw, setup)
-                                except Exception as _e:
-                                    log.warning("Persist setup %s failed: %s", setup.setup_id, _e)
+                        _persist.save_setup(_direct_conn, setup)
                     except Exception as _e:
-                        log.warning("Failed to get connection from repo: %s", _e)
-                elif hasattr(_conn_obj, 'connection'):
-                    # Pool object
-                    try:
-                        with _conn_obj.connection() as _raw:
-                            for setup in self.setup_lifecycle.get_active_setups():
-                                try:
-                                    _persist.save_setup(_raw, setup)
-                                except Exception as _e:
-                                    log.warning("Persist setup %s failed: %s", setup.setup_id, _e)
-                    except Exception as _e:
-                        log.warning("Failed to get connection from pool: %s", _e)
-                elif hasattr(_conn_obj, 'cursor'):
-                    # Raw connection
-                    for setup in self.setup_lifecycle.get_active_setups():
-                        try:
-                            _persist.save_setup(_conn_obj, setup)
-                        except Exception as _e:
-                            log.warning("Persist setup %s failed: %s", setup.setup_id, _e)
+                        log.warning("Persist setup %s failed: %s", setup.setup_id, _e)
             
             # 7. Monitor active setups + state transitions (item 10)
             for setup in self.setup_lifecycle.get_active_setups():
@@ -433,7 +387,8 @@ class AutonomousLoop:
             self.status.update_heartbeat('autonomous_loop', ComponentStatus.HEALTHY)
             
             # Persist market snapshot periodically (item 11, every 5th cycle ~5min)
-            if self._db_conn and self._scan_count % 5 == 0:
+            _snap_conn = self._get_conn()
+            if _snap_conn and self._scan_count % 5 == 0:
                 try:
                     for symbol, data in market_data.items():
                         snapshot = MarketSnapshot(symbol=symbol, price=data.get('price', 0))
@@ -442,7 +397,7 @@ class AutonomousLoop:
                             snapshot.regime = regime.regime.value
                             snapshot.trend = regime.macro_direction
                             snapshot.volatility = regime.volatility_regime
-                        _persist.save_market_snapshot(self._db_conn, snapshot)
+                        _persist.save_market_snapshot(_snap_conn, snapshot)
                 except Exception:
                     log.exception("Failed to persist market snapshots")
             
@@ -611,16 +566,16 @@ class AutonomousLoop:
         state = event.get('state')
         
         log.warning("SETUP_EVENT: %s -> %s (db_conn=%s)", setup_id, state, 'SET' if self._db_conn else 'NONE')
-        print(f"[LOOP] SETUP_EVENT: {setup_id} -> {state} db_conn={'SET' if self._db_conn else 'NONE'}", flush=True)
         
         # Persist to Postgres if available (item 2)
-        if self._db_conn:
+        _conn = self._get_conn()
+        if _conn:
             try:
                 setup = self.setup_lifecycle.get_setup(setup_id)
                 if setup:
-                    _persist.save_setup(self._db_conn, setup)
+                    _persist.save_setup(_conn, setup)
                     if setup.events:
-                        _persist.save_setup_event(self._db_conn, setup_id, setup.events[-1])
+                        _persist.save_setup_event(_conn, setup_id, setup.events[-1])
             except Exception:
                 log.exception("Failed to persist setup %s", setup_id)
         
@@ -644,11 +599,12 @@ class AutonomousLoop:
         self.journal.record_state_change(setup_id, state, event.get('reason', ''))
         
         # Persist journal entry to Postgres (item 11)
-        if self._db_conn:
+        _conn2 = self._get_conn()
+        if _conn2:
             try:
                 journal_entry = self.journal._entries.get(setup_id)
                 if journal_entry:
-                    _persist.save_journal_entry(self._db_conn, journal_entry)
+                    _persist.save_journal_entry(_conn2, journal_entry)
             except Exception:
                 log.exception("Failed to persist journal entry %s", setup_id)
         
