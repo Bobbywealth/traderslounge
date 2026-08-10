@@ -77,7 +77,7 @@ def save_setup(conn, setup) -> None:
                     news_state, data_quality,
                     state_reason, expires_at, forecast_id, position_id
                 ) VALUES (
-                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s,
                     to_timestamp(%s), to_timestamp(%s), %s, %s,
                     %s, %s, %s, %s,
                     %s, %s::jsonb,
