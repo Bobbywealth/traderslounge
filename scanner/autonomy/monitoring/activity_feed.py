@@ -24,6 +24,7 @@ class ActivityEntry:
     message: str = ''
     severity: str = 'info'  # info, warning, critical
     setup_id: Optional[str] = None
+    correlation_id: Optional[str] = None
     metadata: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -35,6 +36,7 @@ class ActivityEntry:
             'message': self.message,
             'severity': self.severity,
             'setup_id': self.setup_id,
+            'correlation_id': self.correlation_id,
             'metadata': self.metadata,
         }
 
@@ -51,7 +53,9 @@ class ActivityFeed:
 
     def add(self, category: str, event_type: str, symbol: str,
             message: str, severity: str = 'info',
-            setup_id: Optional[str] = None, **metadata) -> ActivityEntry:
+            setup_id: Optional[str] = None,
+            correlation_id: Optional[str] = None,
+            **metadata) -> ActivityEntry:
         """Add an entry to the feed."""
         entry = ActivityEntry(
             category=category,
@@ -60,6 +64,7 @@ class ActivityFeed:
             message=message,
             severity=severity,
             setup_id=setup_id,
+            correlation_id=correlation_id,
             metadata=metadata,
         )
         self._entries.appendleft(entry)
