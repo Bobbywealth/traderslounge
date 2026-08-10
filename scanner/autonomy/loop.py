@@ -484,7 +484,7 @@ class AutonomousLoop:
                 daily_realized_pnl=account.get('realized_pnl', 0),
             )
             
-            if not assessment.approved:
+            if not assessment.approved and not assessment.reduced:
                 log.debug("Risk rejected %s: %s", setup.symbol, assessment.reasons)
                 self.activity_feed.add('risk', 'rejected', setup.symbol,
                     f'{setup.symbol} {setup.direction} rejected: {"; ".join(assessment.reasons[:2])}',
@@ -497,14 +497,18 @@ class AutonomousLoop:
                         reason=f'Risk rejected: {"; ".join(assessment.reasons[:2])}',
                     )
                 continue
-            
+
             # If READY and timing is READY → place order
             if setup.state == SetupState.READY and timing_status == 'READY':
                 entry_price = setup.entry_low or price
+                # REDUCED risk: place the order at 50% of the recommended size
+                order_quantity = assessment.position_size_lots
+                if assessment.reduced:
+                    order_quantity = max(order_quantity * 0.5, 0)
                 order = self.paper_broker.place_market_order(
                     symbol=setup.symbol,
                     direction=setup.direction,
-                    quantity=assessment.position_size_lots,
+                    quantity=order_quantity,
                     stop_loss=setup.stop_loss,
                     setup_id=setup.setup_id,
                     idempotency_key=f"auto-{setup.setup_id}",
@@ -549,9 +553,16 @@ class AutonomousLoop:
                         reason=f'Position opened, forecast {forecast.forecast_id}',
                     )
                     
-                    log.info("Paper trade: %s %s @ %.5f, SL=%.5f, TP1=%.5f, forecast=%s",
-                            setup.direction, setup.symbol, order.filled_price,
-                            setup.stop_loss, setup.tp1, forecast.forecast_id)
+                    if assessment.reduced:
+                        log.info("Paper trade (REDUCED): %s %s @ %.5f, qty=%.4f, SL=%.5f, TP1=%.5f, forecast=%s",
+                                setup.direction, setup.symbol, order.filled_price,
+                                order_quantity,
+                                setup.stop_loss, setup.tp1, forecast.forecast_id)
+                    else:
+                        log.info("Paper trade: %s %s @ %.5f, qty=%.4f, SL=%.5f, TP1=%.5f, forecast=%s",
+                                setup.direction, setup.symbol, order.filled_price,
+                                order_quantity,
+                                setup.stop_loss, setup.tp1, forecast.forecast_id)
                     self.activity_feed.add('execution', 'filled', setup.symbol,
                         f'{setup.direction} {setup.symbol} filled @ {order.filled_price:.5f}, SL={setup.stop_loss:.5f}, TP1={setup.tp1:.5f}',
                         severity='info', setup_id=setup.setup_id,

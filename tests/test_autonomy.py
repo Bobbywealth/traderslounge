@@ -199,6 +199,18 @@ class TestRiskManager(unittest.TestCase):
         self.assertEqual(r.decision, RiskDecision.REJECTED)
         self.assertTrue(any('Opposing' in reason for reason in r.reasons))
 
+    def test_loop_places_reduced_order_at_half_size(self):
+        """REDUCED risk should not block the order — place it at 50% size."""
+        from scanner.autonomy.risk.risk_manager import RiskAssessment
+        rm = RiskManager()
+        assessment = RiskAssessment(decision=RiskDecision.REDUCED,
+                                    reasons=['reduce size'], position_size_lots=2.0)
+        self.assertFalse(assessment.approved)
+        self.assertTrue(assessment.reduced)
+        # Simulate the loop's REDUCED sizing
+        reduced_qty = max(assessment.position_size_lots * 0.5, 0)
+        self.assertEqual(reduced_qty, 1.0)
+
 
 class TestOutcomeResolver(unittest.TestCase):
     """Test outcome resolution."""

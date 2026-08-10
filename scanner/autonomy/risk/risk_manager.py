@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 class RiskDecision(Enum):
     APPROVED = 'approved'
     REJECTED = 'rejected'
+    REDUCED = 'reduced'
 
 
 @dataclass
@@ -54,6 +55,10 @@ class RiskAssessment:
     @property
     def approved(self) -> bool:
         return self.decision == RiskDecision.APPROVED
+
+    @property
+    def reduced(self) -> bool:
+        return self.decision == RiskDecision.REDUCED
 
     def to_dict(self) -> dict:
         return {
