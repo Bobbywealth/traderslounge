@@ -1169,16 +1169,33 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 end_time_ms = int(float(before_raw) * 1000)
             except (TypeError, ValueError):
                 return self._error(400, "before must be a unix timestamp in seconds")
-        cache_key = f"candles:{pair}:{timeframe}:{limit}:{end_time_ms or 0}"
+        # Pagination pages get their own cache slot (immutable historical window).
+        # Live fetches share a per-pair/timeframe slot regardless of `limit` so the
+        # scanner and chart reuse one upstream call instead of each allocating a
+        # fresh Twelve Data slot every poll. The response is then sliced to the
+        # caller's requested limit; the canonical fetch uses the upstream's natural
+        # window (250 bars) so the slice is meaningful.
+        if end_time_ms is not None:
+            cache_key = f"candles:{pair}:{timeframe}:page:{end_time_ms}:{limit}"
+            upstream_limit = limit
+            ttl, stale_ttl = 3600, 7200
+        else:
+            cache_key = f"candles:{pair}:{timeframe}:live"
+            upstream_limit = 250
+            ttl, stale_ttl = 60, 600
         cached = self._cache_get(cache_key)
         if cached is not None:
-            return self._json(200, cached)
+            return self._json(200, self._slice_candles(cached, limit, end_time_ms))
         try:
-            candles = client.fetch_candles(pair, timeframe, limit=limit, end_time_ms=end_time_ms)
+            candles = client.fetch_candles(
+                pair, timeframe,
+                limit=upstream_limit,
+                end_time_ms=end_time_ms,
+            )
         except Exception as exc:
             stale = self._cache_get(cache_key, allow_stale=True)
             if stale is not None:
-                return self._json(200, stale)
+                return self._json(200, self._slice_candles(stale, limit, end_time_ms))
             return self._error(502, f"market data unavailable: {exc}")
         rows = [
             {
@@ -1190,12 +1207,93 @@ class _ApiHandler(BaseHTTPRequestHandler):
         body = {
             "pair": pair, "timeframe": timeframe,
             "candles": rows, "count": len(rows),
-            "has_more": end_time_ms is not None and len(rows) >= limit,
+            "has_more": end_time_ms is not None and len(rows) >= upstream_limit,
         }
-        # Pagination pages are immutable (a fixed historical window), so cache
-        # them far longer than the live "latest" window.
-        self._cache_set(cache_key, body, ttl=15 if end_time_ms is None else 3600, stale_ttl=120)
-        self._json(200, body)
+        self._cache_set(cache_key, body, ttl=ttl, stale_ttl=stale_ttl)
+        self._json(200, self._slice_candles(body, limit, end_time_ms))
+
+    @staticmethod
+    def _slice_candles(body: dict, limit: int, end_time_ms: Optional[int]) -> dict:
+        """Trim a cached candles payload to the caller's requested limit.
+
+        For live (non-paginated) fetches we keep the most-recent N bars.
+        For paginated fetches we keep the oldest N bars relative to the
+        requested ``end_time_ms`` window, since those are the bars the
+        scroll-back UI wants to render immediately.
+        """
+        rows = body.get("candles") or []
+        if len(rows) <= limit:
+            out = dict(body)
+            out["count"] = len(rows)
+            out["has_more"] = body.get("has_more", False)
+            return out
+        if end_time_ms is not None:
+            sliced = rows[:limit]
+            next_oldest = sliced[-1]["time"] if sliced else None
+            out = dict(body)
+            out["candles"] = sliced
+            out["count"] = len(sliced)
+            out["has_more"] = next_oldest is not None
+            return out
+        sliced = rows[-limit:]
+        out = dict(body)
+        out["candles"] = sliced
+        out["count"] = len(sliced)
+        out["has_more"] = len(rows) > limit
+        return out
+        # 1000 covers a full initial chart load (matches Binance's per-page
+        # cap); "before" lets the chart page further back on scroll-back for
+        # crypto (Twelve Data has no pagination knob, see MultiSourceClient).
+        limit = _clamp_int(query.get("limit"), default=250, lo=1, hi=1000)
+        before_raw = query.get("before")
+        end_time_ms: Optional[int] = None
+        if before_raw not in (None, ""):
+            try:
+                end_time_ms = int(float(before_raw) * 1000)
+            except (TypeError, ValueError):
+                return self._error(400, "before must be a unix timestamp in seconds")
+        # Pagination pages get their own cache slot (immutable historical window).
+        # Live fetches share a per-pair/timeframe slot regardless of `limit` so the
+        # scanner and chart reuse one upstream call instead of each allocating a
+        # fresh Twelve Data slot every poll. The response is then sliced to the
+        # caller's requested limit; the canonical fetch uses the upstream's natural
+        # window (250 bars) so the slice is meaningful.
+        if end_time_ms is not None:
+            cache_key = f"candles:{pair}:{timeframe}:page:{end_time_ms}:{limit}"
+            upstream_limit = limit
+            ttl, stale_ttl = 3600, 7200
+        else:
+            cache_key = f"candles:{pair}:{timeframe}:live"
+            upstream_limit = 250
+            ttl, stale_ttl = 60, 600
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return self._json(200, self._slice_candles(cached, limit, end_time_ms))
+        try:
+            candles = client.fetch_candles(
+                pair, timeframe,
+                limit=upstream_limit,
+                end_time_ms=end_time_ms,
+            )
+        except Exception as exc:
+            stale = self._cache_get(cache_key, allow_stale=True)
+            if stale is not None:
+                return self._json(200, self._slice_candles(stale, limit, end_time_ms))
+            return self._error(502, f"market data unavailable: {exc}")
+        rows = [
+            {
+                "time": c.time, "open": c.open, "high": c.high,
+                "low": c.low, "close": c.close, "volume": c.volume,
+            }
+            for c in candles
+        ]
+        body = {
+            "pair": pair, "timeframe": timeframe,
+            "candles": rows, "count": len(rows),
+            "has_more": end_time_ms is not None and len(rows) >= upstream_limit,
+        }
+        self._cache_set(cache_key, body, ttl=ttl, stale_ttl=stale_ttl)
+        self._json(200, self._slice_candles(body, limit, end_time_ms))
 
     def _harmonics(self, query: dict) -> None:
         client = _STATE.market_client
