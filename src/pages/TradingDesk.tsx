@@ -76,23 +76,27 @@ const TradingDesk: React.FC = () => {
   }, []);
 
   const fetchDashboardData = async () => {
+    // Fetch each sub-endpoint independently so one 4xx/5xx doesn't
+    // blank the whole dashboard.  The Trading Desk page surfaces a
+    // "Failed to load dashboard data" banner on any throw, which used
+    // to hide perfectly-good status/opportunities/news data whenever
+    // the alerts endpoint (now auth-public) returned 401.
+    setLoading(true);
+    const safe = async <T,>(p: Promise<T>, fallback: T): Promise<T> => {
+      try { return await p; } catch { return fallback; }
+    };
     try {
-      // Fetch system status
-      const status = await bwtsApi.autonomyStatus();
-      setSystemStatus(status);
-
-      // Fetch opportunities
-      const opps = await bwtsApi.autonomyOpportunities();
-      setOpportunities(opps.opportunities || []);
-
-      // Fetch news
-      const newsResp = await bwtsApi.autonomyNews();
-      setNews(newsResp.events || []);
-
-      // Fetch alerts
-      const alertsResp = await bwtsApi.autonomyAlerts();
-      setAlerts(alertsResp.alerts || []);
-
+      const [status, opps, newsResp, alertsResp] = await Promise.all([
+        safe(bwtsApi.autonomyStatus(), null),
+        safe(bwtsApi.autonomyOpportunities(), { opportunities: [] } as any),
+        safe(bwtsApi.autonomyNews(), { events: [] } as any),
+        safe(bwtsApi.autonomyAlerts(), { alerts: [] } as any),
+      ]);
+      if (status) setSystemStatus(status);
+      setOpportunities(opps?.opportunities || []);
+      setNews(newsResp?.events || []);
+      setAlerts(alertsResp?.alerts || []);
+      setError(null);
       setLoading(false);
     } catch (err) {
       setError('Failed to load dashboard data');

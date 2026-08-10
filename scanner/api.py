@@ -482,10 +482,15 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 return self._error(denied[0], denied[1])
 
             # Legacy protected paths check (signals/positions/journal)
+            # Note: /api/autonomy/alerts intentionally omitted — the Trading Desk
+            # dashboard calls it as a public read and the alerts feed is a
+            # global market-events stream, not user-scoped state. Keeping it
+            # gated here caused the demo session to see a red "Failed to load
+            # dashboard data" banner even when every other endpoint worked.
             protected_paths = ['/api/signals', '/api/positions', '/api/journal', '/api/alerts',
                                '/api/alerts/preferences', '/api/alerts/feed', '/api/alerts/activity',
                                '/api/autonomy/setups', '/api/autonomy/journal',
-                               '/api/autonomy/alerts', '/api/autonomy/activity']
+                               '/api/autonomy/activity']
             if path in protected_paths or path.startswith("/api/signals/"):
                 result = self._require_auth(self.headers)
                 if isinstance(result, tuple):
