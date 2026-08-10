@@ -163,16 +163,19 @@ class AutonomousLoop:
         else:
             pool = getattr(repo, '_pool', None)
             if pool is not None:
-                # SimplePool has ._conn (direct psycopg connection)
-                direct = getattr(pool, '_conn', None)
-                if direct is not None:
-                    self._db_conn = direct
-                else:
-                    # psycopg_pool.ConnectionPool — try getconn()
+                # SimplePool has ._get_connection() which lazily creates
+                # and returns the underlying psycopg connection.
+                if hasattr(pool, '_get_connection'):
+                    try:
+                        self._db_conn = pool._get_connection()
+                    except Exception:
+                        log.warning("Failed to get connection from pool")
+                elif hasattr(pool, 'getconn'):
+                    # psycopg_pool.ConnectionPool
                     try:
                         self._db_conn = pool.getconn()
                     except Exception:
-                        pass
+                        log.warning("Failed to get connection from ConnectionPool")
             elif hasattr(repo, '_get_connection'):
                 self._db_conn = repo
 
