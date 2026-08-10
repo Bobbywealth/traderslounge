@@ -2230,14 +2230,30 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._error(500, f'autonomy alerts unavailable: {exc}')
 
     def _autonomy_activity(self, query: dict) -> None:
-        """Return autonomous activity feed (real-time decision timeline)."""
+        """Return autonomous activity feed (real-time decision timeline).
+        
+        GET /api/autonomy/activity[?since=<unix_ts>] supports
+        long-polling: when 'since' is given, returns only entries
+        with timestamp > since plus the server's current time so
+        the client can poll again.  Mirrors the WebSocket
+        subscription ws_server.publish('activity', ...) without
+        requiring a live WS connection.
+        """
         try:
             from .autonomy.loop import get_activity_feed
             feed = get_activity_feed()
             limit = _clamp_int(query.get('limit'), default=50, lo=1, hi=200)
             category = str(query.get('category') or '') or None
             entries = feed.get_recent(limit=limit, category=category)
-            return self._json(200, {'entries': entries, 'total': len(entries)})
+            since_param = query.get('since')
+            if since_param is not None:
+                try:
+                    since = float(since_param)
+                except (TypeError, ValueError):
+                    since = 0.0
+                entries = [e for e in entries if e.get('timestamp', 0) > since]
+            import time
+            return self._json(200, {'entries': entries, 'total': len(entries), 'now': time.time()})
         except Exception as exc:
             return self._error(500, f'autonomy activity unavailable: {exc}')
 
