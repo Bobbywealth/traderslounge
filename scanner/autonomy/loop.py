@@ -320,29 +320,24 @@ class AutonomousLoop:
                 )
             
             # 6b. Persist all active setups to Postgres (direct, not via callback)
-            _direct_conn = self._get_conn()
-            if _direct_conn is not None:
-                # _get_conn returns a context manager (with-block) when _db_conn
-                # is a repo or pool, or a raw connection.  Handle both.
-                _setup_iter = self.setup_lifecycle.get_active_setups()
+            _repo = self._db_conn
+            _setup_iter = self.setup_lifecycle.get_active_setups()
+            if _repo is not None and hasattr(_repo, '_get_connection'):
                 try:
-                    if hasattr(_direct_conn, '__enter__'):
-                        # It's a context manager — use with-block
-                        with _direct_conn as _conn:
-                            for setup in _setup_iter:
-                                try:
-                                    _persist.save_setup(_conn, setup)
-                                except Exception as _e:
-                                    log.warning("Persist setup %s failed: %s", setup.setup_id, _e)
-                    else:
-                        # Raw connection — call directly
+                    with _repo._get_connection() as _conn:
                         for setup in _setup_iter:
                             try:
-                                _persist.save_setup(_direct_conn, setup)
+                                _persist.save_setup(_conn, setup)
                             except Exception as _e:
                                 log.warning("Persist setup %s failed: %s", setup.setup_id, _e)
                 except Exception as _e:
                     log.warning("Direct persistence connection failed: %s", _e)
+            elif _repo is not None and hasattr(_repo, 'cursor'):
+                for setup in _setup_iter:
+                    try:
+                        _persist.save_setup(_repo, setup)
+                    except Exception as _e:
+                        log.warning("Persist setup %s failed: %s", setup.setup_id, _e)
             
             # 7. Monitor active setups + state transitions (item 10)
             for setup in self.setup_lifecycle.get_active_setups():
