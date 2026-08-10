@@ -168,8 +168,9 @@ class AutonomousLoop:
                 if hasattr(pool, '_get_connection'):
                     try:
                         self._db_conn = pool._get_connection()
-                    except Exception:
-                        log.warning("Failed to get connection from pool")
+                        log.warning("set_repository: got connection from pool (type=%s)", type(self._db_conn).__name__)
+                    except Exception as e:
+                        log.warning("Failed to get connection from pool: %s", e)
                 elif hasattr(pool, 'getconn'):
                     # psycopg_pool.ConnectionPool
                     try:
@@ -589,6 +590,8 @@ class AutonomousLoop:
         """Handle setup state change event."""
         setup_id = event.get('setup_id')
         state = event.get('state')
+        
+        log.warning("SETUP_EVENT: %s -> %s (db_conn=%s)", setup_id, state, 'SET' if self._db_conn else 'NONE')
         
         # Persist to Postgres if available (item 2)
         if self._db_conn:
