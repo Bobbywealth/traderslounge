@@ -118,15 +118,63 @@ class AutonomousLoop:
         self._scan_count = 0
         self._db_conn = None  # Set via set_repository() for Postgres persistence
 
+    def _get_db_cursor(self):
+        """Get a DB cursor regardless of whether _db_conn is a conn, pool, or repo."""
+        if self._db_conn is None:
+            return None
+        conn = self._db_conn
+        # If it's a repo object, use its _get_connection
+        if hasattr(conn, '_get_connection'):
+            return conn._get_connection()
+        # If it's a pool (has .connection method), get a connection from it
+        if hasattr(conn, 'connection'):
+            return conn.connection()
+        # If it's a raw connection (has .cursor), use it directly
+        if hasattr(conn, 'cursor'):
+            return conn
+        return None
+    
+    def _with_db(self):
+        """Context manager that yields a usable connection from any stored type."""
+        from contextlib import contextmanager
+        @contextmanager
+        def _ctx():
+            if self._db_conn is None:
+                yield None
+                return
+            conn = self._db_conn
+            if hasattr(conn, '_get_connection'):
+                with conn._get_connection() as c:
+                    yield c
+            elif hasattr(conn, 'connection'):
+                with conn.connection() as c:
+                    yield c
+            elif hasattr(conn, 'cursor'):
+                yield conn
+            else:
+                yield None
+        return _ctx()
+
     def set_repository(self, repo):
         """Attach a repository for Postgres persistence (optional)."""
-        if hasattr(repo, 'conn'):
-            self._db_conn = repo.conn
-        elif hasattr(repo, '_pool'):
-            try:
-                self._db_conn = repo._pool
-            except Exception:
-                pass
+        conn = getattr(repo, 'conn', None)
+        if conn is not None:
+            self._db_conn = conn
+        else:
+            pool = getattr(repo, '_pool', None)
+            if pool is not None:
+                # SimplePool has ._conn (direct psycopg connection)
+                direct = getattr(pool, '_conn', None)
+                if direct is not None:
+                    self._db_conn = direct
+                else:
+                    # psycopg_pool.ConnectionPool — try getconn()
+                    try:
+                        self._db_conn = pool.getconn()
+                    except Exception:
+                        pass
+            elif hasattr(repo, '_get_connection'):
+                self._db_conn = repo
 
     def set_telegram_bot(self, bot):
         """Attach a TelegramBot for alert delivery (optional)."""
