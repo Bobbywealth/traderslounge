@@ -126,6 +126,9 @@ class MultiSourceClient:
         end_time_ms: Optional[int] = None,
     ):
         pair = canonicalize(pair) or pair
+        # Strip trailing T on FX USDT aliases (see fetch_snapshot).
+        if pair.endswith("USDT") and not is_crypto(pair):
+            pair = pair[:-1]
         provider, provider_name = self._provider_for(pair)
         if provider is None:
             log.info("no FMP client configured; equity %s candles empty", pair)
