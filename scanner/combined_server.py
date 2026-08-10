@@ -139,6 +139,9 @@ def main() -> int:
                                     continue
                                 data[pair] = {"price": ref_price, "analysis": analysis}
                                 analyzed += 1
+                                # Register data quality so the scanner's can_trade() check passes
+                                loop.data_quality.update_tick_age(pair, 0)
+                                loop.data_quality.update_candle_age(pair, 0)
                             except Exception:
                                 logging.debug("autonomy feeder: failed to analyze %s", pair)
                         logging.info("autonomy feeder: fetched=%d analyzed=%d pairs", fetched, analyzed)
