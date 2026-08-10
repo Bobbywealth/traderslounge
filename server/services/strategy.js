@@ -255,7 +255,7 @@ export async function runStrategy(symbol) {
   const h1Bias = timeframeBias(h1Bars);
   const htf = aggregateHtfBias(d1Bias, h4Bias, h1Bias);
 
-  const adr = calculateAdr(d1Bars, 20);
+  const adr = calculateAdr(d1Bars);
   const news = await evaluateNewsBlackout();
 
   // Build structure / swings on H1 (the operational timeframe for setups).

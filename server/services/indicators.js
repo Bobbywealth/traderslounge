@@ -1,6 +1,11 @@
 // Core technical indicators + market-structure analysis.
 // All inputs are OHLCV bar arrays (oldest first).
 
+// Single source of truth for the ADR lookback. Kept in sync with
+// src/config/adr.ts on the frontend so the chart and the strategy engine
+// never disagree on what "Average Daily Range" means.
+export const DEFAULT_ADR_LOOKBACK = 14;
+
 export function ema(values, period) {
   if (!values.length || period <= 0) return [];
   const k = 2 / (period + 1);
@@ -54,7 +59,7 @@ export function rsi(closes, period = 14) {
 // Average Daily Range over the last `lookback` complete daily bars.
 // Returns { adr, dayOpen, dayHigh, dayLow, currentRange, percentUsed,
 //           adrHigh, adrLow, nearAdrHigh, nearAdrLow }.
-export function calculateAdr(dailyBars, lookback = 20) {
+export function calculateAdr(dailyBars, lookback = DEFAULT_ADR_LOOKBACK) {
   if (!dailyBars || dailyBars.length < lookback + 1) return null;
   const completed = dailyBars.slice(-lookback - 1, -1); // last N completed days
   const ranges = completed.map((b) => b.high - b.low);
