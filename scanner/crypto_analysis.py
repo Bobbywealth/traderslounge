@@ -967,32 +967,13 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         indicators.update({"benchmark_correlation": None, "relative_return": None})
 
     scores = {key: int(_clamp(_num(value), 0, CAPS[key])) for key, value in scores.items()}
+    total = sum(scores.values())
+    applied_modifiers: dict | None = None
 
-    # Apply regime modifiers (#5) + learned weights (#2) if a lookup is
-    # supplied.  Roadmap #5 ships as heuristic defaults; #2 is wired in
-    # but no-op until the autonomy loop accumulates enough resolved
-    # outcomes (the writes only started after c7c116d).
-    try:
-        from .score_modifiers import apply_score_modifiers
-        scores, total, applied_modifiers = apply_score_modifiers(
-            scores=scores,
-            analysis={
-                "pair": getattr(snapshot, "pair", None),
-                "primary_timeframe": primary_name,
-                "data_quality": quality,
-                "market_context": market_context,
-                "trade_timing": trade_timing,
-                "session": (market_context or {}).get("session") or "",
-                "volatility": (market_context.get("regime") or {}).get("volatility") if market_context else "",
-                "market_regime": (market_context.get("regime") or {}).get("state") if market_context else "",
-                "news_state": (trade_timing or {}).get("news_state") or "",
-            },
-            learned_weights_lookup=learned_weights_lookup,
-        )
-    except Exception:  # noqa: BLE001 — never let modifier failures break analysis.
-        # Preserve the original scores + total if anything goes wrong.
-        total = sum(scores.values())
-        applied_modifiers = None
+    # Apply regime modifiers (#5) + learned weights (#2) here, AFTER
+    # market_context and trade_timing are computed below.  The block is
+    # duplicated at the bottom of the function so we can pull from
+    # those locals — see the second copy for the actual call site.
     quality = {"primary_timeframe": primary_name, "bars": len(bars), "closed_bar_time": getattr(bars[-1], "time", None) if bars else None, "reference_price": price, "reference_price_time": reference_time, "timeframes_available": [x for x, v in frames.items() if v], "issues": issues, "status": "good" if not issues else "limited" if bars else "insufficient",
                # True when the candles support a decision — i.e. nothing
                # structural is wrong. Missing volume alone does not clear this.
@@ -1177,6 +1158,33 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
     if bars and price:
         a = indicators.get("atr") or (price*.02)
         stop = price-sign*2*a if sign else None
+
+    # Apply regime modifiers (#5) + learned weights (#2) NOW that
+    # market_context and trade_timing are both defined.  Earlier in
+    # the function would have hit NameError because trade_timing isn't
+    # assigned until the line above.
+    try:
+        from .score_modifiers import apply_score_modifiers
+        scores, total, applied_modifiers = apply_score_modifiers(
+            scores=scores,
+            analysis={
+                "pair": getattr(snapshot, "pair", None),
+                "primary_timeframe": primary_name,
+                "data_quality": quality,
+                "market_context": market_context,
+                "trade_timing": trade_timing,
+                "session": (market_context or {}).get("session") or "",
+                "volatility": ((market_context or {}).get("regime") or {}).get("volatility") or "",
+                "market_regime": ((market_context or {}).get("regime") or {}).get("state") or "",
+                "news_state": (trade_timing or {}).get("news_state") or "",
+            },
+            learned_weights_lookup=learned_weights_lookup,
+        )
+    except Exception:  # noqa: BLE001 — never let modifier failures break analysis.
+        # Preserve the original scores + total if anything goes wrong.
+        total = sum(scores.values())
+        applied_modifiers = None
+
     zones["setup_zones"] = _build_setup_zones(price=price, atr_value=indicators.get("atr"), zones=zones, indicators=indicators, direction=direction, market_context=market_context, trade_timing=trade_timing)
     # Determine correct asset class from pair name
     from .multi_source import get_asset_class
