@@ -46,6 +46,7 @@ from .lifecycle_manager import stabilize_direction, map_legacy_state
 from .kill_switch import KillSwitch
 from .metrics import metrics
 from .minimax_client import analyze as minimax_analyze, analyze_chart as minimax_chart_analyze, configured as minimax_configured
+from .debate import run_council
 from .news_filter import NewsFilter
 from .persistence import SignalRepository
 from .trade_planner import build_trade_plan
@@ -88,6 +89,7 @@ MAX_BODY_BYTES_CHART_AI = 10 * 1024 * 1024
 # allowance.
 RATE_LIMITS: dict[str, tuple[int, float]] = {
     "/api/ai/analyze": (20, 20.0 / 60.0),          # 20 calls / minute
+    "/api/debate": (10, 10.0 / 60.0),              # 10 council runs / minute
     "/api/ai/chart-analyze": (10, 10.0 / 60.0),   # 10 calls / minute
     "/api/backtest/v2": (10, 10.0 / 60.0),
     "/api/dashboard-snapshot": (30, 30.0 / 60.0),
@@ -98,6 +100,7 @@ RATE_LIMITS: dict[str, tuple[int, float]] = {
     "/api/alerts/push/subscribe": (30, 30.0 / 60.0),
     "/api/alerts/push/unsubscribe": (30, 30.0 / 60.0),
     "/api/alerts/push/subscriptions": (30, 30.0 / 60.0),
+    "/api/debate": (10, 10.0 / 60.0),
 }
 
 # Endpoints that require a valid Authorization: Bearer token, in
@@ -105,6 +108,7 @@ RATE_LIMITS: dict[str, tuple[int, float]] = {
 PROTECTED_ROUTES: frozenset[str] = frozenset({
     "/api/ai/analyze",
     "/api/ai/chart-analyze",
+    "/api/debate",
     "/api/dashboard-snapshot",
     "/api/backtest/v2",
     "/api/kill-switch",
@@ -515,6 +519,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 return self._json(200, {"configured": minimax_configured()})
             if path == "/api/analysis":
                 return self._analysis(query)
+            if path == "/api/debate":
+                return self._debate(query)
             if path == "/api/backtest/v2":
                 return self._backtest_v2(query)
             if path == "/api/candles":
@@ -1072,6 +1078,181 @@ class _ApiHandler(BaseHTTPRequestHandler):
         self._cache_set(cache_key, analysis)
         self._json(200, analysis)
 
+    def _build_analysis_payload(self, pair: str, tf_raw: str) -> dict | None:
+        """Shared analysis-builder used by ``_analysis`` and the AI Trade Debate.
+
+        Returns the full V2 analysis dict on success, ``None`` if analysis is
+        not currently available (caller decides how to respond). Side-effect:
+        populates the ``analysis:{pair}:{tf}`` response cache so subsequent
+        ``/api/analysis`` calls benefit from the same warm cache.
+        """
+        client = _STATE.market_client
+        if client is None:
+            return None
+        selected_timeframe = _timeframe_alias(tf_raw) if tf_raw else None
+        if tf_raw and selected_timeframe is None:
+            return None
+        try:
+            snapshot_key = f"snapshot:{pair}"
+            snapshot = self._cache_get(snapshot_key)
+            if snapshot is None:
+                snapshot = client.fetch_snapshot(pair)
+                self._cache_set(snapshot_key, snapshot, ttl=15, stale_ttl=60)
+            selected_candles = (
+                client.fetch_candles(pair, selected_timeframe, limit=250)
+                if selected_timeframe else None
+            )
+            benchmark = None
+            if pair != "BTCUSD":
+                try:
+                    if selected_timeframe:
+                        benchmark = client.fetch_candles("BTCUSD", selected_timeframe, limit=250)
+                    else:
+                        benchmark = self._cache_get("snapshot:BTCUSD")
+                        if benchmark is None:
+                            benchmark = client.fetch_snapshot("BTCUSD")
+                            self._cache_set("snapshot:BTCUSD", benchmark, ttl=15, stale_ttl=60)
+                except Exception:
+                    benchmark = None
+            analysis = analyze_crypto(snapshot, benchmark, selected_candles, tf_raw or None)
+            state_key = f"{pair}:{tf_raw or analysis.get('data_quality', {}).get('primary_timeframe', 'default')}"
+            with _STATE.cache_lock:
+                stability = stabilize_direction(analysis, _STATE.direction_states, state_key)
+            raw_direction = analysis.get("direction", "NEUTRAL")
+            analysis["raw_direction"] = raw_direction
+            analysis["direction_stability"] = stability
+            analysis["direction"] = stability["confirmed_direction"]
+            lifecycle_state = stability.get("lifecycle_state", map_legacy_state(stability.get("lifecycle", "FORMING")))
+            previous_lifecycle = _STATE.direction_states.get(state_key, {}).get("_last_lifecycle_state")
+            if previous_lifecycle and previous_lifecycle != lifecycle_state:
+                import uuid
+                repo = _STATE.repository
+                if hasattr(repo, "save_lifecycle_event"):
+                    event = {
+                        "id": str(uuid.uuid4()),
+                        "setup_id": state_key,
+                        "from_state": previous_lifecycle,
+                        "to_state": lifecycle_state,
+                        "reason_code": "STATE_CHANGE",
+                        "human_readable": f"Lifecycle transition: {previous_lifecycle} -> {lifecycle_state}",
+                        "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
+                    }
+                    repo.save_lifecycle_event(event)
+                if hasattr(repo, "lifecycle_events_for"):
+                    recent = repo.lifecycle_events_for(state_key, limit=10)
+                    analysis["recent_transitions"] = recent
+            if previous_lifecycle != lifecycle_state:
+                if state_key in _STATE.direction_states:
+                    _STATE.direction_states[state_key]["_last_lifecycle_state"] = lifecycle_state
+            if analysis["direction"] == "NEUTRAL":
+                analysis["scenarios"]["primary"] = "forming directional confirmation"
+            elif analysis["direction"] != raw_direction:
+                analysis["scenarios"]["primary"] = f"confirmed {analysis['direction'].lower()} bias is {stability['lifecycle'].lower()}"
+            timing = analysis.get("trade_timing") or {}
+            signal_stable = stability["confirmed_direction"] != "NEUTRAL" and stability["confirmed_direction"] == raw_direction and stability["lifecycle"] == "CONFIRMED"
+            timing.setdefault("checks", {})["signal_stability"] = signal_stable
+            if not signal_stable:
+                timing["status"] = "WAIT"
+                timing.setdefault("wait_for", []).append("signal stability")
+            analysis["trade_timing"] = timing
+            calendar = _STATE.news_filter.evaluate(pair) if _STATE.news_filter is not None else {"status": "UNAVAILABLE"}
+            analysis["economic_calendar"] = calendar
+            calendar_status = calendar.get("status", "UNAVAILABLE")
+            if calendar_status in ("BLOCKED", "POST_NEWS"):
+                timing["status"] = "AVOID"
+                timing.setdefault("wait_for", []).append(f"calendar {calendar_status}")
+            elif calendar_status == "UNAVAILABLE":
+                timing["calendar_degraded"] = True
+            elif calendar_status != "CLEAR":
+                timing["status"] = "WAIT"
+                timing.setdefault("wait_for", []).append(f"calendar {calendar_status}")
+            analysis["trade_timing"] = timing
+            if timing.get("status") == "READY" and signal_stable:
+                analysis["direction_stability"]["lifecycle"] = "READY"
+                lifecycle_state = "ready"
+            analysis["lifecycle_state"] = lifecycle_state
+            if selected_candles:
+                analysis["zones"]["setup_zones"] = _build_setup_zones(
+                    price=float(selected_candles[-1].close),
+                    atr_value=analysis.get("indicators", {}).get("atr"),
+                    zones=analysis.get("zones", {}),
+                    indicators=analysis.get("indicators", {}),
+                    direction=analysis.get("direction", "NEUTRAL"),
+                    market_context=analysis.get("market_context", {}),
+                    trade_timing=analysis.get("trade_timing", {}),
+                )
+            analysis["trade_plan"] = build_trade_plan(snapshot, analysis, calendar, primary_candles=selected_candles)
+            enrich_with_plan(analysis)
+            self._attach_institutional_block(analysis, snapshot, selected_timeframe)
+            analysis = attach_decision_quality(analysis, calendar=calendar)
+            self._publish_actionable_analysis(analysis)
+            cache_key = f"analysis:{pair}:{tf_raw or 'default'}"
+            self._cache_set(cache_key, analysis)
+            return analysis
+        except Exception:
+            return None
+
+    def _debate(self, query: dict) -> None:
+        """AI Trade Debate: 4-agent council (Bull / Bear / Risk-Macro / Chief Trader).
+
+        Server-side only, advisory-only, never overrides canonical V2. The
+        payload always includes a deterministic consensus block as a stable
+        fallback so the page never renders blank.
+        """
+        pair = str(query.get("pair") or query.get("symbol") or "").upper()
+        if not pair:
+            return self._error(400, "pair is required")
+        tf_raw = str(query.get("timeframe") or "").lower()
+        cache_key = f"debate:{pair}:{tf_raw or 'default'}"
+
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return self._json(200, dict(cached))
+
+        # Reuse the cached V2 analysis when available; otherwise build it once
+        # (the helper also writes back to the analysis cache so subsequent
+        # /api/analysis calls benefit).
+        analysis_cache_key = f"analysis:{pair}:{tf_raw or 'default'}"
+        analysis = self._cache_get(analysis_cache_key) or self._build_analysis_payload(pair, tf_raw)
+        if analysis is None:
+            # Last-resort stale fallback so the debate page never renders 502.
+            stale = self._cache_get(analysis_cache_key, allow_stale=True)
+            if stale is None:
+                return self._error(503, "analysis unavailable for debate")
+            analysis = stale
+
+        calendar = analysis.get("economic_calendar") if isinstance(analysis.get("economic_calendar"), dict) else {"status": "UNAVAILABLE"}
+
+        try:
+            result = asyncio.run(run_council(pair, tf_raw, analysis, calendar))
+        except Exception as exc:  # noqa: BLE001 — council failure must never 500 the route.
+            log.warning("debate council failed for %s %s: %r", pair, tf_raw, exc)
+            deterministic = build_deterministic_debate_from_analysis(analysis)
+            return self._json(200, {
+                "pair": pair,
+                "timeframe": tf_raw or "default",
+                "mode": "deterministic_fallback",
+                "generated_at": int(time.time()),
+                "calendar": {"status": calendar.get("status", "UNAVAILABLE")},
+                "deterministic": deterministic,
+                "bull": agent_placeholder("bull", "Council run failed; deterministic consensus shown."),
+                "bear": agent_placeholder("bear", "Council run failed; deterministic consensus shown."),
+                "risk_macro": agent_placeholder("risk_macro", "Council run failed; deterministic consensus shown."),
+                "chief_trader": {
+                    "verdict": "WAIT", "confidence": 0.0,
+                    "summary": "Council run failed; V2 scanner and calendar remain authoritative.",
+                    "supporting": [], "against": [], "blocking_gates": [],
+                    "narrative": "The AI Trade Debate Council could not complete. The deterministic scanner and economic calendar remain the source of truth.",
+                },
+                "errors": {"council": repr(exc)},
+            })
+
+        data_stale = bool((analysis.get("data_quality") or {}).get("data_stale"))
+        result["cache"] = {"stale": data_stale, "ttl_seconds": 300,
+                           **({"reason": "underlying market candles are stale"} if data_stale else {})}
+        self._cache_set(cache_key, result, ttl=300.0, stale_ttl=600.0)
+        return self._json(200, result)
+
     def _attach_institutional_block(
         self,
         analysis: dict,
@@ -1409,30 +1590,42 @@ class _ApiHandler(BaseHTTPRequestHandler):
         self._json(200, {"signals": rows, "count": len(rows), "source": "V2_GUARDED"})
 
     def _publish_actionable_analysis(self, analysis: dict) -> None:
+        # Alert evaluation (below) must run for EVERY analysis, not only when
+        # a fully-guarded STRONG/VALID call is being published. Before this
+        # fix, a setup blocked on e.g. "AVOID: ADR exhausted" (quality 79/100
+        # but never eligible for the guarded feed) returned out of this
+        # function before ever reaching alert evaluation, so early "quality
+        # crossed your minimum" alerts could never fire even once the
+        # CONFIRMATION rule itself stopped requiring timing=READY. Bobby hit
+        # this directly 2026-08-11 on a live XAUUSD buy. Track `new_trade`
+        # separately and always fall through to alert evaluation at the end.
         payload = build_published_signal(analysis)
-        if payload is None:
-            return
+        new_trade_payload = None
 
-        # Publication is the authority for a "new trade". Serialize this small
-        # section so simultaneous dashboard/analysis requests cannot announce
-        # the same setup twice. Repositories keep at most one ACTIVE call per
-        # pair/timeframe and report whether this invocation created it.
-        try:
-            with _STATE.cache_lock:
-                if hasattr(_STATE.repository, "publish_actionable_once"):
-                    signal_id, is_new = _STATE.repository.publish_actionable_once(payload)
-                elif hasattr(_STATE.repository, "publish_actionable"):
-                    signal_id = _STATE.repository.publish_actionable(payload)
-                    is_new = True
-                else:
-                    return
-            payload["id"] = int(signal_id)
-        except Exception:
-            logging.exception("failed to persist actionable V2 signal for %s", analysis.get("pair"))
-            return
+        if payload is not None:
+            # Publication is the authority for a "new trade". Serialize this
+            # small section so simultaneous dashboard/analysis requests cannot
+            # announce the same setup twice. Repositories keep at most one
+            # ACTIVE call per pair/timeframe and report whether this
+            # invocation created it.
+            try:
+                is_new = False
+                signal_id = None
+                with _STATE.cache_lock:
+                    if hasattr(_STATE.repository, "publish_actionable_once"):
+                        signal_id, is_new = _STATE.repository.publish_actionable_once(payload)
+                    elif hasattr(_STATE.repository, "publish_actionable"):
+                        signal_id = _STATE.repository.publish_actionable(payload)
+                        is_new = True
+                if signal_id is not None:
+                    payload["id"] = int(signal_id)
+                    new_trade_payload = payload if is_new else None
+            except Exception:
+                logging.exception("failed to persist actionable V2 signal for %s", analysis.get("pair"))
+                payload = None
 
         try:
-            if hasattr(_STATE.repository, "save_forecast"):
+            if payload is not None and hasattr(_STATE.repository, "save_forecast"):
                 quality = analysis.get("decision_quality") or {}
                 weights = ((quality.get("scenario_weights") or {}).get("weights") or {})
                 direction = str(payload["direction"]).upper()
@@ -1471,7 +1664,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
         try:
             self._evaluate_and_persist_alerts(
                 analysis,
-                new_trade=payload if is_new else None,
+                new_trade=new_trade_payload,
             )
         except Exception:
             logging.exception("alert evaluation failed for %s", analysis.get("pair"))

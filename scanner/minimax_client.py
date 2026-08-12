@@ -106,18 +106,25 @@ def configured() -> bool:
     return bool(os.environ.get("MINIMAX_API_KEY"))
 
 
-def analyze(context: dict[str, Any]) -> dict[str, Any]:
+def analyze(context: dict[str, Any], *, system_prompt: str | None = None,
+             max_tokens: int = 1200, timeout: float = 45.0) -> dict[str, Any]:
+    """Call MiniMax with a (default or caller-supplied) system prompt.
+
+    ``system_prompt`` lets callers run multi-role councils (Bull / Bear /
+    Risk / Chief Trader) without having to clone the HTTP plumbing.
+    Defaults to ``SYSTEM_PROMPT`` so existing callers are unchanged.
+    """
     key = os.environ.get("MINIMAX_API_KEY")
     if not key:
         raise RuntimeError("MINIMAX_API_KEY is not configured")
     payload = json.dumps({
         "model": MODEL,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt or SYSTEM_PROMPT},
             {"role": "user", "content": json.dumps(context, separators=(",", ":"))},
         ],
         "temperature": 0.2,
-        "max_tokens": 1200,
+        "max_tokens": max_tokens,
         "thinking": {"type": "disabled"},
         "stream": False,
     }).encode("utf-8")
@@ -126,7 +133,7 @@ def analyze(context: dict[str, Any]) -> dict[str, Any]:
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=45) as response:  # noqa: S310
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
             body = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"MiniMax request failed ({exc.code})") from exc
