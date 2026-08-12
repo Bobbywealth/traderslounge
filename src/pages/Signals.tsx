@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Activity, AlertTriangle, ArrowDownRight, ArrowRight, ArrowUpRight, CheckCircle2,
-  Clock3, Hourglass, RefreshCw, ShieldCheck, Target, TrendingUp, Zap,
+  Clock3, Hourglass, RefreshCw, ShieldCheck, Target, TrendingUp, Zap, Brain,
 } from 'lucide-react';
 import {
   bwtsApi, planReasonText,
@@ -373,6 +373,18 @@ const SignalCall: React.FC<{ signal: PublishedSignal }> = ({ signal }) => {
           <div className={`text-[10px] font-black uppercase tracking-wider ${isBuy ? 'text-emerald-300' : 'text-rose-300'}`}>{signal.status.replace(/_/g, ' ')}</div>
           <div className="mt-1 text-lg font-black cx-text-strong">{signal.score}/100</div>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-end gap-2 border-b px-5 py-3 cx-border">
+        <Link
+          to={`/debate?pair=${encodeURIComponent(signal.pair)}&timeframe=${encodeURIComponent(signal.timeframe || '1h')}`}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-cyan-300 transition-colors hover:border-cyan-400/50 hover:bg-cyan-400/15"
+          title="Run the AI Trade Debate Council on this setup"
+        >
+          <Brain className="h-3 w-3" />
+          Open AI Debate
+          <ArrowRight className="h-3 w-3" />
+        </Link>
       </div>
 
       <div className="grid grid-cols-2 gap-px cx-bg-card-hover sm:grid-cols-5">
