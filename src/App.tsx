@@ -15,6 +15,7 @@ import Education from './pages/Education';
 import Community from './pages/Community';
 import LiveScanner from './pages/LiveScanner';
 import MarketAnalysis from './pages/MarketAnalysis';
+import Debate from './pages/Debate';
 import Alerts from './pages/Alerts';
 import Positions from './pages/Positions';
 import Journal from './pages/Journal';
@@ -133,6 +134,8 @@ const AppContent: React.FC = () => {
                 <Route path="/dashboard" element={<Navigate to="/" replace />} />
                 <Route path="/scanner" element={<LiveScanner />} />
                 <Route path="/signals" element={<Signals />} />
+                <Route path="/debate" element={<Debate />} />
+                <Route path="/debate/:pair" element={<Debate />} />
                 <Route path="/analysis" element={<Navigate to="/tradingview?panel=full" replace />} />
                 <Route path="/analysis/:pair" element={({ params }) => <Navigate to={`/tradingview?symbol=${String(params.pair).toUpperCase()}&panel=full`} replace />} />
                 <Route path="/alerts" element={<Alerts />} />

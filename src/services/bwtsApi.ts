@@ -720,6 +720,10 @@ export const bwtsApi = {
   calendarGlobalStatus: () => getCached<CalendarGlobalStatus>('/api/calendar/status', {}, 30_000),
   calendarEvents: (pair?: string) => get<{ source: string; source_health: string; events: any[]; count: number }>('/api/calendar/events', pair ? { pair } : undefined),
   aiStatus: () => get<{ configured: boolean }>('/api/ai/status'),
+
+  // AI Trade Debate — 4-agent council (Bull / Bear / Risk-Macro / Chief Trader)
+  getDebate: (pair: string, timeframe?: string) =>
+    getCached<DebateResult>('/api/debate', timeframe ? { pair, timeframe } : { pair }, 60_000),
   cryptoAnalysis: (pair: string, timeframe?: string) => getCached<CryptoAnalysis>('/api/analysis', timeframe ? { pair, timeframe } : { pair }, 20_000),
   v2Backtest: (pair: string, timeframe = '1h', limit = 10000) => get<V2BacktestReport>('/api/backtest/v2', { pair, timeframe, limit }),
   validationReport: (limit = 5000) => getCached<ValidationReport>('/api/validation/report', { limit }, 30_000),
@@ -939,6 +943,68 @@ export interface ActivityFeed {
   calendar: ActivityCalendar;
   generated_at: string;
   market_data_timestamp: string;
+}
+
+// ---------------------------------------------------------------------------
+// AI Trade Debate — 4-agent council (Bull / Bear / Risk-Macro / Chief Trader)
+// Advisory only. Never overrides canonical V2 direction, score, or plan.
+// ---------------------------------------------------------------------------
+
+export type DebateVerdict = 'BUY' | 'SELL' | 'WAIT' | 'PROCEED' | 'REDUCE_SIZE';
+
+export interface DebateAgent {
+  agent: 'bull' | 'bear' | 'risk_macro';
+  verdict: DebateVerdict;
+  confidence: number;          // 0.0 - 1.0
+  summary: string;
+  arguments: string[];
+  evidence_refs: string[];
+  blocking_gates: string[];
+}
+
+export interface DebateChiefTrader {
+  verdict: DebateVerdict;
+  confidence: number;
+  summary: string;
+  supporting: string[];
+  against: string[];
+  blocking_gates: string[];
+  narrative: string;
+}
+
+export interface DebateConsensusRow {
+  agent: string;
+  label: string;
+  vote: string;
+  confidence: number;
+  reason: string;
+  evidence?: string[];
+  available?: boolean;
+}
+
+export interface DebateDeterministic {
+  agents: DebateConsensusRow[];
+  consensus?: { agreement_pct: number; conflicting: string[] };
+  bull_case: Array<{ agent: string; argument: string; confidence: number }>;
+  bear_case: Array<{ agent: string; argument: string; confidence: number }>;
+  note?: string;
+}
+
+export interface DebateResult {
+  pair: string;
+  timeframe: string;
+  mode: 'ai' | 'partial' | 'deterministic_fallback';
+  generated_at: number;
+  elapsed_ms?: number;
+  note?: string;
+  calendar: { status: string; reason_code?: string };
+  deterministic: DebateDeterministic;
+  bull: DebateAgent;
+  bear: DebateAgent;
+  risk_macro: DebateAgent;
+  chief_trader: DebateChiefTrader;
+  errors?: Record<string, string>;
+  cache?: { stale: boolean; ttl_seconds: number; reason?: string };
 }
 
 export default bwtsApi;

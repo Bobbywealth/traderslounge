@@ -4,7 +4,7 @@ import ConfluenceXLogo from './ConfluenceXLogo';
 import {
   Activity, BarChart3, Bell, BookOpen, ChevronLeft, ChevronRight, X,
   FlaskConical, LayoutDashboard, LineChart, Newspaper, Settings as SettingsIcon, Zap, Search,
-  Briefcase, History, ArrowLeftRight, Bot,
+  Briefcase, History, ArrowLeftRight, Bot, Brain,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -44,6 +44,7 @@ const groups: NavGroup[] = [
     items: [
       { name: 'Dashboard', href: '/', icon: LayoutDashboard },
       { name: 'Signals', href: '/signals', icon: Zap },
+      { name: 'AI Debate', href: '/debate', icon: Brain },
       { name: 'Hot Scanner', href: '/scanner', icon: Activity },
       { name: 'Chart', href: '/tradingview', icon: BarChart3 },
     ],
