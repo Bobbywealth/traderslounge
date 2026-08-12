@@ -171,14 +171,38 @@ class TestEvaluateRules(unittest.TestCase):
         events = evaluate_rules(prefs, _analysis(setup_quality=70, timing=70))
         self.assertEqual(events, [])
 
-    def test_confirmation_silent_when_timing_below_minimum(self):
+    def test_confirmation_fires_even_when_timing_below_minimum(self):
+        # 2026-08-11 Bobby: early heads-up alerts once quality alone clears
+        # his minimum, even while timing hasn't hasn't cleared yet. Critical
+        # for setups like a 79/100 buy sitting on "AVOID: ADR exhausted"
+        # that he trades off of manually before the engine guards it.
         prefs = AlertPreferences(user_id=1, timing_minimum=80)
-        events = evaluate_rules(prefs, _analysis(setup_quality=70, timing=70))
-        self.assertEqual(events, [])
+        previous = _analysis(setup_quality=50, timing=70, timing_status="WAIT")
+        events = evaluate_rules(
+            prefs, _analysis(setup_quality=70, timing=70), last_analysis=previous
+        )
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].alert_type, AlertType.CONFIRMATION.value)
+        self.assertFalse(events[0].payload["timing_cleared"])
+        self.assertIn("early heads-up", events[0].body)
 
-    def test_confirmation_silent_when_timing_status_not_ready(self):
+    def test_confirmation_fires_even_when_timing_status_not_ready(self):
         prefs = AlertPreferences(user_id=1)
-        events = evaluate_rules(prefs, _analysis(timing_status="WAIT"))
+        previous = _analysis(setup_quality=50, timing_status="WAIT")
+        events = evaluate_rules(
+            prefs, _analysis(timing_status="WAIT"), last_analysis=previous
+        )
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].alert_type, AlertType.CONFIRMATION.value)
+        self.assertFalse(events[0].payload["timing_cleared"])
+
+    def test_confirmation_does_not_refire_while_quality_stays_above_minimum(self):
+        # Once quality is above the minimum it must not spam on every poll.
+        prefs = AlertPreferences(user_id=1)
+        previous = _analysis(setup_quality=70, timing_status="WAIT")
+        events = evaluate_rules(
+            prefs, _analysis(setup_quality=72, timing_status="WAIT"), last_analysis=previous
+        )
         self.assertEqual(events, [])
 
     def test_confirmation_silent_when_direction_neutral(self):

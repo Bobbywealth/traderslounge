@@ -332,48 +332,69 @@ def evaluate_rules(
     events: list[AlertEvent] = []
 
     # --- confirmation ----------------------------------------------------
-    # Confirmation means a transition, not every READY poll. The dedicated
-    # NEW_TRADE event handles the first persisted call; this rule only fires
-    # when a previous observed analysis was below the user's thresholds.
-    previous_confirmation_ready = False
+    # Confirmation means a transition, not every poll. The dedicated
+    # NEW_TRADE event handles the first fully-guarded call; this rule fires
+    # earlier, the moment setup QUALITY alone crosses the user's minimum,
+    # even while timing/ADR/news gates are still blocking full READY state.
+    # Bobby explicitly asked for this (2026-08-11): a setup like a 79/100
+    # XAUUSD buy sitting on "AVOID: ADR exhausted" should still ping him,
+    # since he trades off the zone before the engine calls it guard-ready.
+    # The message body always states current timing/blocking status so this
+    # is never confused with the fully-guarded NEW_TRADE call.
+    previous_quality_ready = False
     if last_analysis is not None:
         previous_decision = last_analysis.get("decision_quality") or {}
-        previous_timing_status = (last_analysis.get("trade_timing") or {}).get("status", "WAIT")
-        previous_confirmation_ready = (
+        previous_quality_ready = (
             previous_decision.get("setup_quality") is not None
-            and previous_decision.get("execution_readiness") is not None
             and previous_decision.get("setup_quality") >= prefs.setup_quality_minimum
-            and previous_decision.get("execution_readiness") >= prefs.timing_minimum
             and last_analysis.get("direction") in ("BUY", "SELL")
-            and previous_timing_status == "READY"
         )
     if (
         _enabled(prefs, AlertType.CONFIRMATION)
         and last_analysis is not None
-        and not previous_confirmation_ready
+        and not previous_quality_ready
         and setup_quality is not None
-        and timing is not None
         and setup_quality >= prefs.setup_quality_minimum
-        and timing >= prefs.timing_minimum
         and direction in ("BUY", "SELL")
-        and timing_status == "READY"
     ):
+        timing_cleared = (
+            timing is not None
+            and timing >= prefs.timing_minimum
+            and timing_status == "READY"
+        )
+        if timing_cleared:
+            timing_note = (
+                f"Timing {int(timing)}/100 also cleared ({prefs.timing_minimum} min). "
+                f"Bias {int(bias or 0)}/100."
+            )
+        else:
+            blockers = [
+                r.get("message") for r in (plan.get("blocking_reasons") or [])
+                if isinstance(r, dict) and r.get("message")
+            ][:2]
+            blocker_text = "; ".join(blockers) if blockers else f"status {timing_status}"
+            timing_note = (
+                f"Timing not fully clear yet ({blocker_text}) — quality alone crossed "
+                f"your {prefs.setup_quality_minimum} minimum, so this is an early "
+                f"heads-up, not a guarded call."
+            )
         events.append(
             AlertEvent(
                 user_id=prefs.user_id,
                 alert_type=AlertType.CONFIRMATION.value,
                 pair=pair,
                 timeframe=timeframe,
-                title=f"{pair} {direction} setup confirmed",
+                title=f"{pair} {direction} setup building ({int(setup_quality)}/100)",
                 body=(
-                    f"Setup quality {int(setup_quality)}/100 and timing {int(timing)}/100 "
-                    f"cleared your thresholds ({prefs.setup_quality_minimum}/"
-                    f"{prefs.timing_minimum}). Bias {int(bias or 0)}/100."
+                    f"Setup quality {int(setup_quality)}/100 cleared your "
+                    f"{prefs.setup_quality_minimum} minimum. {timing_note}"
                 ),
                 severity="info",
                 payload={
                     "setup_quality": setup_quality,
                     "timing": timing,
+                    "timing_status": timing_status,
+                    "timing_cleared": timing_cleared,
                     "bias": bias,
                     "direction": direction,
                     "entry": plan.get("entry"),
