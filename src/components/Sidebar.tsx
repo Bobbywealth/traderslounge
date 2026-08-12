@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import ConfluenceXLogo from './ConfluenceXLogo';
 import {
   Activity, BarChart3, Bell, BookOpen, ChevronLeft, ChevronRight, X,
-  FlaskConical, Gauge, LayoutDashboard, LineChart, Newspaper, Settings as SettingsIcon, Zap, Search,
+  FlaskConical, Gauge, Inbox, LayoutDashboard, LineChart, Newspaper, Settings as SettingsIcon, Zap, Search,
   Briefcase, History, ArrowLeftRight, Bot, Brain, Target,
 } from 'lucide-react';
 
@@ -68,6 +68,7 @@ const groups: NavGroup[] = [
     label: 'Track',
     items: [
       { name: 'Alerts', href: '/alerts', icon: Bell },
+      { name: 'Notifications', href: '/notifications', icon: Inbox },
       { name: 'Performance', href: '/performance', icon: LineChart },
       { name: 'Journal', href: '/journal', icon: BookOpen },
       { name: 'Settings', href: '/settings', icon: SettingsIcon },

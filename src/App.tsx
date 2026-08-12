@@ -18,6 +18,7 @@ import LiveScanner from './pages/LiveScanner';
 import MarketAnalysis from './pages/MarketAnalysis';
 import Debate from './pages/Debate';
 import Alerts from './pages/Alerts';
+import Notifications from './pages/Notifications';
 import Positions from './pages/Positions';
 import Journal from './pages/Journal';
 import Backtester from './pages/Backtester';
@@ -142,6 +143,7 @@ const AppContent: React.FC = () => {
                 <Route path="/analysis" element={<Navigate to="/tradingview?panel=full" replace />} />
                 <Route path="/analysis/:pair" element={({ params }) => <Navigate to={`/tradingview?symbol=${String(params.pair).toUpperCase()}&panel=full`} replace />} />
                 <Route path="/alerts" element={<Alerts />} />
+                <Route path="/notifications" element={<Notifications />} />
                 <Route path="/positions" element={<Positions />} />
                 <Route path="/journal" element={<Journal />} />
                 <Route path="/backtester" element={<Backtester />} />
