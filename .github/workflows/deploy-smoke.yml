@@ -1,0 +1,91 @@
+name: Deploy Smoke
+
+# After every push to main, hit the live Render API and verify the
+# critical endpoints respond with the expected contract. This is the
+# "deploy → smoke test" half of Bobby's spec:
+#   PR → lint → unit tests → Python tests → integration →
+#   Playwright smoke tests → build → merge → deployment smoke test.
+# The previous half is enforced by .github/workflows/ci.yml.
+#
+# Required secrets (configure in repo Settings → Secrets):
+#   PROD_API_BASE   e.g. https://traderslounge-bwts-api.onrender.com
+#   PROD_WEB_BASE   e.g. https://traderslounge.onrender.com
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-smoke:
+    name: Verify live Render deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for Render to roll out
+        # Render picks up the push automatically and takes a few minutes
+        # to redeploy. We poll /api/health until it answers 200 or we
+        # give up after ~7 minutes.
+        env:
+          API_BASE: ${{ secrets.PROD_API_BASE }}
+        run: |
+          set -euo pipefail
+          echo "Waiting for $API_BASE/api/health to come back green..."
+          for i in $(seq 1 30); do
+            code=$(curl -sS -o /tmp/health.json -w "%{http_code}" "$API_BASE/api/health" || echo 000)
+            if [ "$code" = "200" ]; then
+              echo "healthy after $i polls"
+              cat /tmp/health.json
+              echo
+              exit 0
+            fi
+            echo "poll $i: HTTP $code (sleeping 15s)"
+            sleep 15
+          done
+          echo "Render never came back green within 7 minutes"
+          exit 1
+
+      - name: Hit critical endpoints
+        env:
+          API_BASE: ${{ secrets.PROD_API_BASE }}
+          WEB_BASE: ${{ secrets.PROD_WEB_BASE }}
+        run: |
+          set -euo pipefail
+          failures=0
+
+          check() {
+            label="$1"; expected="$2"; url="$3"
+            code=$(curl -sS -o /tmp/resp.json -w "%{http_code}" "$url" || echo 000)
+            if [ "$code" = "$expected" ]; then
+              echo "OK   $label → HTTP $code"
+            else
+              echo "FAIL $label → HTTP $code (expected $expected)"
+              cat /tmp/resp.json || true
+              echo
+              failures=$((failures + 1))
+            fi
+          }
+
+          check "API health"           200 "$API_BASE/api/health"
+          check "API analysis"         200 "$API_BASE/api/analysis?pair=BTCUSD&timeframe=1h"
+          check "API validation"       200 "$API_BASE/api/validation/report"
+          check "API similarity"       200 "$API_BASE/api/similarity?pair=BTCUSD&timeframe=1h"
+          check "API signals"          200 "$API_BASE/api/signals"
+          check "API pairs"            200 "$API_BASE/api/pairs"
+          check "Frontend landing"     200 "$WEB_BASE/"
+          check "Frontend /calibration" 200 "$WEB_BASE/calibration"
+          check "Frontend /tradingview" 200 "$WEB_BASE/tradingview?symbol=BTCUSD"
+
+          if [ "$failures" -gt 0 ]; then
+            echo "$failures endpoint(s) failed — page on-call."
+            exit 1
+          fi
