@@ -1651,7 +1651,11 @@ class _ApiHandler(BaseHTTPRequestHandler):
         }
 
         self._json(200, {
-            "scanner_running": health.get("status") == "running",
+            # _get_health_data() only ever returns status "ok"/"degraded" (never
+            # "running"), so comparing against "running" was always False and
+            # made the Alerts "Live Activity" badge permanently show STOPPED
+            # even while the autonomy loop was actively scanning.
+            "scanner_running": health.get("status") == "ok",
             "scanner_health": health,
             "scan_interval_seconds": config.get("scan_interval_seconds"),
             "pairs_monitored": list(_STATE.config.pairs),

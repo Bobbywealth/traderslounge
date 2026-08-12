@@ -253,7 +253,7 @@ const TradingDesk: React.FC = () => {
                       {opp.score}
                     </div>
                     <div className="text-xs text-gray-400 mt-1">
-                      {opp.setup_quality} • R:R {opp.expected_rr.toFixed(1)}
+                      {opp.setup_quality} • R:R {typeof opp.expected_rr === 'number' ? opp.expected_rr.toFixed(1) : 'N/A'}
                     </div>
                   </div>
                 </div>
