@@ -295,6 +295,7 @@ const Debate: React.FC = () => {
   const [data, setData] = useState<DebateResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [allPairs, setAllPairs] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -311,6 +312,14 @@ const Debate: React.FC = () => {
     }
   }, [pairParam, timeframe]);
 
+  useEffect(() => {
+    let cancelled = false;
+    bwtsApi.pairs()
+      .then((r) => { if (!cancelled && Array.isArray(r?.pairs)) setAllPairs(r.pairs.map(p => p.toUpperCase())); })
+      .catch(() => { /* keep empty list, current pair still works */ });
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => { load(); }, [load]);
 
   const mode = data?.mode || 'deterministic_fallback';
@@ -322,10 +331,18 @@ const Debate: React.FC = () => {
     setSearchParams(next, { replace: true });
   };
 
+  const onPairChange = (p: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('pair', p.toUpperCase());
+    setSearchParams(next, { replace: true });
+  };
+
   const pairOptions = useMemo(() => {
-    const raw = (data?.pair ? [data.pair] : [pairParam]).concat(['BTCUSD', 'ETHUSD', 'SOLUSD']);
-    return Array.from(new Set(raw.map(p => p.toUpperCase())));
-  }, [data?.pair, pairParam]);
+    const fallback = ['BTCUSD', 'ETHUSD', 'SOLUSD'];
+    const base = allPairs.length > 0 ? allPairs : fallback;
+    const withCurrent = base.includes(pairParam) ? base : [pairParam, ...base];
+    return Array.from(new Set(withCurrent.map(p => p.toUpperCase())));
+  }, [allPairs, pairParam]);
 
   return (
     <div className="space-y-6">
@@ -345,45 +362,56 @@ const Debate: React.FC = () => {
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${modeBadge.cls}`}>
-              {modeBadge.label}
-            </span>
-            <select
-              value={pairParam}
-              onChange={(e) => {
-                const next = new URLSearchParams(searchParams);
-                next.set('pair', e.target.value.toUpperCase());
-                setSearchParams(next, { replace: true });
-              }}
-              className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs font-black uppercase tracking-wider text-slate-200"
-              data-testid="debate-pair-select"
-            >
-              {pairOptions.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
-            <div className="flex rounded-lg border border-slate-700 bg-slate-900 p-0.5">
-              {SUPPORTED_TIMEFRAMES.map(tf => (
-                <button
-                  key={tf}
-                  onClick={() => onTimeframeChange(tf)}
-                  className={`rounded-md px-2.5 py-1 text-[10px] font-black uppercase tracking-wider transition-colors ${
-                    timeframe === tf ? 'bg-cyan-400/20 text-cyan-300' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {tf}
-                </button>
-              ))}
+          <div className="flex flex-col items-stretch gap-2 lg:items-end">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${modeBadge.cls}`}>
+                {modeBadge.label}
+              </span>
+              <div className="flex rounded-lg border border-slate-700 bg-slate-900 p-0.5">
+                {SUPPORTED_TIMEFRAMES.map(tf => (
+                  <button
+                    key={tf}
+                    onClick={() => onTimeframeChange(tf)}
+                    className={`rounded-md px-2.5 py-1 text-[10px] font-black uppercase tracking-wider transition-colors ${
+                      timeframe === tf ? 'bg-cyan-400/20 text-cyan-300' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {tf}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={load}
+                disabled={loading}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-black uppercase tracking-wider text-slate-200 hover:border-cyan-400/40 disabled:opacity-50"
+                data-testid="debate-refresh"
+              >
+                <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={load}
-              disabled={loading}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-black uppercase tracking-wider text-slate-200 hover:border-cyan-400/40 disabled:opacity-50"
-              data-testid="debate-refresh"
-            >
-              <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
-            </button>
+            <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2">
+              <span className="shrink-0 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Pair</span>
+              <div className="-mx-1 flex max-w-full overflow-x-auto" data-testid="debate-pair-row">
+                <div className="flex items-center gap-1 px-1">
+                  {pairOptions.map(p => (
+                    <button
+                      key={p}
+                      onClick={() => onPairChange(p)}
+                      className={`whitespace-nowrap rounded-md px-2.5 py-1 text-[10px] font-black uppercase tracking-wider transition-colors ${
+                        p === pairParam
+                          ? 'bg-cyan-400/25 text-cyan-200 ring-1 ring-cyan-400/40'
+                          : 'text-slate-300 hover:bg-slate-800 hover:text-slate-100'
+                      }`}
+                      title={`Run the AI Debate Council on ${p}`}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         {data && (
