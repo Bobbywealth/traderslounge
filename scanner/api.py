@@ -46,7 +46,7 @@ from .lifecycle_manager import stabilize_direction, map_legacy_state
 from .kill_switch import KillSwitch
 from .metrics import metrics
 from .minimax_client import analyze as minimax_analyze, analyze_chart as minimax_chart_analyze, configured as minimax_configured
-from .debate import run_council
+from .debate import agent_placeholder, build_deterministic_debate_from_analysis, run_council
 from .news_filter import NewsFilter
 from .persistence import SignalRepository
 from .trade_planner import build_trade_plan
