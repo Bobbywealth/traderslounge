@@ -754,6 +754,24 @@ export const bwtsApi = {
   alertFeed: (limit = 50) => get<{ events: AlertEvent[]; count: number }>('/api/alerts/feed', { limit }),
   activityFeed: () => get<ActivityFeed>('/api/alerts/activity'),
 
+  // Trading Memory
+  insights: (opts?: { symbol?: string; category?: string; limit?: number }) =>
+    get<{ insights: TradingInsight[]; count: number }>('/api/insights', opts as any),
+  insightsContext: (pair: string, opts?: { direction?: string; session?: string; regime?: string }) =>
+    getCached<{ insights: TradingInsight[]; count: number }>('/api/insights/context', { pair, ...opts }, 30_000),
+  createInsight: (insight: { category: string; symbol?: string; observation: string; tags?: string[]; confidence?: number }) =>
+    post<{ insight: TradingInsight }>('/api/insights', insight),
+  deleteInsight: (id: number) =>
+    post<{ deleted: boolean }>(`/api/insights/${id}`, {}),
+  recordZone: (zone: { symbol: string; zone_price: number; zone_type: string; reaction: string; price_change_pct?: number; timeframe?: string }) =>
+    post<{ recorded: boolean; promoted: boolean; insight?: TradingInsight }>('/api/insights/record-zone', zone),
+  recordNewsImpact: (impact: { symbol: string; event_name: string; event_impact: string; price_before: number; price_after_5m?: number; currency?: string }) =>
+    post<{ recorded: boolean; promoted: boolean; insight?: TradingInsight }>('/api/insights/record-news', impact),
+
+  // Command Center
+  commandCenterBest: () =>
+    getCached<CommandCenterData>('/api/command-center/best', {}, 15_000),
+
   telegramStatus: () => get<TelegramStatus>('/api/telegram/status'),
   telegramLinkToken: () => post<TelegramLinkToken>('/api/telegram/link-token', {}),
   telegramRegisterWebhook: (publicBaseUrl: string) =>
@@ -1006,6 +1024,86 @@ export interface DebateResult {
   chief_trader: DebateChiefTrader;
   errors?: Record<string, string>;
   cache?: { stale: boolean; ttl_seconds: number; reason?: string };
+}
+
+export interface TradingInsight {
+  id: number;
+  created_at: string;
+  updated_at?: string;
+  category: string;
+  symbol: string | null;
+  condition_key: string;
+  observation: string;
+  evidence_count: number;
+  evidence_strength: 'low' | 'medium' | 'high';
+  evidence_data: Record<string, unknown>;
+  source: string;
+  created_by: string | null;
+  confidence: number;
+  tags: string[];
+  relevance_score?: number;
+}
+
+export interface CommandCenterData {
+  session: {
+    name: string;
+    start_hour: number | null;
+    end_hour: number | null;
+  };
+  best_opportunity: {
+    setup_id: string;
+    symbol: string;
+    direction: string;
+    score: number;
+    state: string;
+    entry_low: number;
+    entry_high: number;
+    stop_loss: number;
+    tp1: number;
+    tp2: number;
+    tp3: number;
+    market_regime: string;
+    session: string;
+    data_quality: string;
+    technical_reasons: string[] | Record<string, unknown>;
+    macro_reasons: string[] | Record<string, unknown>;
+    risk_reasons: string[] | Record<string, unknown>;
+    news_state: string;
+    expected_rr_tp1: number;
+    expected_rr_tp2: number;
+    expected_rr_tp3: number;
+    score_components: Record<string, unknown>;
+    detected_at: string;
+  } | null;
+  consensus: {
+    consensus_direction: string;
+    canonical_direction: string;
+    agreement_pct: number;
+    status: string;
+    votes: Array<{
+      agent: string;
+      label: string;
+      vote: string;
+      confidence: number;
+      reason: string;
+      available: boolean;
+    }>;
+    veto_reasons: string[];
+  } | null;
+  debate: {
+    bull_case: Array<{ agent: string; argument: string; confidence: number }>;
+    bear_case: Array<{ agent: string; argument: string; confidence: number }>;
+    verdict: string;
+    winning_direction: string;
+  } | null;
+  memories: TradingInsight[];
+  news_vetoes: Array<{
+    title: string;
+    currency: string;
+    impact: string;
+    minutes_until: number;
+  }>;
+  active_setups: number;
 }
 
 export default bwtsApi;

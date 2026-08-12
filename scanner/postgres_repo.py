@@ -470,6 +470,62 @@ CREATE TABLE IF NOT EXISTS last_analysis_snapshots (
     snapshot JSONB NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- ── Trading Memory (institutional-style persistent insights) ────────────
+
+-- Core insight store: zone rejections, news impacts, setup performance, etc.
+CREATE TABLE IF NOT EXISTS trading_insights (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    category TEXT NOT NULL,
+    symbol TEXT,
+    condition_key TEXT NOT NULL,
+    observation TEXT NOT NULL,
+    evidence_count INTEGER NOT NULL DEFAULT 1,
+    evidence_strength TEXT NOT NULL DEFAULT 'medium',
+    evidence_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    source TEXT NOT NULL DEFAULT 'manual',
+    created_by TEXT,
+    confidence DOUBLE PRECISION NOT NULL DEFAULT 50,
+    tags TEXT[] DEFAULT '{}',
+    fingerprint TEXT NOT NULL,
+    UNIQUE(fingerprint)
+);
+CREATE INDEX IF NOT EXISTS idx_insights_symbol ON trading_insights(symbol);
+CREATE INDEX IF NOT EXISTS idx_insights_category ON trading_insights(category);
+CREATE INDEX IF NOT EXISTS idx_insights_tags ON trading_insights USING GIN(tags);
+CREATE INDEX IF NOT EXISTS idx_insights_fingerprint ON trading_insights(fingerprint);
+
+-- Raw zone interaction data points (below threshold; feeds auto-derivation)
+CREATE TABLE IF NOT EXISTS zone_interactions (
+    id SERIAL PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    condition_key TEXT NOT NULL,
+    zone_price DOUBLE PRECISION NOT NULL,
+    zone_type TEXT NOT NULL,
+    reaction TEXT NOT NULL,
+    price_change_pct DOUBLE PRECISION DEFAULT 0,
+    timeframe TEXT DEFAULT 'H1',
+    ts TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_zone_interactions_key ON zone_interactions(condition_key);
+
+-- Raw news event interaction data points (below threshold; feeds auto-derivation)
+CREATE TABLE IF NOT EXISTS news_event_interactions (
+    id SERIAL PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    condition_key TEXT NOT NULL,
+    event_name TEXT NOT NULL,
+    event_impact TEXT NOT NULL,
+    currency TEXT DEFAULT 'USD',
+    price_before DOUBLE PRECISION,
+    price_after_5m DOUBLE PRECISION,
+    price_after_30m DOUBLE PRECISION,
+    move_pct DOUBLE PRECISION DEFAULT 0,
+    ts TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_news_interactions_key ON news_event_interactions(condition_key);
 """
 
 

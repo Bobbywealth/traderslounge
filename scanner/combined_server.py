@@ -203,6 +203,13 @@ def main() -> int:
         alert_repo=repo,
         bot_runner=bot_runner,
     )
+    # Wire Trading Memory (persistent institutional-style insights)
+    try:
+        from .trading_memory import TradingMemoryManager
+        state.trading_memory = TradingMemoryManager(conn_factory=lambda: repo._get_connection())
+        logging.info("Trading Memory enabled")
+    except Exception:
+        logging.exception("Trading Memory init failed; /api/insights will be unavailable")
     # Wire the Telegram bot into API state and rebuild the chat_id
     # reverse index from persisted preferences so a deploy does not
     # require every user to re-link their Telegram chat.

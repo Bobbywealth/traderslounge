@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import hashlib
 import logging
 import math
 import os
@@ -48,6 +49,7 @@ from .kill_switch import KillSwitch
 from .metrics import metrics
 from .minimax_client import analyze as minimax_analyze, analyze_chart as minimax_chart_analyze, configured as minimax_configured
 from .debate import agent_placeholder, build_deterministic_debate_from_analysis, run_council
+from .trading_memory import TradingMemoryManager, InsightCategory, InsightStrength
 from .news_filter import NewsFilter
 from .persistence import SignalRepository
 from .trade_planner import build_trade_plan
@@ -102,6 +104,9 @@ RATE_LIMITS: dict[str, tuple[int, float]] = {
     "/api/alerts/push/unsubscribe": (30, 30.0 / 60.0),
     "/api/alerts/push/subscriptions": (30, 30.0 / 60.0),
     "/api/debate": (10, 10.0 / 60.0),
+    "/api/command-center/best": (20, 20.0 / 60.0),
+    "/api/insights": (60, 60.0 / 60.0),
+    "/api/insights/context": (30, 30.0 / 60.0),
 }
 
 # Endpoints that require a valid Authorization: Bearer token, in
@@ -119,6 +124,8 @@ PROTECTED_ROUTES: frozenset[str] = frozenset({
     "/api/alerts/push/subscribe",
     "/api/alerts/push/unsubscribe",
     "/api/alerts/push/subscriptions",
+    "/api/command-center/best",
+    "/api/insights/context",
 })
 
 # Operational endpoints that require admin role
@@ -275,6 +282,8 @@ class ApiState:
     # BotRunner class is available; /api/bot/* endpoints return 503
     # when this is None.
     bot_runner: Optional[Any] = None
+    # Trading Memory: persistent institutional-style insights.
+    trading_memory: Optional[TradingMemoryManager] = None
 
 
 # Module-level state pointer — http.server's handler API doesn't make
@@ -448,7 +457,14 @@ class _ApiHandler(BaseHTTPRequestHandler):
 
     def _enforce_route_policy(self, path: str, method: str) -> Optional[Tuple[int, str]]:
         """Return an ``(status, message)`` tuple if the request must be denied."""
-        if path in PROTECTED_ROUTES:
+        # /api/memory/<pair> is auth-required but not in PROTECTED_ROUTES
+        # because that set only supports exact-path matching; catch the
+        # prefix explicitly so per-user memory notes don't leak.
+        protected_prefixes = ("/api/memory/",)
+        needs_auth = path in PROTECTED_ROUTES or any(
+            path.startswith(p) for p in protected_prefixes
+        )
+        if needs_auth:
             result = self._require_auth(self.headers)
             if isinstance(result, tuple):
                 return result[1], result[2]
@@ -579,6 +595,25 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 return self._autonomy_alerts(query)
             if path == "/api/autonomy/activity":
                 return self._autonomy_activity(query)
+            # Trading Memory endpoints
+            if path == "/api/insights":
+                return self._list_insights(query)
+            if path == "/api/insights/context":
+                return self._insights_context(query)
+            if path.startswith("/api/memory/"):
+                pair = path.rsplit("/", 1)[1].upper()
+                if not pair or len(pair) > 20:
+                    return self._error(400, "invalid pair")
+                return self._memory_notes_for_pair(pair, query)
+            if path.startswith("/api/insights/"):
+                try:
+                    insight_id = int(path.rsplit("/", 1)[1])
+                except ValueError:
+                    return self._error(400, "invalid insight id")
+                return self._get_insight(insight_id)
+            # Command Center endpoint
+            if path == "/api/command-center/best":
+                return self._command_center_best(query)
             return self._error(404, f"unknown route: {path}")
         finally:
             duration_ms = (time.time() - start_time) * 1000
@@ -624,6 +659,19 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._telegram_link_token(body)
         if path == "/api/telegram/register-webhook":
             return self._telegram_register_webhook(body)
+        # Trading Memory POST endpoints
+        if path == "/api/insights":
+            return self._create_insight(body)
+        if path == "/api/insights/record-zone":
+            return self._record_zone(body)
+        if path == "/api/insights/record-news":
+            return self._record_news_impact(body)
+        if path.startswith("/api/insights/"):
+            try:
+                insight_id = int(path.rsplit("/", 1)[1])
+            except ValueError:
+                return self._error(400, "invalid insight id")
+            return self._delete_insight(insight_id)
         return self._error(404, f"unknown route: {path}")
 
     # --- handlers -------------------------------------------------------
@@ -2480,6 +2528,298 @@ class _ApiHandler(BaseHTTPRequestHandler):
             "engaged": ks.is_engaged(),
             "reason": ks.reason(),
         })
+
+    # ── Trading Memory handlers ────────────────────────────────────────
+
+    def _insights_manager(self) -> Optional[TradingMemoryManager]:
+        """Get TradingMemoryManager from state, or None if not configured."""
+        tm = getattr(_STATE, "trading_memory", None)
+        return tm
+
+    def _list_insights(self, query: dict) -> None:
+        """GET /api/insights[?symbol=X&category=Y&tag=Z&limit=N]"""
+        tm = self._insights_manager()
+        if tm is None:
+            return self._json(200, {"insights": [], "count": 0})
+        symbol = query.get("symbol")
+        category = query.get("category")
+        tags_raw = query.get("tags") or query.get("tag")
+        tags = [t.strip() for t in tags_raw.split(",")] if tags_raw else None
+        min_conf = float(query.get("min_confidence") or 0)
+        limit = _clamp_int(query.get("limit"), default=50, lo=1, hi=200)
+        insights = tm.list(symbol=symbol, category=category, tags=tags, min_confidence=min_conf, limit=limit)
+        self._json(200, {"insights": [i.to_dict() for i in insights], "count": len(insights)})
+
+    def _get_insight(self, insight_id: int) -> None:
+        """GET /api/insights/<id>"""
+        tm = self._insights_manager()
+        if tm is None:
+            return self._error(503, "trading memory not configured")
+        insight = tm.get(insight_id)
+        if insight is None:
+            return self._error(404, "insight not found")
+        self._json(200, {"insight": insight.to_dict()})
+
+    def _insights_context(self, query: dict) -> None:
+        """GET /api/insights/context?pair=XAUUSD&direction=SELL&session=new_york&regime=trending"""
+        tm = self._insights_manager()
+        if tm is None:
+            return self._json(200, {"insights": [], "count": 0})
+        pair = query.get("pair", "BTCUSD")
+        direction = query.get("direction", "BUY")
+        timeframe = query.get("timeframe")
+        session = query.get("session")
+        regime = query.get("regime")
+        limit = _clamp_int(query.get("limit"), default=10, lo=1, hi=20)
+        insights = tm.get_context_for_setup(
+            symbol=pair, direction=direction, timeframe=timeframe,
+            session=session, regime=regime, limit=limit,
+        )
+        self._json(200, {"insights": [i.to_dict() for i in insights], "count": len(insights)})
+
+    def _create_insight(self, body: dict) -> None:
+        """POST /api/insights — create a manual insight."""
+        tm = self._insights_manager()
+        if tm is None:
+            return self._error(503, "trading memory not configured")
+        category = body.get("category", "annotation")
+        observation = body.get("observation", "")
+        if not observation:
+            return self._error(400, "observation is required")
+        try:
+            insight = tm.create(
+                category=category,
+                symbol=body.get("symbol"),
+                condition_key=body.get("condition_key", f"manual|{hashlib.sha256(observation.encode()).hexdigest()[:12]}"),
+                observation=observation,
+                evidence_count=int(body.get("evidence_count", 1)),
+                evidence_strength=body.get("evidence_strength", "medium"),
+                evidence_data=body.get("evidence_data") or {},
+                source=body.get("source", "manual"),
+                created_by=body.get("created_by"),
+                confidence=float(body.get("confidence", 70)),
+                tags=body.get("tags") or [],
+            )
+            self._json(201, {"insight": insight.to_dict()})
+        except Exception as exc:
+            self._error(500, f"failed to create insight: {exc}")
+
+    def _delete_insight(self, insight_id: int) -> None:
+        """DELETE /api/insights/<id>"""
+        tm = self._insights_manager()
+        if tm is None:
+            return self._error(503, "trading memory not configured")
+        ok = tm.delete(insight_id)
+        if not ok:
+            return self._error(404, "insight not found")
+        self._json(200, {"deleted": True})
+
+    def _memory_notes_for_pair(self, pair: str, query: dict) -> None:
+        """GET /api/memory/<pair>?timeframe=H1
+
+        Plain-language memory notes derived from journal_entries +
+        news_event_interactions. Bobby 2026-08-11: "This particular
+        setup has performed poorly during low-volume Asian sessions."
+        """
+        from .trading_memory import build_memory_notes
+        timeframe = (query.get("timeframe") or "H1").upper()
+        try:
+            lookback = max(50, min(int(query.get("lookback") or 200), 500))
+        except (TypeError, ValueError):
+            lookback = 200
+
+        repo = getattr(_STATE, "repository", None)
+        conn_factory = None
+        if repo is not None and hasattr(repo, "_get_connection"):
+            conn_factory = repo._get_connection
+
+        try:
+            notes = build_memory_notes(
+                pair=pair, timeframe=timeframe, lookback=lookback,
+                conn_factory=conn_factory,
+            )
+        except Exception as exc:
+            logging.debug("memory notes failed for %s: %s", pair, exc)
+            notes = []
+        self._json(200, {
+            "pair": pair,
+            "timeframe": timeframe,
+            "notes": notes,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    def _record_zone(self, body: dict) -> None:
+        """POST /api/insights/record-zone — record a zone interaction."""
+        tm = self._insights_manager()
+        if tm is None:
+            return self._json(200, {"recorded": False})
+        symbol = body.get("symbol", "")
+        if not symbol:
+            return self._error(400, "symbol is required")
+        try:
+            insight = tm.record_zone_interaction(
+                symbol=symbol,
+                zone_price=float(body.get("zone_price", 0)),
+                zone_type=body.get("zone_type", "unknown"),
+                reaction=body.get("reaction", "rejection"),
+                price_change_pct=float(body.get("price_change_pct", 0)),
+                timeframe=body.get("timeframe", "H1"),
+            )
+            self._json(200, {
+                "recorded": True,
+                "promoted": insight is not None,
+                "insight": insight.to_dict() if insight else None,
+            })
+        except Exception as exc:
+            self._error(500, f"failed to record zone: {exc}")
+
+    def _record_news_impact(self, body: dict) -> None:
+        """POST /api/insights/record-news — record a news event impact."""
+        tm = self._insights_manager()
+        if tm is None:
+            return self._json(200, {"recorded": False})
+        symbol = body.get("symbol", "")
+        if not symbol:
+            return self._error(400, "symbol is required")
+        try:
+            insight = tm.record_news_impact(
+                symbol=symbol,
+                event_name=body.get("event_name", "Unknown"),
+                event_impact=body.get("event_impact", "unknown"),
+                price_before=float(body.get("price_before", 0)),
+                price_after_5m=body.get("price_after_5m"),
+                price_after_30m=body.get("price_after_30m"),
+                currency=body.get("currency", "USD"),
+            )
+            self._json(200, {
+                "recorded": True,
+                "promoted": insight is not None,
+                "insight": insight.to_dict() if insight else None,
+            })
+        except Exception as exc:
+            self._error(500, f"failed to record news impact: {exc}")
+
+    # ── Command Center handler ──────────────────────────────────────────
+
+    def _command_center_best(self, query: dict) -> None:
+        """GET /api/command-center/best — best opportunity + consensus + memories + vetoes.
+        
+        Assembles the full "What to trade / Why this trade" payload:
+        - Best opportunity (highest-scoring active setup)
+        - Multi-agent consensus votes
+        - Relevant trading memories (institutional memory)
+        - Upcoming news veto risks
+        - Current session state
+        """
+        try:
+            from .autonomy.sessions.session_engine import get_current_session
+            from .intelligence_consensus import build_agent_consensus, build_debate
+
+            # Get current session
+            session_info = get_current_session()
+            session_name = getattr(session_info, "name", "unknown")
+            session_start = getattr(session_info, "start_hour", None)
+            session_end = getattr(session_info, "end_hour", None)
+
+            # Get best opportunity
+            best = None
+            best_analysis = None
+            repo = _STATE.repository
+            if hasattr(repo, '_get_connection'):
+                try:
+                    with repo._get_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                "SELECT setup_id, symbol, direction, score, state, "
+                                "entry_low, entry_high, stop_loss, tp1, tp2, tp3, "
+                                "market_regime, session, data_quality, "
+                                "technical_reasons, macro_reasons, risk_reasons, "
+                                "news_state, expected_rr_tp1, expected_rr_tp2, expected_rr_tp3, "
+                                "score_components, detected_at "
+                                "FROM autonomy_setups WHERE state NOT IN ('closed','invalidated','expired','cancelled') "
+                                "AND score > 50 "
+                                "ORDER BY score DESC LIMIT 1"
+                            )
+                            best = cur.fetchone()
+                except Exception:
+                    pass
+
+            # Build consensus from the best opportunity if found
+            consensus = None
+            debate = None
+            if best and best.get("symbol"):
+                try:
+                    analysis = self._compute_analysis(str(best["symbol"]))
+                    if analysis:
+                        best_analysis = analysis
+                        consensus = build_agent_consensus(analysis)
+                        debate = build_debate(consensus)
+                except Exception:
+                    pass
+
+            # Get relevant memories
+            memories = []
+            tm = self._insights_manager()
+            if tm and best and best.get("symbol"):
+                insights = tm.get_context_for_setup(
+                    symbol=str(best["symbol"]),
+                    direction=str(best.get("direction", "BUY")),
+                    session=session_name,
+                    regime=str(best.get("market_regime", "")),
+                    limit=8,
+                )
+                memories = [i.to_dict() for i in insights]
+
+            # Get upcoming news veto risks
+            news_vetoes = []
+            try:
+                events_result = self._calendar_events({})
+                # self._calendar_events writes response directly; read from cache instead
+                if _STATE.news_filter:
+                    all_events = getattr(_STATE.news_filter, '_events', []) or []
+                    for ev in all_events[:5]:
+                        minutes = getattr(ev, "minutes_until", None)
+                        if minutes is not None and minutes < 180:
+                            news_vetoes.append({
+                                "title": getattr(ev, "title", ""),
+                                "currency": getattr(ev, "currency", ""),
+                                "impact": getattr(ev, "impact", ""),
+                                "minutes_until": minutes,
+                            })
+            except Exception:
+                pass
+
+            # Get active setup count
+            active_count = 0
+            if hasattr(repo, '_get_connection'):
+                try:
+                    with repo._get_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                "SELECT COUNT(*) as cnt FROM autonomy_setups "
+                                "WHERE state NOT IN ('closed','invalidated','expired','cancelled')"
+                            )
+                            row = cur.fetchone()
+                            active_count = row["cnt"] if row else 0
+                except Exception:
+                    pass
+
+            self._json(200, {
+                "session": {
+                    "name": session_name,
+                    "start_hour": session_start,
+                    "end_hour": session_end,
+                },
+                "best_opportunity": best,
+                "consensus": consensus,
+                "debate": debate,
+                "memories": memories,
+                "news_vetoes": news_vetoes,
+                "active_setups": active_count,
+            })
+        except Exception as exc:
+            logging.exception("command-center/best failed")
+            self._error(500, f"command center unavailable: {exc}")
 
     def _request_scan(self, body: dict) -> None:
         path = _STATE.scan_request_path

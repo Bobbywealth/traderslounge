@@ -6,6 +6,7 @@ import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import LandingPage from './pages/LandingPage';
 import Dashboard from './pages/Dashboard';
+import CommandCenter from './pages/CommandCenter';
 import TradingTable from './pages/TradingTable';
 import TradingView from './pages/TradingView';
 import AdminDashboard from './pages/AdminDashboard';
@@ -130,8 +131,9 @@ const AppContent: React.FC = () => {
           }`}>
             <div className={isTradingWorkspace ? 'h-full min-w-0 min-h-0 overflow-hidden p-0' : 'p-6'}>
               <Routes>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/dashboard" element={<Navigate to="/" replace />} />
+                <Route path="/" element={<CommandCenter />} />
+                <Route path="/command-center" element={<Navigate to="/" replace />} />
+                <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/scanner" element={<LiveScanner />} />
                 <Route path="/signals" element={<Signals />} />
                 <Route path="/debate" element={<Debate />} />
