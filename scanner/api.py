@@ -1,5 +1,44 @@
 """HTTP API — stdlib `http.server`, no external deps.
 
+NOTE — Roadmap #8 (planned split, in progress)
+=============================================
+This module is ~3300 lines and growing.  Bobby's roadmap calls for splitting
+it into per-domain modules so adding endpoints and reasoning about the
+routing surface stays tractable.  The target layout is:
+
+    scanner/api/__init__.py      - public re-exports
+    scanner/api/_shared.py       - _json, _error, _cache_get, _cache_set
+    scanner/api/_app.py          - ApiState, _STATE, _ApiHandler,
+                                   _route / _route_post dispatchers,
+                                   make_server, set_state
+    scanner/api/_admin.py        - /health, /ready, /metrics, /api/config
+    scanner/api/_auth.py         - /api/auth/{register,login,refresh,logout,me}
+    scanner/api/_calendar.py     - /api/calendar/*, /api/ai/analyze,
+                                   /api/ai/chart-analyze
+    scanner/api/_analysis.py     - /api/analysis, /api/similarity,
+                                   /api/backtest/v2, /api/candles,
+                                   /api/harmonics, /api/adr
+    scanner/api/_debate.py       - /api/debate
+    scanner/api/_signals.py      - /api/signals, /api/published-signals,
+                                   /api/positions
+    scanner/api/_validation.py   - /api/validation/report,
+                                   /api/performance/stats
+    scanner/api/_autonomy.py     - /api/autonomy/*, /api/insights/*,
+                                   /api/memory/*, /api/command-center/best,
+                                   /api/dashboard-snapshot,
+                                   /api/kill-switch, /api/journal/*
+    scanner/api/_alerts.py       - /api/alerts/*, /api/alerts/push/*,
+                                   /api/telegram/*
+
+This commit lands the first extraction: scanner/similarity_endpoint.py now
+owns the per-dimension breakdown logic and the free ``build_similarity_response``
+helper.  ``_similarity`` in this file is now a thin route adapter.
+
+The remaining extractions should be done as a sequence of small PRs, one
+domain at a time, with the test suite and a deploy smoke run between each
+step.  Mechanical splitting risks losing the column-0 vs column-4 distinction
+between module-level helpers and class methods (see commit history).
+
 Exposes JSON endpoints over the SignalRepository:
 
   GET  /api/health              → { status: "ok", db_signals: N, pairs: [...] }
@@ -57,6 +96,7 @@ from .published_signals import build_published_signal
 from .institutional_analysis import enrich_with_plan
 from .historical_similarity import find_similar_setups
 from .analysis_history import resolved_similarity_history
+from .similarity_endpoint import build_similarity_response
 from .decision_quality import attach_decision_quality
 from .alert_preferences import (
     AlertEvent,
@@ -1349,12 +1389,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
     def _similarity(self, query: dict) -> None:
         """Historical-analogue similarity for the current setup.
 
-        Reads the same V2 analysis used by /api/analysis, joins it against
-        resolved forecast history (analysis_forecasts with status=RESOLVED
-        and an outcome), and ranks matches via
-        scanner.historical_similarity.find_similar_setups. Surfaced on the
-        frontend as 'HISTORICAL MATCH' with win rate, sample size,
-        average outcome, and per-session / per-regime breakdowns.
+        Body of the logic moved to scanner.similarity_endpoint so this
+        method stays a thin route adapter (Roadmap #8 — split api.py).
         """
         pair = str(query.get("pair") or query.get("symbol") or "").upper()
         if not pair:
@@ -1375,57 +1411,16 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 return self._error(503, "analysis unavailable for similarity")
             analysis = stale
 
-        try:
-            history = resolved_similarity_history(_STATE.repository, limit=5000)
-        except Exception:
-            log.exception("similarity history lookup failed")
-            history = []
-
-        try:
-            result = find_similar_setups(
-                analysis,
-                history,
-                limit=limit,
-                minimum_similarity=minimum_similarity,
-            )
-        except Exception:
-            log.exception("similarity ranking failed")
+        result = build_similarity_response(
+            pair=pair,
+            timeframe=tf_raw or None,
+            limit=limit,
+            minimum_similarity=minimum_similarity,
+            repository=_STATE.repository,
+            analysis_or_stale=analysis,
+        )
+        if result.get("status") == "ERROR":
             return self._error(500, "similarity ranking failed")
-
-        # Per-session and per-regime breakdown so the UI can show
-        # "During NY: 72.4% win" / "When DXY confirms: 74.6%".
-        matches = list(result.get("matches") or [])
-        for dimension_key in ("session", "market_regime", "volatility_regime"):
-            buckets: dict[str, dict[str, int]] = {}
-            for match in matches:
-                meta = (
-                    match.get("metadata")
-                    if isinstance(match.get("metadata"), dict)
-                    else {}
-                )
-                value = str(meta.get(dimension_key) or "unknown")
-                bucket = buckets.setdefault(value, {"wins": 0, "losses": 0, "samples": 0})
-                bucket["samples"] += 1
-                if str(match.get("outcome") or "").upper() in {"WIN", "TP", "TARGET"}:
-                    bucket["wins"] += 1
-                elif str(match.get("outcome") or "").upper() in {"LOSS", "STOP", "INVALIDATED"}:
-                    bucket["losses"] += 1
-            breakdown = []
-            for value, counts in sorted(buckets.items()):
-                total = counts["samples"]
-                win_rate = (counts["wins"] / total) if total else None
-                breakdown.append({
-                    "value": value,
-                    "samples": total,
-                    "wins": counts["wins"],
-                    "losses": counts["losses"],
-                    "win_rate_pct": round(win_rate * 100, 1) if win_rate is not None else None,
-                })
-            result[f"breakdown_by_{dimension_key}"] = breakdown
-
-        result["pair"] = pair
-        result["timeframe"] = tf_raw or analysis.get("data_quality", {}).get("primary_timeframe", "default")
-        result["generated_at"] = int(time.time())
         self._cache_set(cache_key, result, ttl=30.0, stale_ttl=120.0)
         return self._json(200, result)
 
