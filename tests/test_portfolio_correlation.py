@@ -119,5 +119,86 @@ class TestAnalyzePortfolioRisk(unittest.TestCase):
         self.assertEqual(d["setup_count"], 1)
 
 
+
+
+class TestSetupExposuresFromLifecycle(unittest.TestCase):
+    def test_none_lifecycle_returns_empty(self):
+        from scanner.portfolio_correlation import setup_exposures_from_lifecycle
+        self.assertEqual(setup_exposures_from_lifecycle(None), [])
+
+    def test_lifecycle_without_method_returns_empty(self):
+        from scanner.portfolio_correlation import setup_exposures_from_lifecycle
+        self.assertEqual(setup_exposures_from_lifecycle(object()), [])
+
+    def test_translates_active_setups(self):
+        from scanner.portfolio_correlation import setup_exposures_from_lifecycle
+
+        class FakeRecord:
+            def __init__(self, sym, d, ac="", ts=1000000000.0):
+                self.symbol = sym
+                self.direction = d
+                self.asset_class = ac
+                self.detected_at = ts
+
+        class FakeLifecycle:
+            def __init__(self, rows):
+                self._rows = rows
+            def get_active_setups(self):
+                return self._rows
+
+        rows = [
+            FakeRecord("EURUSD", "BUY", "forex", 1000000000.0),
+            FakeRecord("GBPUSD", "BUY", "forex", 1000000900.0),
+        ]
+        out = setup_exposures_from_lifecycle(
+            FakeLifecycle(rows), default_risk_pct=1.0, now_ts=1000003600.0,
+        )
+        self.assertEqual(len(out), 2)
+        self.assertEqual(out[0].symbol, "EURUSD")
+        self.assertEqual(out[0].size_r_pct, 1.0)
+        self.assertAlmostEqual(out[0].age_hours, 1.0, places=3)
+        self.assertAlmostEqual(out[1].age_hours, 0.75, places=3)  # 900s ago
+
+    def test_filters_neutral_direction(self):
+        from scanner.portfolio_correlation import setup_exposures_from_lifecycle
+
+        class FakeRecord:
+            symbol = "XAUUSD"
+            direction = "NEUTRAL"
+            asset_class = "metals"
+            detected_at = 1000000000.0
+        class FakeLifecycle:
+            def get_active_setups(self):
+                return [FakeRecord()]
+        self.assertEqual(setup_exposures_from_lifecycle(FakeLifecycle()), [])
+
+    def test_swallows_exceptions(self):
+        from scanner.portfolio_correlation import setup_exposures_from_lifecycle
+
+        class BrokenLifecycle:
+            def get_active_setups(self):
+                raise RuntimeError("db down")
+        self.assertEqual(setup_exposures_from_lifecycle(BrokenLifecycle()), [])
+
+    def test_integration_with_analyze(self):
+        from scanner.portfolio_correlation import setup_exposures_from_lifecycle, analyze_portfolio_risk
+
+        class FakeRecord:
+            def __init__(self, sym, d):
+                self.symbol = sym
+                self.direction = d
+                self.asset_class = ""
+                self.detected_at = 1000000000.0
+        class FakeLifecycle:
+            def get_active_setups(self):
+                return [FakeRecord("EURUSD", "BUY"), FakeRecord("GBPUSD", "BUY"),
+                        FakeRecord("AUDUSD", "BUY"), FakeRecord("XAUUSD", "BUY")]
+        setups = setup_exposures_from_lifecycle(FakeLifecycle())
+        report = analyze_portfolio_risk(setups, heat_limit_pct=6.0)
+        # 4 USD-positive longs × 1% = 4% USD-short
+        self.assertEqual(report.exposure_by_currency["USD"], -4.0)
+        self.assertEqual(report.open_risk_pct, 4.0)
+        # Under the 6% limit so no warning
+        self.assertFalse(report.warnings)
 if __name__ == "__main__":
     unittest.main()

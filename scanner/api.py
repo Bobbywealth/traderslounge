@@ -97,6 +97,10 @@ from .institutional_analysis import enrich_with_plan
 from .historical_similarity import find_similar_setups
 from .analysis_history import resolved_similarity_history
 from .similarity_endpoint import build_similarity_response
+from .portfolio_correlation import (
+    analyze_portfolio_risk,
+    setup_exposures_from_lifecycle,
+)
 from .decision_quality import attach_decision_quality
 from .alert_preferences import (
     AlertEvent,
@@ -553,7 +557,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
             protected_paths = ['/api/signals', '/api/positions', '/api/journal', '/api/alerts',
                                '/api/alerts/preferences', '/api/alerts/feed', '/api/alerts/activity',
                                '/api/autonomy/setups', '/api/autonomy/journal',
-                               '/api/autonomy/activity']
+                               '/api/autonomy/activity',
+                               '/api/portfolio/risk']
             if path in protected_paths or path.startswith("/api/signals/"):
                 result = self._require_auth(self.headers)
                 if isinstance(result, tuple):
@@ -639,6 +644,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 return self._autonomy_alerts(query)
             if path == "/api/autonomy/activity":
                 return self._autonomy_activity(query)
+            if path == "/api/portfolio/risk":
+                return self._portfolio_risk(query)
             # Trading Memory endpoints
             if path == "/api/insights":
                 return self._list_insights(query)
@@ -2584,6 +2591,75 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._json(200, {'entries': entries, 'total': len(entries), 'now': time.time()})
         except Exception as exc:
             return self._error(500, f'autonomy activity unavailable: {exc}')
+
+    def _portfolio_risk(self, query: dict) -> None:
+        """Portfolio Risk Brain: USD exposure, directional clusters, heat.
+
+        Reads active setups from the autonomy loop's SetupLifecycle,
+        runs them through scanner.portfolio_correlation.analyze_portfolio_risk,
+        and returns the report.  Read-only reporting; the recommendation
+        field tells the trader (and eventually the autonomy loop) what
+        size a NEW setup should take to keep heat at the limit.
+        """
+        try:
+            heat_limit_pct = max(
+                0.1,
+                min(20.0, float(query.get("heat_limit_pct") or 6.0)),
+            )
+            default_risk_pct = max(
+                0.05,
+                min(5.0, float(query.get("default_risk_pct") or 1.0)),
+            )
+        except (TypeError, ValueError):
+            return self._error(400, "heat_limit_pct / default_risk_pct must be numeric")
+
+        cache_key = (
+            f"portfolio_risk:{heat_limit_pct}:{default_risk_pct}"
+        )
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return self._json(200, dict(cached))
+
+        lifecycle = _STATE.autonomy_setup_lifecycle
+        setups = setup_exposures_from_lifecycle(
+            lifecycle, default_risk_pct=default_risk_pct,
+        )
+
+        # Weekly realised P&L — best-effort pull from the autonomy journal.
+        weekly_pnl = 0.0
+        journal = _STATE.autonomy_journal
+        try:
+            if journal is not None and hasattr(journal, "get_stats"):
+                stats = journal.get_stats() or {}
+                weekly_pnl = float(
+                    stats.get("weekly_pnl_pct")
+                    or stats.get("weekly_pnl")
+                    or 0.0
+                )
+        except Exception:
+            log.exception("portfolio weekly_pnl lookup failed")
+            weekly_pnl = 0.0
+
+        try:
+            report = analyze_portfolio_risk(
+                setups,
+                weekly_realized_pnl_pct=weekly_pnl,
+                heat_limit_pct=heat_limit_pct,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.exception("portfolio risk analysis failed")
+            return self._error(500, f"portfolio risk failed: {exc}")
+
+        payload = report.to_dict()
+        payload["heat_limit_pct"] = heat_limit_pct
+        payload["default_risk_pct"] = default_risk_pct
+        payload["weekly_realized_pnl_pct"] = weekly_pnl
+        payload["generated_at"] = int(time.time())
+
+        # 15s fresh / 30s stale — portfolio risk changes whenever the
+        # autonomy loop creates a new setup, so a short window is fine.
+        self._cache_set(cache_key, payload, ttl=15.0, stale_ttl=30.0)
+        return self._json(200, payload)
 
     def _kill_status(self) -> None:
         ks = _STATE.kill_switch

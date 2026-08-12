@@ -243,3 +243,53 @@ def analyze_portfolio_risk(
         )
         report.recommended_size_pct = max(0.0, heat_limit_pct - total_risk)
     return report
+
+
+def setup_exposures_from_lifecycle(
+    lifecycle: Any,
+    default_risk_pct: float = 1.0,
+    now_ts: Optional[float] = None,
+) -> list[SetupExposure]:
+    """Translate the autonomy loop's active setups into SetupExposure rows.
+
+    lifecycle is a SetupLifecycle instance; get_active_setups()
+    returns the list of SetupRecord rows.  Each row carries symbol,
+    direction, asset_class, and a detected_at timestamp; per-trade
+    risk is approximated by default_risk_pct because SetupRecord
+    doesn't carry equity-denominated size (the canonical per-trade cap
+    in scanner.autonomy.risk.risk_manager is also 1.0%).
+
+    This helper is intentionally tolerant: missing fields default to
+    safe values so a partially-populated lifecycle never crashes the
+    portfolio endpoint.
+    """
+    if lifecycle is None or not hasattr(lifecycle, "get_active_setups"):
+        return []
+    try:
+        records = lifecycle.get_active_setups() or []
+    except Exception:
+        return []
+
+    now = float(now_ts) if now_ts is not None else __import__("time").time()
+    out: list[SetupExposure] = []
+    for r in records:
+        try:
+            symbol = str(getattr(r, "symbol", "") or "").upper()
+            if not symbol:
+                continue
+            direction = str(getattr(r, "direction", "") or "BUY").upper()
+            if direction not in {"BUY", "SELL"}:
+                continue
+            asset_class = str(getattr(r, "asset_class", "") or "")
+            detected_at = float(getattr(r, "detected_at", now) or now)
+            age_hours = max(0.0, (now - detected_at) / 3600.0)
+            out.append(SetupExposure(
+                symbol=symbol,
+                direction=direction,
+                asset_class=asset_class,
+                size_r_pct=float(default_risk_pct),
+                age_hours=age_hours,
+            ))
+        except Exception:
+            continue
+    return out
