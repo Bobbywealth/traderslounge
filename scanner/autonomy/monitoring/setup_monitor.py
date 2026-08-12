@@ -101,6 +101,7 @@ class SetupMonitor:
                     setup_id, SetupState.INVALIDATED,
                     reason=f'Price {current_price} below invalidation {setup.invalidation_price}'
                 )
+                self._resolve_outcome(setup, current_price, 'invalidation')
                 alert = SetupAlert(
                     setup_id=setup_id,
                     symbol=setup.symbol,
@@ -113,12 +114,13 @@ class SetupMonitor:
                 )
                 self._emit_alert(alert)
                 return alert
-            
+
             if setup.direction == 'SELL' and current_price > setup.invalidation_price:
                 self._setup_lifecycle.transition(
                     setup_id, SetupState.INVALIDATED,
                     reason=f'Price {current_price} above invalidation {setup.invalidation_price}'
                 )
+                self._resolve_outcome(setup, current_price, 'invalidation')
                 alert = SetupAlert(
                     setup_id=setup_id,
                     symbol=setup.symbol,
@@ -131,13 +133,66 @@ class SetupMonitor:
                 )
                 self._emit_alert(alert)
                 return alert
-        
+
+        # Check for take-profit hits (TP1/TP2/TP3) — sequential. BUY setups
+        # require price >= TPn; SELL setups require price <= TPn. We only
+        # advance one TP level per cycle (the highest level actually crossed
+        # since the previous tick), and we cap at the next legal transition
+        # from the current setup state so we never fire an "Invalid
+        # transition: tp1 -> tp2" warning when TP2 is only reachable after
+        # the next DETECTED/WATCH tick. This is the input to outcome
+        # tracking so every TP/expiry/invalidation produces a concrete
+        # win/loss entry in journal_entries (Bobby 2026-08-11).
+        ordered_targets = (
+            (setup.tp1, SetupState.TP1),
+            (setup.tp2, SetupState.TP2),
+            (setup.tp3, SetupState.TP3),
+        )
+        for level, target_state in ordered_targets:
+            if level <= 0:
+                continue
+            hit = (
+                (setup.direction == 'BUY' and current_price >= level)
+                or (setup.direction == 'SELL' and current_price <= level)
+            )
+            if not hit:
+                continue
+            # Respect the lifecycle: TP1 only fires from POSITION_OPEN;
+            # TP2 only from TP1; TP3 only from TP2. If we're not yet at
+            # the right entry state, skip — the next scan cycle will
+            # catch it once the setup has been advanced.
+            required_from = {
+                SetupState.TP1: SetupState.POSITION_OPEN,
+                SetupState.TP2: SetupState.TP1,
+                SetupState.TP3: SetupState.TP2,
+            }[target_state]
+            if setup.state != required_from:
+                continue
+            self._setup_lifecycle.transition(
+                setup_id, target_state,
+                reason=f'Price {current_price} crossed {target_state.value} {level}'
+            )
+            self._resolve_outcome(setup, current_price, target_state.value)
+            alert = SetupAlert(
+                setup_id=setup_id,
+                symbol=setup.symbol,
+                alert_type=target_state.value,
+                message=f"{setup.symbol} hit {target_state.value.upper()} at {current_price}",
+                metadata={
+                    'current_price': current_price,
+                    'target': level,
+                },
+            )
+            self._emit_alert(alert)
+            return alert
+
         # Check for expiry
         if setup.expires_at and time.time() > setup.expires_at:
             self._setup_lifecycle.transition(
                 setup_id, SetupState.EXPIRED,
                 reason='Setup expired'
             )
+            self._resolve_outcome(setup, current_price, 'expired')
             alert = SetupAlert(
                 setup_id=setup_id,
                 symbol=setup.symbol,
@@ -147,8 +202,84 @@ class SetupMonitor:
             )
             self._emit_alert(alert)
             return alert
-        
+
         return None
+
+    def _resolve_outcome(self, setup, exit_price: float, exit_reason: str) -> None:
+        """Translate a terminal setup event into a journal outcome entry.
+
+        Computes R-multiple from stop distance, classifies the trade as
+        win / loss / breakeven / expired / invalidated, and forwards the
+        result to the TradingJournal so the durability layer (Postgres
+        journal_entries.outcome) actually has data to surface on the
+        Backtest & Accuracy / Performance pages.
+        """
+        journal = getattr(self, '_journal', None)
+        if journal is None:
+            return
+        entry = journal.get_entry(setup.setup_id)
+        if entry is None:
+            return
+        # Already closed (idempotent for repeat polls after transition).
+        if entry.outcome:
+            return
+
+        risk = max(setup.invalidation_price and abs(setup.stop_loss - setup.invalidation_price) or 0.0, 0.0)
+        # Fallback: derive risk from the setup's stored stop_loss vs entry midpoint.
+        if risk <= 0 and setup.stop_loss > 0 and (setup.entry_low or setup.entry_high):
+            entry_mid = (setup.entry_low + setup.entry_high) / 2 if setup.entry_low and setup.entry_high else setup.entry_low or setup.entry_high
+            if entry_mid > 0:
+                risk = abs(entry_mid - setup.stop_loss)
+        # R-multiple = realized move / risk. Sign is direction-aware so
+        # a SELL win still reads as positive R.
+        if risk > 0 and setup.entry_low and setup.entry_high:
+            entry_mid = (setup.entry_low + setup.entry_high) / 2
+            direction_sign = 1 if setup.direction == 'BUY' else -1
+            r_multiple = (exit_price - entry_mid) * direction_sign / risk
+        else:
+            r_multiple = 0.0
+
+        # Classify for outcome label. Expired / invalidated are non-trades
+        # regardless of r_multiple (the position never existed in paper mode
+        # for this exercise).
+        if exit_reason == 'expired':
+            outcome = 'expired'
+        elif exit_reason in ('invalidated', 'invalidation'):
+            outcome = 'invalidated'
+        elif r_multiple > 0:
+            outcome = 'win'
+        elif r_multiple < 0:
+            outcome = 'loss'
+        else:
+            outcome = 'breakeven'
+
+        journal.record_exit(
+            setup.setup_id,
+            exit_price=exit_price,
+            exit_reason=exit_reason,
+            r_multiple=r_multiple,
+            pnl_usd=0.0,
+            mfe_r=0.0,
+            mae_r=0.0,
+            holding_bars=0,
+        )
+        # record_exit stamps outcome via r_multiple sign; overwrite with our
+        # terminal-aware classification so 'expired' / 'invalidated' aren't
+        # misclassified if exit_price happens to land at the entry line.
+        try:
+            stored = journal._entries.get(setup.setup_id)
+            if stored is not None:
+                stored.outcome = outcome
+        except Exception:
+            log.exception("could not override journal outcome for %s", setup.setup_id)
+        log.info(
+            "outcome resolved: %s %s exit=%.4f r=%.2f outcome=%s",
+            setup.setup_id, exit_reason, exit_price, r_multiple, outcome,
+        )
+
+    def attach_journal(self, journal) -> None:
+        """Inject the TradingJournal so the monitor can record outcomes."""
+        self._journal = journal
     
     def check_all_active(self, price_getter: Callable[[str], float]) -> List[SetupAlert]:
         """Check all active setups and generate alerts."""

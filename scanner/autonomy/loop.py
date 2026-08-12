@@ -88,6 +88,11 @@ class AutonomousLoop:
         self.regime_engine = RegimeEngine()
         self.alert_engine = AlertEngine()
         self.setup_monitor = SetupMonitor(self.setup_lifecycle)
+        # Wire the journal in so terminal state transitions write a
+        # closed_at + outcome + r_multiple row that Trading Memory and
+        # the Performance page can read (Bobby 2026-08-11).
+        if hasattr(self, 'journal') and self.journal is not None:
+            self.setup_monitor.attach_journal(self.journal)
         self.activity_feed = ActivityFeed()
         self._last_correlation_id = ''
         self.journal = TradingJournal()
