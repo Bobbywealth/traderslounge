@@ -2620,14 +2620,18 @@ class _ApiHandler(BaseHTTPRequestHandler):
         if cached is not None:
             return self._json(200, dict(cached))
 
-        lifecycle = _STATE.autonomy_setup_lifecycle
+        # ``autonomy_setup_lifecycle`` and ``autonomy_journal`` may not be
+        # populated in every deploy.  Use getattr so a partial state
+        # never 500s the endpoint — the empty-portfolio case is a
+        # valid response, not an error.
+        lifecycle = getattr(_STATE, "autonomy_setup_lifecycle", None)
         setups = setup_exposures_from_lifecycle(
             lifecycle, default_risk_pct=default_risk_pct,
         )
 
         # Weekly realised P&L — best-effort pull from the autonomy journal.
         weekly_pnl = 0.0
-        journal = _STATE.autonomy_journal
+        journal = getattr(_STATE, "autonomy_journal", None)
         try:
             if journal is not None and hasattr(journal, "get_stats"):
                 stats = journal.get_stats() or {}
