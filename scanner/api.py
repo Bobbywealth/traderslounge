@@ -55,6 +55,8 @@ from .persistence import SignalRepository
 from .trade_planner import build_trade_plan
 from .published_signals import build_published_signal
 from .institutional_analysis import enrich_with_plan
+from .historical_similarity import find_similar_setups
+from .analysis_history import resolved_similarity_history
 from .decision_quality import attach_decision_quality
 from .alert_preferences import (
     AlertEvent,
@@ -540,6 +542,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 return self._debate(query)
             if path == "/api/backtest/v2":
                 return self._backtest_v2(query)
+            if path == "/api/similarity":
+                return self._similarity(query)
             if path == "/api/candles":
                 return self._candles(query)
             if path == "/api/harmonics":
@@ -1341,6 +1345,89 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 "available": False,
                 "reason": f"institutional_modules_error: {exc!r}",
             }
+
+    def _similarity(self, query: dict) -> None:
+        """Historical-analogue similarity for the current setup.
+
+        Reads the same V2 analysis used by /api/analysis, joins it against
+        resolved forecast history (analysis_forecasts with status=RESOLVED
+        and an outcome), and ranks matches via
+        scanner.historical_similarity.find_similar_setups. Surfaced on the
+        frontend as 'HISTORICAL MATCH' with win rate, sample size,
+        average outcome, and per-session / per-regime breakdowns.
+        """
+        pair = str(query.get("pair") or query.get("symbol") or "").upper()
+        if not pair:
+            return self._error(400, "pair is required")
+        tf_raw = str(query.get("timeframe") or "").lower()
+        limit = max(1, min(50, int(query.get("limit") or 10)))
+        minimum_similarity = max(0.0, min(1.0, float(query.get("minimum_similarity") or 0.55)))
+
+        cache_key = f"similarity:{pair}:{tf_raw or 'default'}:{limit}:{minimum_similarity:.2f}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return self._json(200, dict(cached))
+
+        analysis = self._build_analysis_payload(pair, tf_raw)
+        if analysis is None:
+            stale = self._cache_get(f"analysis:{pair}:{tf_raw or 'default'}", allow_stale=True)
+            if stale is None:
+                return self._error(503, "analysis unavailable for similarity")
+            analysis = stale
+
+        try:
+            history = resolved_similarity_history(_STATE.repository, limit=5000)
+        except Exception:
+            log.exception("similarity history lookup failed")
+            history = []
+
+        try:
+            result = find_similar_setups(
+                analysis,
+                history,
+                limit=limit,
+                minimum_similarity=minimum_similarity,
+            )
+        except Exception:
+            log.exception("similarity ranking failed")
+            return self._error(500, "similarity ranking failed")
+
+        # Per-session and per-regime breakdown so the UI can show
+        # "During NY: 72.4% win" / "When DXY confirms: 74.6%".
+        matches = list(result.get("matches") or [])
+        for dimension_key in ("session", "market_regime", "volatility_regime"):
+            buckets: dict[str, dict[str, int]] = {}
+            for match in matches:
+                meta = (
+                    match.get("metadata")
+                    if isinstance(match.get("metadata"), dict)
+                    else {}
+                )
+                value = str(meta.get(dimension_key) or "unknown")
+                bucket = buckets.setdefault(value, {"wins": 0, "losses": 0, "samples": 0})
+                bucket["samples"] += 1
+                if str(match.get("outcome") or "").upper() in {"WIN", "TP", "TARGET"}:
+                    bucket["wins"] += 1
+                elif str(match.get("outcome") or "").upper() in {"LOSS", "STOP", "INVALIDATED"}:
+                    bucket["losses"] += 1
+            breakdown = []
+            for value, counts in sorted(buckets.items()):
+                total = counts["samples"]
+                win_rate = (counts["wins"] / total) if total else None
+                breakdown.append({
+                    "value": value,
+                    "samples": total,
+                    "wins": counts["wins"],
+                    "losses": counts["losses"],
+                    "win_rate_pct": round(win_rate * 100, 1) if win_rate is not None else None,
+                })
+            result[f"breakdown_by_{dimension_key}"] = breakdown
+
+        result["pair"] = pair
+        result["timeframe"] = tf_raw or analysis.get("data_quality", {}).get("primary_timeframe", "default")
+        result["generated_at"] = int(time.time())
+        self._cache_set(cache_key, result, ttl=30.0, stale_ttl=120.0)
+        return self._json(200, result)
 
     def _backtest_v2(self, query: dict) -> None:
         client = _STATE.market_client

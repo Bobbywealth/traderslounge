@@ -411,6 +411,43 @@ export interface CalibrationMetrics {
   reliability_bins: Array<{ lower_bound: number; upper_bound: number; sample_size: number; mean_forecast: number | null; observed_rate: number | null; gap: number | null }>;
 }
 
+export interface SimilarityMatch {
+  id?: string | number;
+  pair?: string;
+  timeframe?: string;
+  direction?: string;
+  outcome?: string;
+  realized_r?: number | null;
+  similarity_pct?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SimilarityBreakdownBucket {
+  value: string;
+  samples: number;
+  wins: number;
+  losses: number;
+  win_rate_pct: number | null;
+}
+
+export interface SimilarityReport {
+  pair: string;
+  timeframe: string;
+  generated_at: number;
+  matches: SimilarityMatch[];
+  sample_size: number;
+  historical_win_rate_pct: number | null;
+  average_realized_r: number | null;
+  reliability_score: number;
+  status: 'USABLE' | 'LIMITED_SAMPLE' | 'NO_HISTORY';
+  is_forecast_probability: boolean;
+  warning: string;
+  query_vector?: Record<string, number>;
+  breakdown_by_session?: SimilarityBreakdownBucket[];
+  breakdown_by_market_regime?: SimilarityBreakdownBucket[];
+  breakdown_by_volatility_regime?: SimilarityBreakdownBucket[];
+}
+
 export interface ValidationReport {
   status: 'CALIBRATED' | 'INSUFFICIENT_DATA';
   pending: number;
@@ -728,6 +765,14 @@ export const bwtsApi = {
   cryptoAnalysis: (pair: string, timeframe?: string) => getCached<CryptoAnalysis>('/api/analysis', timeframe ? { pair, timeframe } : { pair }, 20_000),
   v2Backtest: (pair: string, timeframe = '1h', limit = 10000) => get<V2BacktestReport>('/api/backtest/v2', { pair, timeframe, limit }),
   validationReport: (limit = 5000) => getCached<ValidationReport>('/api/validation/report', { limit }, 30_000),
+  similarity: (pair: string, timeframe?: string, opts?: { limit?: number; minimum_similarity?: number }) =>
+    getCached<SimilarityReport>(
+      '/api/similarity',
+      timeframe
+        ? { pair, timeframe, ...(opts || {}) }
+        : { pair, ...(opts || {}) },
+      30_000,
+    ),
   analyzeSignal: (pair: string, signal: BwtsSignal, analysis?: CryptoAnalysis) => post<{ configured: boolean; analysis: AiSignalAnalysis; calendar: CalendarGateStatus }>('/api/ai/analyze', { pair, signal, analysis }),
   chartAnalyze: (payload: {
     pair: string;

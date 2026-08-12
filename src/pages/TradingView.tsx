@@ -9,6 +9,7 @@ import { EmaSettingsPanel } from '../components/EmaSettingsPanel';
 import type { EmaConfig, CandleData as EmaCandleData } from '../indicators/ema/types';
 import { V2ScoreBadge, MtfBar, TradeLevels, TechnicalAnalysisTable, SetupGuideHero, CandlePatternMarkers, detectCandlePatterns } from '../components/ChartUxEnhancements';
 import MemoryNotes from '../components/MemoryNotes';
+import HistoricalAnalogues from '../components/HistoricalAnalogues';
 import {
   Settings,
   Maximize2,
@@ -3048,6 +3049,7 @@ const TradingView: React.FC = () => {
         {showSetupGuide && cryptoAnalysis && (
           <div className="absolute right-4 top-4 z-30 w-[min(360px,calc(100%-2rem))] space-y-2">
             <MemoryNotes pair={selectedSymbol} timeframe={timeframe} limit={3} />
+            <HistoricalAnalogues pair={selectedSymbol} timeframe={timeframe} topN={5} />
             <SetupGuideHero
               setupReady={setupReady}
               setupHardBlocked={setupHardBlocked}
@@ -3414,6 +3416,7 @@ const TradingView: React.FC = () => {
           {rightPanelTab === 'guide' && showSetupGuide && (
             <div className="text-xs space-y-2">
               <MemoryNotes pair={selectedSymbol} timeframe={timeframe} limit={3} />
+              <HistoricalAnalogues pair={selectedSymbol} timeframe={timeframe} topN={5} />
               <SetupGuideHero
                 setupReady={setupReady}
                 setupHardBlocked={setupHardBlocked}
