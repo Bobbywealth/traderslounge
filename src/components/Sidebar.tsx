@@ -62,6 +62,7 @@ const groups: NavGroup[] = [
       { name: 'Economic News', href: '/calendar', icon: Newspaper },
       { name: 'Backtest & Accuracy', href: '/backtester', icon: FlaskConical },
       { name: 'Calibration', href: '/calibration', icon: Gauge },
+      { name: 'Portfolio Risk', href: '/portfolio', icon: Briefcase },
     ],
   },
   {

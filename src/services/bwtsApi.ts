@@ -430,6 +430,32 @@ export interface SimilarityBreakdownBucket {
   win_rate_pct: number | null;
 }
 
+export interface PortfolioRiskSetupExposure {
+  symbol: string;
+  direction: string;
+  size_r_pct: number;
+  age_hours?: number;
+}
+
+export interface PortfolioRiskReport {
+  heat_pct: number;
+  open_risk_pct: number;
+  daily_risk_pct: number;
+  weekly_drawdown_pct: number;
+  exposure_by_currency: Record<string, number>;
+  directional_clusters: Record<string, { LONG?: number; SHORT?: number }>;
+  correlation_matrix: Record<string, Record<string, number>>;
+  sector_exposure: Record<string, number>;
+  gold_usd_correlation: number;
+  warnings: string[];
+  recommended_size_pct: number | null;
+  setup_count: number;
+  heat_limit_pct: number;
+  default_risk_pct: number;
+  weekly_realized_pnl_pct: number;
+  generated_at: number;
+}
+
 export interface SimilarityReport {
   pair: string;
   timeframe: string;
@@ -765,6 +791,12 @@ export const bwtsApi = {
   cryptoAnalysis: (pair: string, timeframe?: string) => getCached<CryptoAnalysis>('/api/analysis', timeframe ? { pair, timeframe } : { pair }, 20_000),
   v2Backtest: (pair: string, timeframe = '1h', limit = 10000) => get<V2BacktestReport>('/api/backtest/v2', { pair, timeframe, limit }),
   validationReport: (limit = 5000) => getCached<ValidationReport>('/api/validation/report', { limit }, 30_000),
+  portfolioRisk: (opts?: { heat_limit_pct?: number; default_risk_pct?: number }) =>
+    getCached<PortfolioRiskReport>(
+      '/api/portfolio/risk',
+      opts || {},
+      15_000,
+    ),
   similarity: (pair: string, timeframe?: string, opts?: { limit?: number; minimum_similarity?: number }) =>
     getCached<SimilarityReport>(
       '/api/similarity',
