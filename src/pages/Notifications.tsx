@@ -26,10 +26,30 @@ import { bwtsApi, AlertEvent } from '../services/bwtsApi';
 type SeverityFilter = 'all' | 'info' | 'warning' | 'critical';
 type AlertTypeFilter = 'all' | AlertEvent['alert_type'];
 
+// Severity visuals — left rail + low-opacity tint + high-contrast text.
+// The card chrome stays a single neutral; severity is signalled by the
+// left rail + icon badge, not by tinting the whole card, so info /
+// warning / critical remain readable next to each other instead of
+// muddying into a single dark wash (Bobby 2026-08-11 readability fix).
 const SEVERITY_BADGE: Record<AlertEvent['severity'], string> = {
-  info: 'bg-cyan-400/10 text-cyan-300 border-cyan-400/30',
-  warning: 'bg-amber-400/10 text-amber-300 border-amber-400/30',
-  critical: 'bg-rose-400/10 text-rose-300 border-rose-400/30',
+  info: 'bg-sky-500 text-white',
+  warning: 'bg-amber-500 text-slate-900',
+  critical: 'bg-rose-500 text-white',
+};
+
+// Strong outer left rail color per severity — readable on the dark card.
+const SEVERITY_RAIL: Record<AlertEvent['severity'], string> = {
+  info: 'bg-sky-400',
+  warning: 'bg-amber-400',
+  critical: 'bg-rose-400',
+};
+
+// High-contrast body text inside the card. Pinned to cx-text-strong so
+// the body line stays readable on the dark card background.
+const SEVERITY_BODY: Record<AlertEvent['severity'], string> = {
+  info: 'text-sky-100',
+  warning: 'text-amber-100',
+  critical: 'text-rose-100',
 };
 
 const SEVERITY_ICON: Record<AlertEvent['severity'], React.ElementType> = {
@@ -182,10 +202,10 @@ const Notifications: React.FC = () => {
       </header>
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatPill label="Total" value={events.length} Icon={Inbox} tone="text-cyan-300" />
-        <StatPill label="Unread" value={unreadCount} Icon={Bell} tone="text-amber-300" />
-        <StatPill label="Info" value={stats.info} Icon={Zap} tone="text-cyan-300" />
-        <StatPill label="Critical" value={stats.critical} Icon={TrendingDown} tone="text-rose-300" />
+        <StatPill label="Total" value={events.length} Icon={Inbox} tone="bg-sky-500 text-white" />
+        <StatPill label="Unread" value={unreadCount} Icon={Bell} tone="bg-amber-500 text-slate-900" />
+        <StatPill label="Info" value={stats.info} Icon={Zap} tone="bg-sky-500 text-white" />
+        <StatPill label="Critical" value={stats.critical} Icon={TrendingDown} tone="bg-rose-500 text-white" />
       </section>
 
       <section className="rounded-2xl border cx-border cx-bg-card p-4">
@@ -319,38 +339,44 @@ interface NotificationCardProps {
 const NotificationCard: React.FC<NotificationCardProps> = ({ event, isRead, onClick }) => {
   const Icon = SEVERITY_ICON[event.severity] || Bell;
   const badge = SEVERITY_BADGE[event.severity];
+  const rail = SEVERITY_RAIL[event.severity];
+  const bodyColor = SEVERITY_BODY[event.severity];
   return (
     <li>
       <button
         onClick={onClick}
-        className={`group flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition ${
+        className={`group relative flex w-full items-stretch overflow-hidden rounded-xl border text-left transition ${
           isRead
-            ? 'cx-border cx-bg-card opacity-70'
-            : 'border-cyan-400/30 bg-cyan-400/[0.04]'
-        } hover:cx-bg-card-hover`}
+            ? 'cx-border bg-slate-900/40 opacity-70'
+            : 'border-slate-600 bg-slate-800/80'
+        } hover:bg-slate-800`}
         data-testid="notification-card"
         data-severity={event.severity}
       >
-        <span className={`mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border ${badge}`}>
-          <Icon className="h-3.5 w-3.5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className={`inline-flex rounded border px-1.5 py-0.5 font-bold uppercase ${badge}`}>
-              {TYPE_LABEL[event.alert_type] || event.alert_type}
-            </span>
-            {event.pair && (
-              <span className="font-mono font-semibold text-cyan-300">{event.pair}</span>
-            )}
-            {event.timeframe && (
-              <span className="cx-text-faint">{event.timeframe}</span>
-            )}
-            <span className="ml-auto inline-flex items-center gap-1 cx-text-faint">
-              <Clock className="h-3 w-3" /> {timeAgo(event.created_at)}
-            </span>
+        {/* Left severity rail — reads at a glance even when cards stack. */}
+        <span className={`w-1.5 shrink-0 ${rail}`} aria-hidden="true" />
+        <div className="flex min-w-0 flex-1 items-start gap-3 px-3 py-3">
+          <span className={`mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${badge}`}>
+            <Icon className="h-4 w-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className={`inline-flex rounded px-1.5 py-0.5 font-bold uppercase tracking-wide ${badge}`}>
+                {TYPE_LABEL[event.alert_type] || event.alert_type}
+              </span>
+              {event.pair && (
+                <span className="font-mono text-sm font-bold text-cyan-300">{event.pair}</span>
+              )}
+              {event.timeframe && (
+                <span className="text-slate-400">{event.timeframe}</span>
+              )}
+              <span className="ml-auto inline-flex items-center gap-1 text-slate-400">
+                <Clock className="h-3 w-3" /> {timeAgo(event.created_at)}
+              </span>
+            </div>
+            <h3 className="mt-1 text-sm font-semibold text-white">{event.title}</h3>
+            <p className={`mt-1 text-sm leading-relaxed ${bodyColor}`}>{event.body}</p>
           </div>
-          <h3 className="mt-1 text-sm font-semibold text-gray-100">{event.title}</h3>
-          <p className="mt-0.5 text-xs leading-relaxed cx-text-muted">{event.body}</p>
         </div>
       </button>
     </li>
@@ -365,11 +391,13 @@ interface StatPillProps {
 }
 
 const StatPill: React.FC<StatPillProps> = ({ label, value, Icon, tone }) => (
-  <div className="flex items-center gap-2 rounded-xl border cx-border cx-bg-card p-3">
-    <Icon className={`h-4 w-4 ${tone}`} />
+  <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800/80 p-3">
+    <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${tone}`}>
+      <Icon className="h-4 w-4" />
+    </span>
     <div>
-      <div className="text-[10px] uppercase tracking-wide cx-text-faint">{label}</div>
-      <div className={`text-lg font-bold ${tone}`}>{value}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{label}</div>
+      <div className="text-xl font-bold text-white">{value}</div>
     </div>
   </div>
 );
