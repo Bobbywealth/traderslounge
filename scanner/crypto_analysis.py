@@ -649,7 +649,7 @@ def _candle_patterns(candles):
     return patterns
 
 
-def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, primary_timeframe=None):
+def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, primary_timeframe=None, learned_weights_lookup=None):
     """Return a capped 100-point crypto analysis dictionary.
 
     Insufficient or malformed data produces a neutral, explicitly degraded
@@ -967,7 +967,32 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         indicators.update({"benchmark_correlation": None, "relative_return": None})
 
     scores = {key: int(_clamp(_num(value), 0, CAPS[key])) for key, value in scores.items()}
-    total = sum(scores.values())
+
+    # Apply regime modifiers (#5) + learned weights (#2) if a lookup is
+    # supplied.  Roadmap #5 ships as heuristic defaults; #2 is wired in
+    # but no-op until the autonomy loop accumulates enough resolved
+    # outcomes (the writes only started after c7c116d).
+    try:
+        from .score_modifiers import apply_score_modifiers
+        scores, total, applied_modifiers = apply_score_modifiers(
+            scores=scores,
+            analysis={
+                "pair": getattr(snapshot, "pair", None),
+                "primary_timeframe": primary_name,
+                "data_quality": quality,
+                "market_context": market_context,
+                "trade_timing": trade_timing,
+                "session": session_name,
+                "volatility": (market_context.get("regime") or {}).get("volatility"),
+                "market_regime": (market_context.get("regime") or {}).get("state"),
+                "news_state": news_state,
+            },
+            learned_weights_lookup=learned_weights_lookup,
+        )
+    except Exception:  # noqa: BLE001 — never let modifier failures break analysis.
+        # Preserve the original scores + total if anything goes wrong.
+        total = sum(scores.values())
+        applied_modifiers = None
     quality = {"primary_timeframe": primary_name, "bars": len(bars), "closed_bar_time": getattr(bars[-1], "time", None) if bars else None, "reference_price": price, "reference_price_time": reference_time, "timeframes_available": [x for x, v in frames.items() if v], "issues": issues, "status": "good" if not issues else "limited" if bars else "insufficient",
                # True when the candles support a decision — i.e. nothing
                # structural is wrong. Missing volume alone does not clear this.
@@ -1214,7 +1239,8 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
             "categories_total": 9,
             "missing_categories": missing_categories,
             "stale_categories": stale_categories,
-            "data_freshness_seconds": data_freshness_seconds}
+            "data_freshness_seconds": data_freshness_seconds,
+            "applied_modifiers": applied_modifiers}
     analysis_result["institutional_analysis"] = build_technical_assessment(
         bars=bars,
         frames=frames,
