@@ -44,6 +44,7 @@ const groups: NavGroup[] = [
     items: [
       { name: 'Dashboard', href: '/', icon: LayoutDashboard },
       { name: 'Signals', href: '/signals', icon: Zap },
+      { name: 'Hot Scanner', href: '/scanner', icon: Activity },
       { name: 'Chart', href: '/tradingview', icon: BarChart3 },
     ],
   },
@@ -90,7 +91,6 @@ export const botNavigationItems: NavItem[] = [
  * for the bot strategy, but the nav no longer exposes them.
  */
 export const foldedNavigationItems: NavItem[] = [
-  { name: 'Hot Scanner', href: '/scanner', icon: Activity },
   { name: 'Market Analysis', href: '/analysis', icon: Search },
   { name: 'Full Analysis', href: '/tradingview?symbol=BTCUSD&panel=full', icon: ArrowLeftRight },
 ];
