@@ -759,6 +759,15 @@ export const bwtsApi = {
     get<{ insights: TradingInsight[]; count: number }>('/api/insights', opts as any),
   insightsContext: (pair: string, opts?: { direction?: string; session?: string; regime?: string }) =>
     getCached<{ insights: TradingInsight[]; count: number }>('/api/insights/context', { pair, ...opts }, 30_000),
+  // Trading Memory — derived notes (zone rejections, news impacts, setup
+  // patterns). Bobby 2026-08-11: "make the system feel genuinely intelligent."
+  memory: {
+    getForPair: (pair: string, timeframe: string = 'H1') =>
+      get<{ pair: string; timeframe: string; notes: MemoryNote[]; generated_at: string }>(
+        `/api/memory/${encodeURIComponent(pair.toUpperCase())}`,
+        { timeframe },
+      ),
+  },
   createInsight: (insight: { category: string; symbol?: string; observation: string; tags?: string[]; confidence?: number }) =>
     post<{ insight: TradingInsight }>('/api/insights', insight),
   deleteInsight: (id: number) =>
@@ -1042,6 +1051,15 @@ export interface TradingInsight {
   confidence: number;
   tags: string[];
   relevance_score?: number;
+}
+
+// Trading Memory — plain-language notes returned by /api/memory/<pair>.
+// Built from journal_entries + news_event_interactions (Bobby 2026-08-11).
+export interface MemoryNote {
+  category: 'zone_rejection' | 'news_impact' | 'session_pattern';
+  note: string;
+  confidence: 'high' | 'med' | 'low';
+  evidence_n: number;
 }
 
 export interface CommandCenterData {
