@@ -22,6 +22,7 @@ import Positions from './pages/Positions';
 import Journal from './pages/Journal';
 import Backtester from './pages/Backtester';
 import Performance from './pages/Performance';
+import Calibration from './pages/Calibration';
 import Settings from './pages/Settings';
 import TradingDesk from './pages/TradingDesk';
 import AIAssistant from './components/AIAssistant';
@@ -145,6 +146,7 @@ const AppContent: React.FC = () => {
                 <Route path="/journal" element={<Journal />} />
                 <Route path="/backtester" element={<Backtester />} />
                 <Route path="/performance" element={<Performance />} />
+                <Route path="/calibration" element={<Calibration />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/trading-desk" element={<TradingDesk />} />
                 <Route path="/trades" element={<TradingTable />} />

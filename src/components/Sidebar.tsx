@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import ConfluenceXLogo from './ConfluenceXLogo';
 import {
   Activity, BarChart3, Bell, BookOpen, ChevronLeft, ChevronRight, X,
-  FlaskConical, LayoutDashboard, LineChart, Newspaper, Settings as SettingsIcon, Zap, Search,
+  FlaskConical, Gauge, LayoutDashboard, LineChart, Newspaper, Settings as SettingsIcon, Zap, Search,
   Briefcase, History, ArrowLeftRight, Bot, Brain, Target,
 } from 'lucide-react';
 
@@ -61,6 +61,7 @@ const groups: NavGroup[] = [
     items: [
       { name: 'Economic News', href: '/calendar', icon: Newspaper },
       { name: 'Backtest & Accuracy', href: '/backtester', icon: FlaskConical },
+      { name: 'Calibration', href: '/calibration', icon: Gauge },
     ],
   },
   {
