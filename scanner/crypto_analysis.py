@@ -1153,11 +1153,58 @@ def analyze_crypto(snapshot, benchmark_candles=None, primary_candles=None, prima
         a = indicators.get("atr") or (price*.02)
         stop = price-sign*2*a if sign else None
     zones["setup_zones"] = _build_setup_zones(price=price, atr_value=indicators.get("atr"), zones=zones, indicators=indicators, direction=direction, market_context=market_context, trade_timing=trade_timing)
-    analysis_result = {"version": VERSION, "asset_class": "crypto", "pair": getattr(snapshot, "pair", None), "direction": direction,
-            "total_score": int(_clamp(total, 0, 100)), "category_breakdown": scores, "data_quality": quality,
+    # Determine correct asset class from pair name
+    from .multi_source import get_asset_class
+    _pair_name = getattr(snapshot, "pair", None) or ""
+    _asset_class_raw = get_asset_class(_pair_name) if _pair_name else "crypto"
+    # Normalize to user-friendly labels
+    _ASSET_LABELS = {
+        "cryptocurrency": "crypto",
+        "forex": "forex",
+        "forex_jpy": "forex",
+        "metals": "metals",
+        "equity": "equity",
+    }
+    _asset_class = _ASSET_LABELS.get(_asset_class_raw, "crypto")
+
+    # Asset-specific risk warnings
+    _risk_warnings = {
+        "crypto": "Crypto can gap and liquidity can thin; use position sizing and hard stops.",
+        "forex": "Forex carries overnight swap risk; watch for central bank surprises and news events.",
+        "metals": "Gold and silver can whipsaw around CPI/NFP releases; size risk from the published stop.",
+        "equity": "Equities can gap on earnings; use position sizing appropriate for the holding period.",
+    }
+
+    # Forming score: when direction is NEUTRAL, still show a meaningful score
+    # based on raw bias magnitude and technical indicators. This prevents the
+    # UI and Telegram from showing 0 for setups that are building.
+    if direction == "NEUTRAL" and bars:
+        # Bias strength as a percentage (0-100)
+        bias_strength = abs(raw_bias) * 100
+        # Count how many technical indicators are firing positively
+        tech_bonus = 0
+        if indicators.get("ema_stack_aligned"):
+            tech_bonus += 10
+        if indicators.get("golden_cross"):
+            tech_bonus += 8
+        if indicators.get("supertrend", {}).get("aligned"):
+            tech_bonus += 8
+        if indicators.get("ichimoku", {}).get("aligned"):
+            tech_bonus += 6
+        if indicators.get("compression"):
+            tech_bonus += 4
+        atr_val = indicators.get("atr")
+        if atr_val and price:
+            tech_bonus += 4  # ATR available
+        forming = min(100, int(bias_strength * 0.4 + tech_bonus))
+    else:
+        forming = int(_clamp(total, 0, 100))
+
+    analysis_result = {"version": VERSION, "asset_class": _asset_class, "pair": _pair_name, "direction": direction,
+            "total_score": int(_clamp(total, 0, 100)), "forming_score": forming, "category_breakdown": scores, "data_quality": quality,
             "indicators": indicators, "zones": zones, "market_context": market_context, "trade_timing": trade_timing,
             "scenarios": {"primary": scenario, "invalidation": "close beyond ATR stop or opposing structure break", "confidence": "high" if total >= 70 else "moderate" if total >= 45 else "low"},
-            "risk": {"atr_stop": stop, "atr_multiple": 2, "warning": "Crypto can gap and liquidity can thin; use position sizing and hard stops."},
+            "risk": {"atr_stop": stop, "atr_multiple": 2, "warning": _risk_warnings.get(_asset_class, _risk_warnings["crypto"])}, 
             "monitoring": ["primary timeframe close", "volume relative to 20-bar average", "VWAP reclaim/loss", "structure break", "ATR volatility regime"],
             "confluence_score": int(_clamp(total, 0, 100)),
             "raw_confluence_score": raw_confluence,

@@ -45,6 +45,8 @@ services:
     startCommand: npx serve -s dist -l 10000
     healthCheckPath: /
     envVars:
+      - key: VITE_BWTS_API_URL
+        value: https://traderslounge-bwts-api.onrender.com
       - key: VITE_API_URL
         value: https://traderslounge-bwts-api.onrender.com
       - key: VITE_DATABASE_URL

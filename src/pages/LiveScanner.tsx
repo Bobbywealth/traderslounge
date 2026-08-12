@@ -27,9 +27,15 @@ const TIMEFRAME_LABELS: Record<TimeframeFilter, string> = {
 
 const PLAN_RANK: Record<string, number> = { STRONG: 5, VALID: 4, WATCHLIST: 3, WAIT: 2, BLOCKED: 1 };
 
+const effectiveScore = (analysis?: CryptoAnalysis) => {
+  if (!analysis) return 0;
+  // Use forming_score when total_score is 0 (direction not yet confirmed)
+  return Number(analysis.total_score || analysis.forming_score || 0);
+};
+
 const heatScore = (analysis?: CryptoAnalysis) => {
   if (!analysis) return 0;
-  const base = Number(analysis.total_score || 0);
+  const base = effectiveScore(analysis);
   const readyBonus = analysis.trade_plan?.eligible ? 35 : 0;
   const timingBonus = analysis.trade_timing?.status === 'READY' ? 15 : analysis.trade_timing?.status === 'WAIT' ? 5 : -10;
   const locationBonus = analysis.trade_timing?.location_ready ? 8 : 0;
@@ -41,8 +47,10 @@ const statusLabel = (analysis?: CryptoAnalysis) => {
   if (!analysis) return 'Unavailable';
   if (analysis.trade_plan?.eligible) return 'Ready';
   if (analysis.trade_timing?.status === 'AVOID') return 'Avoid';
-  if ((analysis.total_score || 0) >= 55) return 'Almost';
-  if ((analysis.total_score || 0) >= 35) return 'Building';
+  const score = effectiveScore(analysis);
+  if (score >= 55) return 'Almost';
+  if (score >= 35) return 'Building';
+  if (analysis.direction === 'NEUTRAL' && score > 0) return 'Forming';
   return 'Waiting';
 };
 

@@ -23,6 +23,8 @@ from .risk_manager import RiskManager
 def _generate_plan_triggers(snapshot: MarketSnapshot, analysis: dict, entry: float, direction: str) -> list:
     triggers = []
     score = int(analysis.get("total_score", 0))
+    if score == 0:
+        score = int(analysis.get("forming_score", 0))
     timing = analysis.get("trade_timing") or {}
     market_context = analysis.get("market_context") or {}
     bars = list(snapshot.m15 or []) if hasattr(snapshot, 'm15') else []
@@ -208,6 +210,8 @@ class TradePlanner:
     ) -> dict[str, Any]:
         direction = str(analysis.get("direction") or "NEUTRAL")
         score = int(analysis.get("total_score") or 0)
+        if score == 0:
+            score = int(analysis.get("forming_score") or 0)
         quality = str((analysis.get("data_quality") or {}).get("status") or "insufficient")
         bars = list(primary_candles or []) or snapshot.ltf() or snapshot.h1 or snapshot.h4 or snapshot.d1
         entry = float(bars[-1].close) if bars else 0.0
@@ -415,6 +419,8 @@ def build_trade_plan(
 ) -> dict[str, Any]:
     direction = str(analysis.get("direction") or "NEUTRAL")
     score = int(analysis.get("total_score") or 0)
+    if score == 0:
+        score = int(analysis.get("forming_score") or 0)
     quality = str((analysis.get("data_quality") or {}).get("status") or "insufficient")
     bars = list(primary_candles or []) or snapshot.ltf() or snapshot.h1 or snapshot.h4 or snapshot.d1
     entry = float(bars[-1].close) if bars else 0.0

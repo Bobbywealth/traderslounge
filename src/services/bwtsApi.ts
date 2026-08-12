@@ -359,6 +359,7 @@ export interface CryptoAnalysis {
   lifecycle_state?: LifecycleState;
   recent_transitions?: LifecycleTransition[];
   total_score: number;
+  forming_score?: number;
   category_breakdown: Record<string, number>;
   data_quality: { status: string; issues: string[]; primary_timeframe: string; bars: number; closed_bar_time?: number | null; timeframes_available: string[] };
   indicators: Record<string, any>;

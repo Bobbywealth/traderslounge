@@ -157,6 +157,7 @@ class TwelveDataClient:
             "symbol": td_symbol,
             "interval": interval,
             "outputsize": str(outputsize),
+            "timezone": "UTC",
         })
         if data.get("status") == "error":
             raise DataProviderError(
@@ -165,7 +166,13 @@ class TwelveDataClient:
         values = data.get("values") or []
         candles = _parse_values_to_candles(values) if values else []
         with self._cache_lock:
-            self._cache[key] = (now + ttl, candles)
+            # Bar-aligned cache expiry: align to the next bar boundary so
+            # repeated scans within the same bar don't burn API quota.
+            period = ttl
+            wall_now = time.time()
+            seconds_to_boundary = period - (wall_now % period)
+            expires = time.monotonic() + seconds_to_boundary + 5  # +5s buffer
+            self._cache[key] = (expires, candles)
         return list(candles)
 
     def fetch_snapshot(
@@ -201,7 +208,13 @@ def _parse_values_to_candles(values: list) -> List[Candle]:
     for v in reversed(values):
         try:
             dt = _dt.datetime.fromisoformat(v["datetime"].replace(" ", "T"))
-            ts = int(dt.replace(tzinfo=_dt.timezone.utc).timestamp())
+            # Twelve Data may return naive timestamps in the exchange's local
+            # timezone (e.g. Australia/Sydney for XAUUSD). Since we now request
+            # timezone=UTC, treat naive timestamps as UTC. If a future response
+            # includes an explicit tz offset, fromisoformat() will parse it.
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=_dt.timezone.utc)
+            ts = int(dt.timestamp())
             out.append(Candle(
                 time=ts,
                 open=float(v["open"]),

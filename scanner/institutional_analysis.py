@@ -151,6 +151,8 @@ def enrich_with_plan(analysis: dict[str, Any]) -> dict[str, Any]:
     plan = analysis.get("trade_plan") or {}
     direction = str(analysis.get("direction") or "NEUTRAL")
     score = int(analysis.get("total_score") or 0)
+    if score == 0:
+        score = int(analysis.get("forming_score") or 0)
     calendar = str(plan.get("calendar_status") or (analysis.get("economic_calendar") or {}).get("status") or "UNAVAILABLE")
     issues = list((analysis.get("data_quality") or {}).get("issues") or [])
     opposing = list((analysis.get("market_context") or {}).get("opposing_frames") or [])

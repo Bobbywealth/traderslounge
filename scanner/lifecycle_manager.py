@@ -48,6 +48,8 @@ def map_legacy_state(legacy: str) -> str:
 def stabilize_direction(analysis, state_store, key, required_closes=2, cooldown_bars=3, reversal_margin=12):
     raw_direction = str(analysis.get("direction") or "NEUTRAL")
     score = int(analysis.get("total_score") or 0)
+    if score == 0:
+        score = int(analysis.get("forming_score") or 0)
     strength = float((analysis.get("indicators") or {}).get("directional_strength") or 0)
     bar_time = (analysis.get("data_quality") or {}).get("closed_bar_time")
     selected_trend = (((analysis.get("market_context") or {}).get("timeframes") or {}).get("selected") or {}).get("trend", "neutral")

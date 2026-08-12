@@ -90,6 +90,9 @@ class AutonomousScanner:
         
         # Extract analysis results
         score = analysis.get('total_score', 0)
+        # Use forming_score when total_score is 0 (direction not yet confirmed)
+        if score == 0:
+            score = analysis.get('forming_score', 0)
         direction = analysis.get('direction', 'NEUTRAL')
         trade_plan = analysis.get('trade_plan', {})
         
