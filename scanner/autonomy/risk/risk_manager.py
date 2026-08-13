@@ -41,6 +41,8 @@ class RiskConfig:
     minimum_rr: float = 2.0               # net R:R
     minimum_score: int = 50
     allow_opposing_positions: bool = False
+    portfolio_heat_limit_pct: float = 6.0  # total open risk across the portfolio
+    portfolio_heat_min_reduction_pct: float = 0.1  # below this, refuse instead of REDUCED
 
 
 @dataclass
@@ -170,6 +172,42 @@ class RiskManager:
             if risk_pct > self.config.max_risk_per_trade_pct:
                 reasons.append(f'Risk {risk_pct:.2f}% exceeds max {self.config.max_risk_per_trade_pct}% per trade')
 
+        # 7b. Portfolio heat (institutional-style cluster risk)
+        # Approximate current open risk as len(open_positions) *
+        # max_risk_per_trade_pct — conservative upper bound; each paper
+        # position was sized at the per-trade cap.  If the proposed
+        # setup would push total heat past the limit, return REDUCED
+        # with a shrink-to-fit size so the trader still gets the setup,
+        # just smaller.  If the shrink would be below the minimum
+        # reduction, REJECT instead.
+        current_heat_pct = float(len(open_positions)) * float(self.config.max_risk_per_trade_pct)
+        proposed_setup_risk_pct = float(risk_pct) if 'risk_pct' in dir() else 0.0
+        # Recompute risk_pct when entry/stop were missing above (default 0)
+        if not (setup_entry and setup_stop and setup_stop != setup_entry):
+            proposed_setup_risk_pct = 0.0
+        else:
+            proposed_setup_risk_pct = (abs(setup_entry - setup_stop) / setup_entry) * 100.0
+        projected_heat_pct = current_heat_pct + proposed_setup_risk_pct
+        portfolio_heat_limit = float(self.config.portfolio_heat_limit_pct)
+        portfolio_warnings: List[str] = []
+        portfolio_reduce_to_pct: Optional[float] = None
+        if projected_heat_pct > portfolio_heat_limit and proposed_setup_risk_pct > 0:
+            available_pct = max(0.0, portfolio_heat_limit - current_heat_pct)
+            if available_pct < float(self.config.portfolio_heat_min_reduction_pct):
+                reasons.append(
+                    f'Portfolio heat {projected_heat_pct:.2f}% exceeds limit '
+                    f'{portfolio_heat_limit:.2f}% — only {available_pct:.2f}% headroom, '
+                    f'below min reduction {self.config.portfolio_heat_min_reduction_pct}%'
+                )
+            else:
+                portfolio_reduce_to_pct = available_pct
+                portfolio_warnings.append(
+                    f'⚠ CORRELATION RISK: portfolio heat {projected_heat_pct:.2f}% '
+                    f'exceeds limit {portfolio_heat_limit:.2f}%; '
+                    f'reducing setup from {proposed_setup_risk_pct:.2f}% to {available_pct:.2f}% '
+                    f'to keep heat at the limit.'
+                )
+
         # 8. Daily drawdown
         daily_dd = (daily_realized_pnl / equity) * 100 if equity else 0
         if daily_dd < -self.config.max_daily_drawdown_pct:
@@ -185,6 +223,24 @@ class RiskManager:
             return RiskAssessment(
                 decision=RiskDecision.REJECTED,
                 reasons=reasons,
+            )
+
+        # Portfolio heat REDUCED — proceed but shrink to fit.
+        if portfolio_reduce_to_pct is not None:
+            risk_amount = equity * (portfolio_reduce_to_pct / 100)
+            risk_distance = abs(setup_entry - setup_stop) if setup_stop and setup_entry else 1.0
+            reduced_size = risk_amount / risk_distance if risk_distance > 0 else 0.0
+            log.info(
+                "Risk REDUCED %s %s (heat=%.2f%%, size=%.2f, reduced_to=%.2f%%)",
+                setup_symbol, setup_direction, projected_heat_pct,
+                reduced_size, portfolio_reduce_to_pct,
+            )
+            return RiskAssessment(
+                decision=RiskDecision.REDUCED,
+                reasons=portfolio_warnings,
+                risk_per_trade_pct=float(portfolio_reduce_to_pct),
+                position_size_lots=reduced_size,
+                approved_at=time.time(),
             )
 
         # Approved — calculate position size

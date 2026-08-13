@@ -105,5 +105,120 @@ class TestRiskManagerSizing(unittest.TestCase):
             RiskManager(risk_per_trade_pct=10)
 
 
+
+class TestPortfolioHeatGate(unittest.TestCase):
+    """Portfolio-level heat check: a single setup that would push total
+    open risk past the configured limit gets REDUCED (shrink-to-fit) or
+    REJECTED (if shrink would be below the minimum reduction threshold)."""
+
+    def _setup(self):
+        from scanner.autonomy.risk.risk_manager import (
+            RiskManager, PositionInfo, RiskDecision, RiskConfig,
+        )
+        return RiskManager, PositionInfo, RiskDecision, RiskConfig
+
+    def test_single_setup_below_heat_approves(self):
+        RiskManager, PositionInfo, RiskDecision, RiskConfig = self._setup()
+        mgr = RiskManager(RiskConfig(portfolio_heat_limit_pct=6.0))
+        result = mgr.evaluate(
+            setup_symbol="BTCUSD",
+            setup_direction="BUY",
+            setup_score=70,
+            setup_entry=100.0,
+            setup_stop=99.0,
+            setup_tp1=102.0,
+            setup_net_rr=2.0,
+            open_positions=[],
+        )
+        self.assertEqual(result.decision, RiskDecision.APPROVED)
+        self.assertAlmostEqual(result.risk_per_trade_pct, 1.0, places=3)
+
+    def test_projected_heat_over_limit_returns_reduced(self):
+        RiskManager, PositionInfo, RiskDecision, RiskConfig = self._setup()
+        # heat_limit=5%, max_risk=1%, max_concurrent=20 so step 6 doesn't fire.
+        # 5 open positions = 5% current heat; new setup at 1% pushes
+        # projected to 6% which exceeds the 5% limit.  Available 0.5%
+        # > min_reduction 0.1% so REDUCED, not REJECTED.
+        mgr = RiskManager(RiskConfig(
+            portfolio_heat_limit_pct=5.5,
+            max_risk_per_trade_pct=1.0,
+            max_concurrent_positions=20,
+        ))
+        open_pos = [
+            PositionInfo(position_id=f"p{i}", symbol=f"SYM{i}", direction="BUY")
+            for i in range(5)
+        ]
+        result = mgr.evaluate(
+            setup_symbol="EURUSD",
+            setup_direction="BUY",
+            setup_score=70,
+            setup_entry=1.1000,
+            setup_stop=1.0900,  # ~0.91% risk (under max_risk 1%)
+            setup_tp1=1.1200,
+            setup_net_rr=2.0,
+            open_positions=open_pos,
+        )
+        self.assertEqual(result.decision, RiskDecision.REDUCED)
+        self.assertLess(result.risk_per_trade_pct, 1.0)
+        self.assertGreater(result.risk_per_trade_pct, 0)
+        self.assertTrue(any("CORRELATION RISK" in r for r in result.reasons))
+
+    def test_heat_exceeds_limit_by_lot_returns_rejected(self):
+        RiskManager, PositionInfo, RiskDecision, RiskConfig = self._setup()
+        # heat_limit=5%, 6 open positions = 6% current heat; new setup
+        # at 1% risk pushes to 7%, available headroom 0% which is
+        # below the min_reduction threshold → REJECTED.
+        mgr = RiskManager(RiskConfig(
+            portfolio_heat_limit_pct=5.5,
+            max_risk_per_trade_pct=1.0,
+            max_concurrent_positions=20,
+        ))
+        open_pos = [
+            PositionInfo(position_id=f"p{i}", symbol=f"SYM{i}", direction="BUY")
+            for i in range(6)
+        ]
+        result = mgr.evaluate(
+            setup_symbol="EURUSD",
+            setup_direction="BUY",
+            setup_score=70,
+            setup_entry=1.1000,
+            setup_stop=1.0900,  # ~0.91% risk (under max_risk 1%)
+            setup_tp1=1.1200,
+            setup_net_rr=2.0,
+            open_positions=open_pos,
+        )
+        self.assertEqual(result.decision, RiskDecision.REJECTED)
+        self.assertTrue(any("heat" in r.lower() for r in result.reasons))
+
+    def test_recommended_size_matches_bobby_example(self):
+        """Bobby's example: 2.1% USD exposure already, new setup at 1% risk
+        would push to 3.1%.  Heat limit 6% so plenty of headroom.
+        Expected: APPROVED, not REDUCED."""
+        RiskManager, PositionInfo, RiskDecision, RiskConfig = self._setup()
+        mgr = RiskManager(RiskConfig(
+            portfolio_heat_limit_pct=6.0,
+            max_concurrent_positions=20,
+        ))
+        # Approximate 2.1% USD exposure as 2-3 open positions (each ~1%)
+        open_pos = [
+            PositionInfo(position_id="p1", symbol="EURUSD", direction="BUY"),
+            PositionInfo(position_id="p2", symbol="GBPUSD", direction="BUY"),
+        ]
+        result = mgr.evaluate(
+            setup_symbol="XAUUSD",
+            setup_direction="BUY",
+            setup_score=70,
+            setup_entry=2300.0,
+            setup_stop=2277.0,  # ~1.0% risk, under max_risk_per_trade_pct=1%
+            setup_tp1=2350.0,
+            setup_net_rr=2.0,
+            open_positions=open_pos,
+        )
+        # 2% current + 1% proposed = 3%, under 6% — APPROVED
+        self.assertEqual(result.decision, RiskDecision.APPROVED)
+
+
+if __name__ == "__main__":
+    unittest.main()
 if __name__ == "__main__":
     unittest.main()
