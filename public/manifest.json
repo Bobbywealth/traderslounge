@@ -1,6 +1,6 @@
 {
   "id": "/",
-  "name": "ConfluenceX - Professional Trading Dashboard",
+  "name": "ConfluenceX — See the Setup. Confirm the Edge.",
   "short_name": "ConfluenceX",
   "description": "Live market intelligence where signals, structure, harmonics, and ADR converge.",
   "start_url": "/?source=pwa",
@@ -16,54 +16,65 @@
   "icons": [
     {
       "src": "/confluencex-mark.svg",
-      "sizes": "any",
       "type": "image/svg+xml",
+      "sizes": "any",
       "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
     }
   ],
   "shortcuts": [
     {
-      "name": "Live Scanner",
-      "short_name": "Scanner",
-      "description": "Real-time market intelligence dashboard",
-      "url": "/scanner?source=shortcut",
-      "icons": [
-        { "src": "/icons/shortcut-scanner.png", "sizes": "96x96", "type": "image/png" }
-      ]
-    },
-    {
-      "name": "Trading Chart",
+      "name": "Live Chart",
       "short_name": "Chart",
-      "description": "Full-screen charting workspace",
+      "description": "Open the full TradingView workspace — instant chart-first access.",
       "url": "/tradingview?source=shortcut",
       "icons": [
         { "src": "/icons/shortcut-chart.png", "sizes": "96x96", "type": "image/png" }
       ]
     },
     {
+      "name": "Live Scanner",
+      "short_name": "Scanner",
+      "description": "Real-time market intelligence dashboard.",
+      "url": "/scanner?source=shortcut",
+      "icons": [
+        { "src": "/icons/shortcut-scanner.png", "sizes": "96x96", "type": "image/png" }
+      ]
+    },
+    {
       "name": "Signals",
       "short_name": "Signals",
-      "description": "Guarded, durable trade-call feed",
+      "description": "Guarded, durable trade-call feed.",
       "url": "/signals?source=shortcut",
       "icons": [
         { "src": "/icons/shortcut-signals.png", "sizes": "96x96", "type": "image/png" }
       ]
-    }
-  ],
-  "screenshots": [
-    {
-      "src": "/screenshot-wide.png",
-      "sizes": "1280x720",
-      "type": "image/png",
-      "form_factor": "wide",
-      "label": "ConfluenceX desktop dashboard"
     },
     {
-      "src": "/screenshot-narrow.png",
-      "sizes": "750x1334",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "ConfluenceX mobile dashboard"
+      "name": "Dashboard",
+      "short_name": "Home",
+      "description": "Open the Command Center dashboard.",
+      "url": "/?source=shortcut",
+      "icons": [
+        { "src": "/icons/shortcut-scanner.png", "sizes": "96x96", "type": "image/png" }
+      ]
     }
   ]
 }

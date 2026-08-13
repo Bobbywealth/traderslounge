@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import ConfluenceXLogo from './components/ConfluenceXLogo';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
+import PwaSplash from './components/PwaSplash';
+import InstallPwaPrompt from './components/InstallPwaPrompt';
 import LandingPage from './pages/LandingPage';
 import Dashboard from './pages/Dashboard';
 import CommandCenter from './pages/CommandCenter';
@@ -84,14 +85,7 @@ const AppContent: React.FC = () => {
   }, [isTradingWorkspace]);
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-center flex flex-col items-center">
-          <ConfluenceXLogo size="lg" showTagline className="animate-pulse mb-5" />
-          <p className="text-gray-600 dark:cx-text-faint">Loading market intelligence...</p>
-        </div>
-      </div>
-    );
+    return <PwaSplash message="Restoring your workspace…" />;
   }
 
   if (!isAuthenticated) {
@@ -178,6 +172,7 @@ function App() {
           <Router>
             <NotificationProvider>
               <AppContent />
+              <InstallPwaPrompt />
             </NotificationProvider>
           </Router>
         </ErrorBoundary>
