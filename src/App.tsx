@@ -4,12 +4,14 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import PwaSplash from './components/PwaSplash';
+import PwaLoginScreen from './components/PwaLoginScreen';
 import InstallPwaPrompt from './components/InstallPwaPrompt';
 import LandingPage from './pages/LandingPage';
 import Dashboard from './pages/Dashboard';
 import CommandCenter from './pages/CommandCenter';
 import TradingTable from './pages/TradingTable';
 import TradingView from './pages/TradingView';
+import TradingViewWidget from './pages/TradingViewWidget';
 import AdminDashboard from './pages/AdminDashboard';
 import EconomicNews from './pages/EconomicNews';
 import Signals from './pages/Signals';
@@ -34,6 +36,23 @@ import { BrokerProvider } from './contexts/BrokerContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import { NotificationProvider } from './contexts/NotificationContext';
 
+/**
+ * Returns true when the app is running as an installed PWA
+ * (display-mode: standalone on Chrome/Edge/Android, or navigator.standalone
+ * on iOS Safari). Used by AppContent to decide whether to send the user
+ * straight to the focused PwaLoginScreen instead of the marketing landing.
+ */
+function isStandalonePwa(): boolean {
+  if (typeof window === 'undefined') return false;
+  const nav = navigator as Navigator & { standalone?: boolean };
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.matchMedia('(display-mode: minimal-ui)').matches ||
+    window.matchMedia('(display-mode: window-controls-overlay)').matches ||
+    nav.standalone === true
+  );
+}
+
 const AppContent: React.FC = () => {
   const { isAuthenticated, isLoading, user } = useAuth();
   const location = useLocation();
@@ -42,7 +61,8 @@ const AppContent: React.FC = () => {
   const [isDesktop, setIsDesktop] = useState(
     typeof window !== 'undefined' ? window.matchMedia('(min-width: 768px)').matches : true,
   );
-  const isTradingWorkspace = location.pathname === '/tradingview';
+  const isTradingWorkspace =
+    location.pathname === '/tradingview' || location.pathname === '/tradingview-widget';
   const effectiveSidebarCollapsed = isTradingWorkspace || sidebarCollapsed;
 
   // Track viewport for responsive sidebar behavior. The desktop layout keeps
@@ -89,7 +109,7 @@ const AppContent: React.FC = () => {
   }
 
   if (!isAuthenticated) {
-    return <LandingPage />;
+    return isStandalonePwa() ? <PwaLoginScreen /> : <LandingPage />;
   }
 
   // Admin users get redirected to admin dashboard
@@ -149,6 +169,7 @@ const AppContent: React.FC = () => {
                 <Route path="/trading-desk" element={<TradingDesk />} />
                 <Route path="/trades" element={<TradingTable />} />
                 <Route path="/tradingview" element={<TradingView />} />
+                <Route path="/tradingview-widget" element={<TradingViewWidget />} />
                 <Route path="/calendar" element={<EconomicNews />} />
                 <Route path="/economic-news" element={<Navigate to="/calendar" replace />} />
                 <Route path="/education" element={<Education />} />
