@@ -42,7 +42,10 @@ services:
     plan: free
     rootDir: .
     buildCommand: npm install && npm run build -- --mode production
-    startCommand: npx serve -s dist -l 10000
+    # Drop `-s` so serve honors public/_redirects (cleanUrls → /offline.html
+    # resolves to dist/offline.html instead of being shadowed by SPA fallback,
+    # which the service worker relies on for offline navigation).
+    startCommand: npx serve dist -l 10000 --no-clipboard --no-port-switching
     healthCheckPath: /
     envVars:
       - key: VITE_BWTS_API_URL
