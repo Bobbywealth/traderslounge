@@ -44,6 +44,14 @@ import { NotificationProvider } from './contexts/NotificationContext';
  */
 function isStandalonePwa(): boolean {
   if (typeof window === 'undefined') return false;
+  // Allow a `?standalone=1` query string to force the PWA login branch
+  // for QA / preview without installing the app. Also matches ?source=pwa
+  // and ?source=shortcut which are emitted by the manifest start_url and
+  // shortcuts — the user always opens the installed app from one of those.
+  const search = window.location.search;
+  if (/(?:^|[?&])standalone=1\b/.test(search)) return true;
+  if (/(?:^|[?&])source=pwa\b/.test(search)) return true;
+  if (/(?:^|[?&])source=shortcut\b/.test(search)) return true;
   const nav = navigator as Navigator & { standalone?: boolean };
   return (
     window.matchMedia('(display-mode: standalone)').matches ||
