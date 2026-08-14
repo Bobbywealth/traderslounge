@@ -411,17 +411,18 @@ class AutonomousLoop:
             self.status.update_heartbeat('autonomous_loop', ComponentStatus.HEALTHY)
             
             # Persist market snapshot periodically (item 11, every 5th cycle ~5min)
-            _snap_conn = self._get_conn()
-            if _snap_conn and self._scan_count % 5 == 0:
+            _snap_repo = self._db_conn
+            if _snap_repo and hasattr(_snap_repo, '_get_connection') and self._scan_count % 5 == 0:
                 try:
-                    for symbol, data in market_data.items():
-                        snapshot = MarketSnapshot(symbol=symbol, price=data.get('price', 0))
-                        regime = regime_snapshots.get(symbol)
-                        if regime:
-                            snapshot.regime = regime.regime.value
-                            snapshot.trend = regime.macro_direction
-                            snapshot.volatility = regime.volatility_regime
-                        _persist.save_market_snapshot(_snap_conn, snapshot)
+                    with _snap_repo._get_connection() as _snap_conn:
+                        for symbol, data in market_data.items():
+                            snapshot = MarketSnapshot(symbol=symbol, price=data.get('price', 0))
+                            regime = regime_snapshots.get(symbol)
+                            if regime:
+                                snapshot.regime = regime.regime.value
+                                snapshot.trend = regime.macro_direction
+                                snapshot.volatility = regime.volatility_regime
+                            _persist.save_market_snapshot(_snap_conn, snapshot)
                 except Exception:
                     log.exception("Failed to persist market snapshots")
             
@@ -623,14 +624,15 @@ class AutonomousLoop:
         log.warning("SETUP_EVENT: %s -> %s (db_conn=%s)", setup_id, state, 'SET' if self._db_conn else 'NONE')
         
         # Persist to Postgres if available (item 2)
-        _conn = self._get_conn()
-        if _conn:
+        _repo = self._db_conn
+        if _repo and hasattr(_repo, '_get_connection'):
             try:
-                setup = self.setup_lifecycle.get_setup(setup_id)
-                if setup:
-                    _persist.save_setup(_conn, setup)
-                    if setup.events:
-                        _persist.save_setup_event(_conn, setup_id, setup.events[-1])
+                with _repo._get_connection() as _conn:
+                    setup = self.setup_lifecycle.get_setup(setup_id)
+                    if setup:
+                        _persist.save_setup(_conn, setup)
+                        if setup.events:
+                            _persist.save_setup_event(_conn, setup_id, setup.events[-1])
             except Exception:
                 log.exception("Failed to persist setup %s", setup_id)
         

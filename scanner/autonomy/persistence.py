@@ -21,30 +21,21 @@ def _open_cursor(conn):
     The autonomous loop sometimes passes a raw psycopg connection and
     sometimes a ``@contextmanager`` generator (from
     ``repo._get_connection()``).  Both have to work here, otherwise the
-    setup lifecycle blows up with
-    ``AttributeError: '_GeneratorContextManager' object has no attribute
-    'cursor'`` every cycle.  When the argument is already a connection
-    we wrap it in a no-op context manager so the call sites can use a
-    uniform ``with _open_cursor(conn) as cur:`` pattern.
+    setup lifecycle blows up when the caller hands us the wrong kind of
+    connection wrapper.
     """
     if conn is None:
         raise ValueError("connection is None")
 
-    if hasattr(conn, "cursor") and not hasattr(conn, "__enter__"):
-        # Already a raw psycopg connection — wrap so callers can use
-        # the same ``with`` syntax everywhere.
-        @contextmanager
-        def _wrap_raw(_raw=conn):
-            try:
-                yield _raw
-            finally:
-                pass
-
+    if hasattr(conn, "cursor"):
+        # Raw psycopg connection or pool-managed connection: use it
+        # directly without re-entering the connection object as a context
+        # manager. That avoids closing or recycling the connection before
+        # the cursor work is done.
         @contextmanager
         def _open_raw():
-            with _wrap_raw() as _c:
-                with _c.cursor() as cur:
-                    yield cur
+            with conn.cursor() as cur:
+                yield cur
 
         return _open_raw()
 
