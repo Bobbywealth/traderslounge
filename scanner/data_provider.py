@@ -137,7 +137,7 @@ class TwelveDataClient:
         except json.JSONDecodeError as exc:
             raise DataProviderError(f"Invalid JSON from Twelve Data: {exc}") from exc
 
-    def fetch_candles(self, pair: str, timeframe: str) -> List[Candle]:
+    def fetch_candles(self, pair: str, timeframe: str, cache_only: bool = False) -> List[Candle]:
         td_symbol = SYMBOL_MAP.get(pair)
         if td_symbol is None:
             raise DataProviderError(f"Unknown pair: {pair}")
@@ -151,6 +151,8 @@ class TwelveDataClient:
             hit = self._cache.get(key)
             if hit is not None and hit[0] > now:
                 return list(hit[1])
+        if cache_only:
+            raise DataProviderError(f"cache miss for {pair} {timeframe}")
         interval, outputsize = tf
         self._limiter.acquire()
         data = self._request({

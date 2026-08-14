@@ -77,6 +77,7 @@ class MultiSourceClient:
         self,
         pair: str,
         timeframes: Optional[List[str]] = None,
+        cache_only: bool = False,
     ) -> MarketSnapshot:
         # Normalize the pair so "BTCUSDT", "btcusdt", and " btcusdt "
         # all route to the Binance provider and share a single cache key.
@@ -111,10 +112,13 @@ class MultiSourceClient:
             if attr is None:
                 continue
             try:
-                candles = provider.fetch_candles(pair, tf)
+                if cache_only and provider_name == "twelvedata":
+                    candles = self.fx.fetch_candles(pair, tf, cache_only=True)
+                else:
+                    candles = provider.fetch_candles(pair, tf)
             except (DataProviderError, FMPError) as exc:
-                log.warning("%s fetch failed for %s %s: %s",
-                            provider_name, pair, tf, exc)
+                log.debug("%s fetch skipped for %s %s: %s",
+                          provider_name, pair, tf, exc)
                 candles = []
             setattr(snap, attr, candles)
         return snap

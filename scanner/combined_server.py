@@ -117,7 +117,7 @@ def main() -> int:
                                 error = [None]
                                 def _fetch(p=pair):
                                     try:
-                                        result[0] = client.fetch_snapshot(p)
+                                        result[0] = client.fetch_snapshot(p, cache_only=True)
                                     except Exception as e:
                                         error[0] = e
                                 t = _threading.Thread(target=_fetch, daemon=True)
