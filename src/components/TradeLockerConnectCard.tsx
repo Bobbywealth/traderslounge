@@ -39,6 +39,21 @@ const TradeLockerConnectCard: React.FC = () => {
     }
   }, [existing?.id]);
 
+  // When testConnection writes a new error to connectionStatus[existing.id],
+  // mirror it into local error state so the card can render it. This bridges
+  // the async state-update gap that the closure-based read in the click
+  // handler can't see.
+  useEffect(() => {
+    if (!existing) return;
+    const status = connectionStatus[existing.id];
+    if (status?.error) {
+      setError(status.error);
+    }
+    if (status?.isConnected && !success) {
+      setSuccess(`Connected to ${existing.isDemo ? 'demo' : 'live'} TradeLocker${existing.server ? ` (${existing.server})` : ''}.`);
+    }
+  }, [connectionStatus[existing?.id]?.error, connectionStatus[existing?.id]?.isConnected, existing?.id]);
+
   const status = existing ? connectionStatus[existing.id] : undefined;
   const isConnected = !!status?.isConnected;
 
@@ -53,12 +68,15 @@ const TradeLockerConnectCard: React.FC = () => {
     }
 
     setBusy(true);
+    setError(null);
+    setSuccess(null);
     try {
       // Add or reuse the existing TradeLocker credential.
       let credId: string;
       if (existing) {
         credId = existing.id;
       } else {
+        credId = `${Date.now()}`;
         addCredentials({
           name: 'TradeLocker',
           brokerType: 'trade_locker',
@@ -74,19 +92,16 @@ const TradeLockerConnectCard: React.FC = () => {
           isDemo,
           isActive: true,
         });
-        // The new credential is appended with id = Date.now().toString() per
-        // BrokerContext. Find it back to get the real id for testConnection.
-        credId = `${Date.now()}`;
       }
 
       const ok = await testConnection(credId);
       if (ok) {
-        setSuccess(`Connected to ${isDemo ? 'demo' : 'live'} TradeLocker${server ? ` (${server})` : ''}.`);
+        // success is mirrored by the useEffect above watching connectionStatus
         setPassword('');
-      } else {
-        const msg = connectionStatus[credId]?.error || 'Connection failed.';
-        setError(msg);
       }
+      // On failure the real TradeLocker error is set by BrokerContext into
+      // connectionStatus[credId].error and mirrored here by the useEffect
+      // above. No need to set a fallback in this branch.
     } catch (err: any) {
       setError(err?.message || 'Connection failed.');
     } finally {
