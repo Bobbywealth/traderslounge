@@ -12,8 +12,9 @@
 // "not supported" and we don't expose them here.
 
 import React, { useState, useEffect } from 'react';
-import { Link, Link2, Loader2, Power, ShieldAlert, Trash2 } from 'lucide-react';
+import { Link, Link2, Loader2, Power, ShieldAlert, Trash2, FlaskConical } from 'lucide-react';
 import { useBroker } from '../contexts/BrokerContext';
+import { tradeLockerService } from '../services/tradeLockerService';
 
 const TradeLockerConnectCard: React.FC = () => {
   const { credentials, addCredentials, removeCredentials, testConnection, connectionStatus } = useBroker();
@@ -116,6 +117,38 @@ const TradeLockerConnectCard: React.FC = () => {
     setPassword('');
     setSuccess(null);
     setError(null);
+  };
+
+  // Test connection without persisting — runs auth against TradeLocker
+  // directly via the service, then clears the in-memory token so nothing
+  // is committed. Useful for verifying creds before saving them.
+  const handleTestConnection = async () => {
+    setError(null);
+    setSuccess(null);
+    if (!email.trim() || !password.trim()) {
+      setError('Enter email and password to test before connecting.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await tradeLockerService.authenticate({
+        email: email.trim(),
+        password,
+        server: server.trim(),
+        accountId: accountId.trim() || undefined,
+        isDemo,
+      });
+      // Clear the in-memory token so the test connection doesn't leak
+      // into a real session. The user still has to click Connect to
+      // persist credentials.
+      tradeLockerService.disconnect?.();
+      setSuccess('Test connection succeeded. Click "Connect TradeLocker" to save these credentials.');
+      setPassword('');
+    } catch (err: any) {
+      setError(`Test failed: ${err?.message || 'Connection failed.'}`);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -248,7 +281,7 @@ const TradeLockerConnectCard: React.FC = () => {
           </div>
         )}
 
-        <div className="flex gap-2 pt-1">
+        <div className="flex flex-wrap gap-2 pt-1">
           <button
             type="submit"
             disabled={busy}
@@ -260,6 +293,16 @@ const TradeLockerConnectCard: React.FC = () => {
               <Link className="w-4 h-4" />
             )}
             {isConnected ? 'Reconnect' : existing ? 'Reconnect' : 'Connect TradeLocker'}
+          </button>
+          <button
+            type="button"
+            onClick={handleTestConnection}
+            disabled={busy}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 cx-text-strong rounded-lg text-sm font-medium transition-colors"
+            title="Run the auth check against TradeLocker without saving credentials."
+          >
+            <FlaskConical className="w-4 h-4" />
+            Test connection
           </button>
           {existing && (
             <button

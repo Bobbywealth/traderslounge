@@ -23,8 +23,11 @@ export const BrokerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [trades, setTrades] = useState<BrokerTrade[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<Record<string, ConnectionStatus>>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
 
-  // Load saved credentials from localStorage
+  // Load saved credentials from localStorage on mount. The save effect
+  // below is gated on hasLoadedFromStorage so the initial [] state can
+  // never overwrite persisted data before the load runs.
   useEffect(() => {
     const saved = localStorage.getItem('broker_credentials');
     if (saved) {
@@ -39,12 +42,16 @@ export const BrokerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         console.error('Failed to load broker credentials:', error);
       }
     }
+    setHasLoadedFromStorage(true);
   }, []);
 
-  // Save credentials to localStorage
+  // Save credentials to localStorage — only after the initial load
+  // completes, otherwise the first effect tick writes [] and clobbers
+  // persisted credentials.
   useEffect(() => {
+    if (!hasLoadedFromStorage) return;
     localStorage.setItem('broker_credentials', JSON.stringify(credentials));
-  }, [credentials]);
+  }, [credentials, hasLoadedFromStorage]);
 
   const addCredentials = (newCredentials: Omit<BrokerCredentials, 'id' | 'createdAt'>) => {
     const credentials_with_id: BrokerCredentials = {
