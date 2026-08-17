@@ -14,6 +14,7 @@ import { AlertTriangle, RefreshCw, Settings as SettingsIcon, ShieldOff, ShieldCh
 import { useAuth } from '../contexts/AuthContext';
 import { bwtsApi, type BwtsConfig, type BwtsKillStatus } from '../services/bwtsApi';
 import { isStrongScore } from '../utils/scoring';
+import TradeLockerConnectCard from '../components/TradeLockerConnectCard';
 
 const Settings: React.FC = () => {
   const { isAdmin } = useAuth();
@@ -167,6 +168,9 @@ const Settings: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Broker connection — TradeLocker demo/live link */}
+      <TradeLockerConnectCard />
 
       {/* Read-only config */}
       {config && (

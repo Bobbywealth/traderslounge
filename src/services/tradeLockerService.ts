@@ -84,9 +84,19 @@ class TradeLockerService {
       });
 
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
       console.error('TradeLocker authentication failed:', error);
-      throw new Error('Failed to authenticate with TradeLocker');
+      // Surface TradeLocker's actual error payload (e.g. "Incorrect email or
+      // password", "Server not found", CORS) instead of a generic message so
+      // users can debug without opening devtools.
+      const apiMessage =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error?.message ||
+        'Unknown TradeLocker authentication error';
+      const status = error?.response?.status;
+      const detail = status ? ` (HTTP ${status})` : '';
+      throw new Error(`TradeLocker auth failed: ${apiMessage}${detail}`);
     }
   }
 
