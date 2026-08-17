@@ -180,15 +180,23 @@ const TradeLockerConnectCard: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-xs cx-text-faint mb-1">Server</label>
-            <select
+            <input
+              type="text"
               value={server}
               onChange={(e) => setServer(e.target.value)}
+              list="tradelocker-servers"
               className="w-full bg-gray-800 cx-text-strong rounded px-3 py-2 border border-gray-700 focus:border-emerald-500 focus:outline-none text-sm"
-            >
-              <option value="demo">Demo Server</option>
-              <option value="HEROFX">HEROFX</option>
-              <option value="live">Live Server</option>
-            </select>
+              placeholder="e.g. GATES FX, HEROFX, demo, live"
+            />
+            <datalist id="tradelocker-servers">
+              <option value="demo" />
+              <option value="HEROFX" />
+              <option value="GATES FX" />
+              <option value="live" />
+            </datalist>
+            <p className="text-[10px] cx-text-faint mt-1">
+              Type your broker's server name exactly as TradeLocker shows it.
+            </p>
           </div>
           <div>
             <label className="block text-xs cx-text-faint mb-1">Account ID (optional)</label>
