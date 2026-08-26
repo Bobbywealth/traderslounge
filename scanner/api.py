@@ -77,7 +77,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 from urllib.parse import parse_qs, urlsplit
 
 from .config import Config
@@ -1704,8 +1704,17 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return self._json(200, cached)
         try:
             candles = client.fetch_candles(pair, "D1")
+            # NY-session-anchored open/high/low — pulls H1 candles around the
+            # 17:00 UTC NYSE open so XAUUSD matches the MT4 Market Maker
+            # ADR 123 indicator. Falls back to daily-candle anchor when H1
+            # data is unavailable (e.g. crypto pairs).
+            intraday: List = []
+            try:
+                intraday = client.fetch_candles(pair, "H1")
+            except Exception:
+                intraday = []
             from .modules.adr_calculator import snapshot
-            adr = snapshot(candles)
+            adr = snapshot(candles, intraday=intraday)
         except Exception as exc:
             stale = self._cache_get(cache_key, allow_stale=True)
             if stale is not None:

@@ -10,12 +10,19 @@ direction is NOT against an exhausted/extreme reading:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
 from ..data_types import Candle, Direction, ModuleResult
 from ..indicators import atr
 
 MAX_POINTS = 15
+
+# NY session opens at 17:00 UTC during US summer (EDT) or 17:00 UTC during
+# winter (EST) — both fall on 17:00 UTC for the major FX/indices we cover.
+# Gold (XAUUSD) follows the same convention used by the MT4 Market Maker
+# ADR 123 indicator.
+NY_SESSION_OPEN_UTC_HOUR = 17
 
 
 @dataclass
@@ -33,29 +40,93 @@ class AdrSnapshot:
     exhausted: bool
 
 
-def snapshot(d1: List[Candle], period: int = 5) -> Optional[AdrSnapshot]:
+def _ny_session_window(now_utc: datetime) -> tuple[int, int]:
+    """Return (session_open_epoch, session_close_epoch) for the NY session
+    containing `now_utc`. NY session runs 17:00 UTC -> next-day 17:00 UTC.
+    """
+    if now_utc.hour >= NY_SESSION_OPEN_UTC_HOUR:
+        open_dt = now_utc.replace(
+            hour=NY_SESSION_OPEN_UTC_HOUR, minute=0, second=0, microsecond=0
+        )
+    else:
+        open_dt = (now_utc - timedelta(days=1)).replace(
+            hour=NY_SESSION_OPEN_UTC_HOUR, minute=0, second=0, microsecond=0
+        )
+    close_dt = open_dt + timedelta(days=1)
+    return int(open_dt.timestamp()), int(close_dt.timestamp())
+
+
+def _session_anchored_metrics(
+    intraday: List[Candle], now_epoch: Optional[int] = None
+) -> Optional[dict]:
+    """Build today's NY-session open/high/low from intraday candles.
+
+    Returns None when there isn't enough data to cover the current session.
+    """
+    if not intraday:
+        return None
+    now_epoch = now_epoch or int(datetime.now(timezone.utc).timestamp())
+    open_ts, close_ts = _ny_session_window(
+        datetime.fromtimestamp(now_epoch, tz=timezone.utc)
+    )
+    session_bars = [
+        c for c in intraday
+        if open_ts <= int(c.time) < close_ts and c.high > 0 and c.low > 0
+    ]
+    if len(session_bars) < 2:
+        return None
+    # First bar's open anchors the session. High/low span the session so far.
+    first_open = session_bars[0].open
+    session_high = max(c.high for c in session_bars)
+    session_low = min(c.low for c in session_bars)
+    current_range = session_high - session_low
+    return {
+        "day_open": first_open,
+        "day_high": session_high,
+        "day_low": session_low,
+        "current_range": current_range,
+        "session_open_epoch": open_ts,
+        "session_close_epoch": close_ts,
+    }
+
+
+def snapshot(
+    d1: List[Candle],
+    period: int = 5,
+    intraday: Optional[List[Candle]] = None,
+) -> Optional[AdrSnapshot]:
     if len(d1) < period + 2:
         return None
     a = atr(d1[:-1], period)  # ATR on completed days
     if a is None or a <= 0:
         return None
     today = d1[-1]
-    current_range = today.high - today.low
+    metrics = _session_anchored_metrics(intraday) if intraday else None
+    if metrics is not None:
+        day_open = metrics["day_open"]
+        day_high = metrics["day_high"]
+        day_low = metrics["day_low"]
+        current_range = metrics["current_range"]
+    else:
+        day_open = today.open
+        day_high = today.high
+        day_low = today.low
+        current_range = today.high - today.low
     pct = (current_range / a) * 100
-    adr_high = today.open + a / 2
-    adr_low = today.open - a / 2
+    adr_high = day_open + a / 2
+    adr_low = day_open - a / 2
     tol = a * 0.15
     return AdrSnapshot(
         adr=a,
-        day_open=today.open,
-        day_high=today.high,
-        day_low=today.low,
+        day_open=day_open,
+        day_high=day_high,
+        day_low=day_low,
         current_range=current_range,
         percent_used=pct,
         adr_high=adr_high,
         adr_low=adr_low,
-        near_adr_high=today.close >= adr_high - tol,
-        near_adr_low=today.close <= adr_low + tol,
+        near_adr_high=day_high >= adr_high - tol,
+        near_adr_low=day_low <= adr_low + tol,
         exhausted=pct >= 80,
     )
 
