@@ -33,7 +33,7 @@ class AdrSnapshot:
     exhausted: bool
 
 
-def snapshot(d1: List[Candle], period: int = 14) -> Optional[AdrSnapshot]:
+def snapshot(d1: List[Candle], period: int = 5) -> Optional[AdrSnapshot]:
     if len(d1) < period + 2:
         return None
     a = atr(d1[:-1], period)  # ATR on completed days

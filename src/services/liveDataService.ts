@@ -301,7 +301,7 @@ class LiveDataService {
         swingDetector: {
           leftBars: 3,
           rightBars: 3,
-          minSwingDistance: { mode: 'atr', value: 0.5, atrPeriod: 14 },
+          minSwingDistance: { mode: 'atr', value: 0.5, atrPeriod: 5 },
           invalidation: { replaceWithMoreExtreme: true, requireAlternation: true },
         },
       });

@@ -1714,7 +1714,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
         if adr is None:
             return self._error(422, "insufficient daily candles for ADR")
         body = adr.__dict__.copy()
-        body.update({"pair": pair, "period": 14, "day_time": candles[-1].time})
+        body.update({"pair": pair, "period": 5, "day_time": candles[-1].time})
         self._cache_set(cache_key, body, ttl=60, stale_ttl=300)
         self._json(200, body)
 

@@ -100,7 +100,7 @@ function getMinSwingThresholds(bars: SwingBar[], params: SwingDetectorParams): n
     return bars.map((bar) => ((bar.close ?? (bar.high + bar.low) / 2) * params.minSwingDistance.value) / 100);
   }
 
-  const atrPeriod = Math.max(2, params.minSwingDistance.atrPeriod ?? 14);
+  const atrPeriod = Math.max(2, params.minSwingDistance.atrPeriod ?? 5);
   const atr = calculateAtr(bars, atrPeriod);
   return atr.map((value) => value * params.minSwingDistance.value);
 }

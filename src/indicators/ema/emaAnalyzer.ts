@@ -255,7 +255,7 @@ export const analyzeEmaState = (
   const currentPrice = candles[candles.length - 1].close;
   
   // Calculate ATR for normalization
-  const atrValues = calculateAtr(candles, 14);
+  const atrValues = calculateAtr(candles, 5);
   const currentAtr = atrValues.length > 0 ? atrValues[atrValues.length - 1] : 0;
   
   // Detect stack
