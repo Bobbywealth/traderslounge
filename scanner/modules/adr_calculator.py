@@ -80,7 +80,7 @@ def _session_anchored_metrics(
         session_bars[0].time if session_bars else None,
         session_bars[-1].time if session_bars else None,
     )
-    if len(session_bars) < 2:
+    if len(session_bars) < 1:
         return None
     # First bar's open anchors the session. High/low span the session so far.
     first_open = session_bars[0].open
