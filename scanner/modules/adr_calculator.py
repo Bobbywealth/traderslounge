@@ -73,6 +73,13 @@ def _session_anchored_metrics(
         c for c in intraday
         if open_ts <= int(c.time) < close_ts and c.high > 0 and c.low > 0
     ]
+    import logging
+    logging.getLogger("adr").info(
+        "NY session window: open=%s close=%s intraday_count=%d matched=%d first=%s last=%s",
+        open_ts, close_ts, len(intraday), len(session_bars),
+        session_bars[0].time if session_bars else None,
+        session_bars[-1].time if session_bars else None,
+    )
     if len(session_bars) < 2:
         return None
     # First bar's open anchors the session. High/low span the session so far.
