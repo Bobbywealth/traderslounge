@@ -2917,6 +2917,29 @@ const TradingView: React.FC = () => {
               />
             </div>
           )}
+
+          {/* ADR top-left overlay - mirrors the MT4 "ADR / Today" pip ladder */}
+          {adrData && (
+            <div className="pointer-events-none absolute left-3 top-24 z-30 rounded-md border border-slate-700/60 bg-slate-950/85 px-2.5 py-1.5 font-mono text-[11px] leading-tight text-slate-200 shadow-lg backdrop-blur-sm">
+              <div className="text-cyan-300 font-bold tracking-wide">
+                {selectedSymbol}.{timeframe}{' '}
+                <span className="text-slate-400 font-normal">
+                  ADR High {adrData.adr_high.toFixed(2)} · Low {adrData.adr_low.toFixed(2)} · Open {adrData.day_open.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex gap-3">
+                <span className={adrData.exhausted ? 'text-rose-300' : 'text-amber-300'}>
+                  ADR {(adrData.adr * 100).toFixed(0)}
+                </span>
+                <span className={adrData.exhausted ? 'text-rose-300' : 'text-sky-300'}>
+                  Today {(adrData.current_range * 100).toFixed(0)}
+                </span>
+                <span className={adrData.exhausted ? 'text-rose-300' : 'text-emerald-300'}>
+                  {adrData.percent_used.toFixed(0)}%
+                </span>
+              </div>
+            </div>
+          )}
           
           {/* EMA Settings Panel - floating over chart */}
           {showEma && (
