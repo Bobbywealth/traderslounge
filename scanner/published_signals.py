@@ -65,6 +65,7 @@ def build_published_signal(analysis: dict[str, Any]) -> Optional[dict[str, Any]]
         "tp1": tp1,
         "tp2": tp2,
         "tp3": tp3,
+        "atr": _number(plan.get("atr")),
         "net_rr": _number(plan.get("net_available_rr") or plan.get("net_rr")),
         "risk_percent": _number(plan.get("account_risk_percent")),
         "calendar_status": str(plan.get("calendar_status") or (analysis.get("economic_calendar") or {}).get("status") or "UNAVAILABLE"),

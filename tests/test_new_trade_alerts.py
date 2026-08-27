@@ -10,6 +10,7 @@ from scanner.alert_preferences import (
     AlertPreferencesStore,
     AlertType,
     evaluate_new_trade,
+    evaluate_no_trade,
 )
 from scanner.persistence import SQLiteRepository
 
@@ -46,7 +47,10 @@ class NewTradeRuleTest(unittest.TestCase):
         self.assertEqual(len(events), 1)
         event = events[0]
         self.assertEqual(event.alert_type, AlertType.NEW_TRADE.value)
-        self.assertIn("NEW TRADE", event.title)
+        # New compact template: title is just "XAUUSD BUY" — the
+        # Telegram renderer adds the green emoji and details from the
+        # payload. The old verbose "NEW TRADE: ..." prefix is gone.
+        self.assertEqual(event.title, "XAUUSD BUY")
         self.assertEqual(event.payload["entry"], 4239.78)
         self.assertEqual(event.payload["stop"], 4199.20)
         self.assertEqual(event.payload["targets"], [4280.35, 4320.93, 4361.50])
@@ -121,6 +125,131 @@ class DurableAlertRepositoryTest(unittest.TestCase):
         self.assertEqual(active[0]["direction"], "SELL")
         history = self.repo.published()
         self.assertEqual({row["status"] for row in history}, {"ACTIVE", "CANCELLED"})
+
+
+class QualityGateTest(unittest.TestCase):
+    """Bobby's spec: prefer NO TRADE over manufacturing a weak trade.
+
+    New-trade alerts must be suppressed when:
+      * score < 65
+      * net R:R < 1.5
+      * calendar status is BLOCKED / POST_NEWS
+      * live spot is more than $5 (for XAUUSD) off the cached bar
+    """
+
+    def _signal(self, **overrides):
+        base = _published()
+        base.update(overrides)
+        return base
+
+    def test_score_below_threshold_is_suppressed(self):
+        prefs = AlertPreferences(user_id=1)
+        self.assertEqual(evaluate_new_trade(prefs, self._signal(score=64)), [])
+        self.assertEqual(evaluate_new_trade(prefs, self._signal(score=50)), [])
+
+    def test_score_at_threshold_passes(self):
+        prefs = AlertPreferences(user_id=1)
+        events = evaluate_new_trade(prefs, self._signal(score=65))
+        self.assertEqual(len(events), 1)
+
+    def test_rr_below_threshold_is_suppressed(self):
+        prefs = AlertPreferences(user_id=1)
+        self.assertEqual(evaluate_new_trade(prefs, self._signal(net_rr=1.4)), [])
+        self.assertEqual(evaluate_new_trade(prefs, self._signal(net_rr=0.8)), [])
+
+    def test_rr_at_threshold_passes(self):
+        prefs = AlertPreferences(user_id=1)
+        events = evaluate_new_trade(prefs, self._signal(net_rr=1.5))
+        self.assertEqual(len(events), 1)
+
+    def test_calendar_blocked_suppresses_alert(self):
+        prefs = AlertPreferences(user_id=1)
+        self.assertEqual(
+            evaluate_new_trade(prefs, self._signal(calendar_status="BLOCKED")),
+            [],
+        )
+        self.assertEqual(
+            evaluate_new_trade(prefs, self._signal(calendar_status="POST_NEWS")),
+            [],
+        )
+
+    def test_calendar_clear_passes(self):
+        prefs = AlertPreferences(user_id=1)
+        events = evaluate_new_trade(prefs, self._signal(calendar_status="CLEAR"))
+        self.assertEqual(len(events), 1)
+
+    def test_stale_live_price_suppresses_alert(self):
+        prefs = AlertPreferences(user_id=1)
+        self.assertEqual(
+            evaluate_new_trade(prefs, self._signal(live_price_stale=True)),
+            [],
+        )
+
+    def test_payload_includes_atr_and_rationale(self):
+        prefs = AlertPreferences(user_id=1)
+        events = evaluate_new_trade(prefs, self._signal(atr=12.0))
+        self.assertEqual(events[0].payload["atr"], 12.0)
+        self.assertIn("Structure", events[0].payload["rationale"])
+        # ``why`` is the rationale joined with " + " — the "Why:" label
+        # is added by the Telegram renderer, not by this evaluator.
+        self.assertEqual(events[0].payload["why"], "Structure + Momentum")
+
+
+class NoTradeTransitionTest(unittest.TestCase):
+    """NO_TRADE alert fires only on the BUY/SELL → NEUTRAL transition."""
+
+    def _analysis(self, direction, *, score=20, blocking=None):
+        return {
+            "pair": "XAUUSD",
+            "direction": direction,
+            "total_score": score,
+            "data_quality": {"primary_timeframe": "1h"},
+            "trade_timing": {"status": "WAIT"},
+            "trade_plan": {"blocking_reasons": blocking or ["HTF conflict"]},
+        }
+
+    def test_fires_on_buy_to_neutral_transition(self):
+        prefs = AlertPreferences(user_id=1)
+        events = evaluate_no_trade(
+            prefs,
+            self._analysis("NEUTRAL"),
+            last_analysis=self._analysis("BUY"),
+        )
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].alert_type, "no_trade")
+        self.assertIn("HTF conflict", events[0].body)
+
+    def test_does_not_fire_when_already_neutral(self):
+        prefs = AlertPreferences(user_id=1)
+        events = evaluate_no_trade(
+            prefs,
+            self._analysis("NEUTRAL"),
+            last_analysis=self._analysis("NEUTRAL"),
+        )
+        self.assertEqual([], events)
+
+    def test_does_not_fire_when_now_actionable(self):
+        prefs = AlertPreferences(user_id=1)
+        events = evaluate_no_trade(
+            prefs,
+            self._analysis("BUY"),
+            last_analysis=self._analysis("NEUTRAL"),
+        )
+        self.assertEqual([], events)
+
+    def test_respects_watchlist(self):
+        prefs = AlertPreferences(user_id=1, watchlist=["BTCUSD"])
+        events = evaluate_no_trade(
+            prefs,
+            self._analysis("NEUTRAL"),
+            last_analysis=self._analysis("BUY"),
+        )
+        self.assertEqual([], events)
+
+    def test_no_previous_snapshot_no_fire(self):
+        prefs = AlertPreferences(user_id=1)
+        events = evaluate_no_trade(prefs, self._analysis("NEUTRAL"), last_analysis=None)
+        self.assertEqual([], events)
 
 
 if __name__ == "__main__":

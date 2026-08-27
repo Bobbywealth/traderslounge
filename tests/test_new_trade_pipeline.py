@@ -95,7 +95,10 @@ class NewTradePipelineTest(unittest.TestCase):
         self.assertEqual(feed[0]["alert_type"], "new_trade")
         self.assertEqual(feed[0]["payload"]["entry"], 4239.78)
         self.assertEqual(len(self.bot.events), 1)
-        self.assertEqual(self.bot.events[0][0]["title"], "NEW TRADE: XAUUSD BUY")
+        # New compact format: title dropped to "XAUUSD BUY" — the
+        # Telegram renderer adds the colored emoji and the rest of
+        # the card from payload fields.
+        self.assertEqual(self.bot.events[0][0]["title"], "XAUUSD BUY")
 
     def test_monitor_builds_without_an_http_request(self):
         stop = start_signal_monitor(self.state, interval_seconds=30)

@@ -78,15 +78,42 @@ def tier_for(score: int) -> Tier:
 
 
 def session_for(epoch_seconds: int) -> str:
-    """Crude UTC-hour session tagger. Spec calls for Asian/London/NY."""
+    """Return the trading session tag for ``epoch_seconds`` (UTC).
+
+    Sessions are defined as the open hours when each market actively
+    trades, with overlaps where liquidity is highest. XAUUSD trades
+    23h/day with thin liquidity 21:00–00:00 UTC, so we label that
+    After Hours rather than claiming an "Asian" open that doesn't
+    match the real volumes.
+
+    Boundaries (UTC):
+      - Asian         : 00:00 - 06:59
+      - London        : 07:00 - 11:59
+      - London/NY     : 12:00 - 16:59  (highest liquidity for FX/gold)
+      - New York      : 17:00 - 20:59
+      - After Hours   : 21:00 - 23:59
+    """
     import datetime as _dt
-    h = _dt.datetime.utcfromtimestamp(epoch_seconds).hour
+    dt = _dt.datetime.fromtimestamp(epoch_seconds, tz=_dt.timezone.utc)
+    h = dt.hour
     if 0 <= h < 7:
         return "Asian"
     if 7 <= h < 12:
         return "London"
-    if 12 <= h < 16:
-        return "London/NY Overlap"
-    if 16 <= h < 21:
+    if 12 <= h < 17:
+        return "London/NY"
+    if 17 <= h < 21:
         return "New York"
     return "After Hours"
+
+
+def is_high_impact_session(epoch_seconds: int) -> bool:
+    """True if the bar time lands in the London/NY overlap window.
+
+    The overlap is when most USD/CAD/EUR/GBP pairs see their biggest
+    moves, and the XAUUSD ADR is most likely to exhaust. ConfluenceX
+    uses this to weight timing-readiness scores for short-term plays.
+    """
+    import datetime as _dt
+    dt = _dt.datetime.fromtimestamp(epoch_seconds, tz=_dt.timezone.utc)
+    return 12 <= dt.hour < 17

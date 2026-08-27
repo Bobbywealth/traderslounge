@@ -108,8 +108,10 @@ from .alert_preferences import (
     AlertPreferencesStore,
     alert_event_key,
     evaluate_new_trade,
+    evaluate_no_trade,
     evaluate_rules,
 )
+from .live_price import LivePriceClient, get_default_client as _default_live_client
 from .telegram_bot import TelegramBot
 from .push_subscriptions import PushSubscription, PushSubscriptionStore
 from .push_delivery import send_alert_push, is_configured as push_is_configured
@@ -2174,6 +2176,52 @@ class _ApiHandler(BaseHTTPRequestHandler):
         self._json(200, {"set_webhook": result, "webhook_info": info})
 
 
+def _enrich_with_live_price(new_trade: dict, analysis: dict) -> dict:
+    """Cross-check a published signal's entry against the live spot.
+
+    For XAUUSD this attaches ``live_price``, ``stale_minutes``, and a
+    ``live_price_stale`` flag to the payload so the alert template can
+    either show the live tick in the alert body or refuse the alert
+    when the cached bar is too far from the live tick.
+
+    Returns the input dict with extra fields; non-XAUUSD pairs pass
+    through unchanged. Never raises — the rest of the alert pipeline
+    depends on this being best-effort.
+    """
+    if not new_trade:
+        return new_trade
+    pair = str(new_trade.get("pair") or "").upper()
+    if pair != "XAUUSD":
+        return new_trade
+    quality = (analysis or {}).get("data_quality") or {}
+    ref_price = quality.get("reference_price")
+    closed_bar_time = quality.get("closed_bar_time")
+    candle_time = new_trade.get("source_candle_time") or closed_bar_time
+    try:
+        client = _default_live_client()
+        live_check = client.validate_reference_price(ref_price, pair=pair)
+    except Exception:
+        logging.exception("live price cross-check failed for %s", pair)
+        return new_trade
+    enriched = dict(new_trade)
+    enriched["live_price"] = live_check.get("live_price")
+    enriched["live_price_stale"] = bool(live_check.get("stale"))
+    # Stale minutes: how old is the published candle right now?
+    stale_minutes = None
+    if candle_time:
+        try:
+            now_ts = time.time()
+            candle_ts = float(candle_time)
+            # candle_time may be unix seconds or ms.
+            if candle_ts > now_ts * 1000:
+                candle_ts = candle_ts / 1000.0
+            stale_minutes = max(0, int((now_ts - candle_ts) // 60))
+        except (TypeError, ValueError):
+            stale_minutes = None
+    enriched["stale_minutes"] = stale_minutes
+    return enriched
+
+
     def _evaluate_and_persist_alerts(
         self,
         analysis: dict,
@@ -2201,7 +2249,15 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 # published call. Suppress the older generic confirmation event
                 # on that same cycle so Telegram receives one clear message.
                 events = [event for event in events if event.alert_type != "confirmation"]
+                # Cross-check the published entry price against the live spot
+                # for XAUUSD so we never publish a stale-bar alert.
+                new_trade = _enrich_with_live_price(new_trade, analysis)
                 events.extend(evaluate_new_trade(prefs, new_trade))
+            else:
+                # No actionable signal this cycle. If we used to have a
+                # direction and now we're NEUTRAL, tell the user we are
+                # staying out (one alert per 4-hour cooldown window).
+                events.extend(evaluate_no_trade(prefs, analysis, last_analysis))
             if not events:
                 continue
             event_dicts = [event.to_dict() for event in events]

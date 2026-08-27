@@ -60,6 +60,10 @@ class TelegramBot:
         self._rate_lock = threading.Lock()
         self._chat_to_user: dict[int, int] = {}
         self._chat_lock = threading.Lock()
+        # Per-pair+direction cooldown so a chatty market can't replay the
+        # same setup every scanner cycle. See ``should_send`` for policy.
+        self._alert_cooldowns: dict[str, float] = {}
+        self._cooldowns_lock = threading.Lock()
 
     @property
     def is_configured(self) -> bool:
@@ -362,37 +366,220 @@ class TelegramBot:
         return (arg or "").strip().upper().replace("/", "").replace("-", "")
 
     @staticmethod
-    def format_event(event):
+    def _fmt_price(value, decimals=2):
+        """Render a price with at most ``decimals`` decimals, no scientific."""
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return "-"
+        # No thousands separator on purpose — Bobby's preferred alert
+        # format keeps prices compact and aligned (e.g. "3387.00" not
+        # "3,387.00"). Comma noise also fights Telegram's monospace
+        # alignment in <code> blocks.
+        return f"{v:.{decimals}f}"
+
+    @staticmethod
+    def _fmt_ratio(rr):
+        try:
+            r = float(rr)
+        except (TypeError, ValueError):
+            return "1:0"
+        return f"1:{r:.1f}"
+
+    @staticmethod
+    def _entry_zone(entry, atr_value):
+        """Turn a single entry price into a tight zone (entry ± 0.25*ATR).
+
+        Gold-style instruments trade in tight zones around the planned
+        entry, not exact ticks. A zone also gives the trader room to
+        scale in rather than chasing a single price level.
+        """
+        try:
+            entry_f = float(entry)
+        except (TypeError, ValueError):
+            return "-"
+        try:
+            atr_f = float(atr_value) if atr_value is not None else 0.0
+        except (TypeError, ValueError):
+            atr_f = 0.0
+        # Default zone width: 0.4*ATR, clamped to sensible gold range.
+        half = atr_f * 0.20 if atr_f > 0 else max(0.5, abs(entry_f) * 0.001)
+        low = entry_f - half
+        high = entry_f + half
+        return f"{low:.2f}–{high:.2f}"
+
+    @classmethod
+    def format_event(cls, event):
+        """Render an alert in the compact, action-first format Bobby asked for.
+
+        Compact ``NEW_TRADE`` shape::
+
+            🟢 XAUUSD BUY
+            Entry: 3387.50–3389.00
+            SL:    3381.00
+            TP1:   3395.00  TP2: 3402.00
+            R:R:   1:2.1   Conf: 82%
+            Why:   H1 bullish BOS + M15 retest + EMA50 support
+            Risk:  USD CPI 10:00 ET (15m)
+            Bar:   H1 closed 13:00 UTC · live 3388.40
+
+        All other event types fall back to a compact summary so the bot
+        never spams long paragraphs into Telegram.
+        """
+        alert_type = (event.get("alert_type") or "").lower()
         title = event.get("title") or "Alert"
         body = event.get("body") or ""
-        severity = event.get("severity") or "info"
+        severity = (event.get("severity") or "info").lower()
         payload = event.get("payload") or {}
-        pair = event.get("pair") or ""
-        timeframe = event.get("timeframe") or ""
-        direction = payload.get("direction") or ""
+        pair = (event.get("pair") or payload.get("pair") or "").upper()
+        timeframe = (event.get("timeframe") or payload.get("timeframe") or "").upper()
+        direction = (payload.get("direction") or "").upper()
 
-        emoji = {"info": "[INFO]", "warning": "[WARN]", "critical": "[CRIT]"}.get(severity, "[INFO]")
-
-        head = f"{emoji} <b>{title}</b>"
-        if pair:
-            head += f"\nPair: <code>{pair}</code>"
-        if timeframe:
-            head += f"  TF: <code>{timeframe}</code>"
-
-        details = body
-        if payload.get("entry") is not None and payload.get("stop") is not None:
-            targets = payload.get("targets") or []
-            target_str = ", ".join(str(t) for t in targets) if targets else "-"
-            details += (
-                f"\nDirection: <b>{direction or '-'}</b>"
-                f"\nEntry: <code>{payload.get('entry')}</code>"
-                f"\nStop: <code>{payload.get('stop')}</code>"
-                f"\nTargets: <code>{target_str}</code>"
+        # --- Actionable guarded trade call (compact card) ----------------
+        if alert_type == "new_trade" or (
+            payload.get("entry") is not None
+            and payload.get("stop") is not None
+            and direction in ("BUY", "SELL")
+        ):
+            return cls._format_compact_trade(
+                pair=pair, timeframe=timeframe, direction=direction,
+                payload=payload, title=title, body=body, severity=severity,
             )
 
-        return f"{head}\n\n{details}".strip()
+        # --- News risk / invalidation / confirmation / fallback -----------
+        return cls._format_status_event(
+            alert_type=alert_type, pair=pair, timeframe=timeframe,
+            title=title, body=body, severity=severity, payload=payload,
+        )
 
-    def dispatch_event(self, event, user_prefs):
+    @classmethod
+    def _format_compact_trade(cls, *, pair, timeframe, direction, payload, title, body, severity):
+        entry = payload.get("entry")
+        stop = payload.get("stop") or payload.get("stop_loss")
+        atr = payload.get("atr")
+        targets = payload.get("targets") or []
+        targets = [t for t in targets if t is not None]
+        score = payload.get("score")
+        net_rr = payload.get("net_rr")
+        rationale = payload.get("rationale") or []
+        why = payload.get("why")  # explicit override if caller pre-formats
+        risk = payload.get("risk")  # next news event string
+        bar_time = payload.get("bar_time") or payload.get("source_candle_time")
+        live_price = payload.get("live_price")
+        stale_minutes = payload.get("stale_minutes")
+
+        emoji = {"buy": "🟢", "sell": "🔴"}.get(direction.lower(), "⚪️")
+        head = f"{emoji} <b>{pair} {direction}</b>"
+        if timeframe:
+            head += f"  <i>{timeframe}</i>"
+
+        zone = cls._entry_zone(entry, atr)
+        lines = [head, f"Entry: <code>{zone}</code>"]
+
+        if stop is not None:
+            lines.append(f"SL:    <code>{cls._fmt_price(stop)}</code>")
+        for idx, target in enumerate(targets[:3], start=1):
+            label = f"TP{idx}"
+            lines.append(f"{label}:   <code>{cls._fmt_price(target)}</code>")
+
+        meta_bits = []
+        if net_rr is not None:
+            meta_bits.append(f"R:R <code>{cls._fmt_ratio(net_rr)}</code>")
+        if score is not None:
+            meta_bits.append(f"Conf <code>{int(score)}/100</code>")
+        if meta_bits:
+            lines.append(" · ".join(meta_bits))
+
+        if not why and rationale:
+            # rationale is a list of category names like ["H1 Bullish Structure",
+            # "M15 Breakout Retest", "EMA Support"]. Turn into a compact
+            # "Why" line the user can read in 1 second.
+            why = " + ".join(str(r) for r in rationale[:3])
+        if why:
+            lines.append(f"<i>Why:</i> {why}")
+
+        if risk:
+            lines.append(f"<i>Risk:</i> {risk}")
+
+        # Show where the alert's "entry" actually came from so the user can
+        # tell at-a-glance whether they're looking at a live tick, an H1
+        # candle close, or a stale bar.
+        src_bits = []
+        if bar_time:
+            try:
+                src_bits.append(f"bar {bar_time}")
+            except Exception:
+                pass
+        if live_price is not None:
+            src_bits.append(f"live <code>{cls._fmt_price(live_price)}</code>")
+        if stale_minutes is not None and int(stale_minutes) > 0:
+            src_bits.append(f"<b>stale {int(stale_minutes)}m</b>")
+        if src_bits:
+            lines.append(f"<i>Source:</i> {' · '.join(src_bits)}")
+
+        if severity == "critical":
+            lines.append("⚠ <b>CRITICAL</b>")
+        elif severity == "warning":
+            lines.append("⚠ <i>heads-up</i>")
+
+        return "\n".join(lines)
+
+    @classmethod
+    def _format_status_event(cls, *, alert_type, pair, timeframe, title, body, severity, payload):
+        emoji = {"info": "ℹ️", "warning": "⚠️", "critical": "🚨"}.get(severity, "ℹ️")
+        head_bits = [emoji]
+        if pair:
+            head_bits.append(f"<b>{pair}</b>")
+        if alert_type:
+            head_bits.append(f"<i>{alert_type.replace('_', ' ')}</i>")
+        if timeframe:
+            head_bits.append(f"({timeframe})")
+        head = " ".join(head_bits)
+        # Keep the body but trim noisy boilerplate — at most 4 lines, ~400 chars.
+        compact_body = (body or title).strip().replace("\n", " · ")
+        if len(compact_body) > 380:
+            compact_body = compact_body[:377] + "..."
+        lines = [head, compact_body]
+        if payload.get("calendar_status"):
+            lines.append(f"Calendar: <code>{payload['calendar_status']}</code>")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _cooldown_key(pair, direction, alert_type):
+        return f"{(pair or '').upper()}|{(direction or '').upper()}|{(alert_type or '').lower()}"
+
+    def should_send(self, event, cooldown_minutes=60):
+        """Return True if the alert is past its cooldown window.
+
+        Trade-call cooldowns default to 60 minutes for the same
+        pair+direction so a quiet market can't replay the same setup
+        every scan cycle. WAIT/NO_TRADE and NEWS_RISK have shorter
+        windows so the user still gets the protective context.
+        """
+        payload = event.get("payload") or {}
+        pair = (event.get("pair") or payload.get("pair") or "").upper()
+        direction = (payload.get("direction") or "").upper()
+        alert_type = (event.get("alert_type") or "").lower()
+        if not pair:
+            return True
+        # Only cooldown actionable trade-call alerts; never gate warnings.
+        if alert_type and alert_type not in ("new_trade", "entry_zone", "confirmation"):
+            return True
+        key = self._cooldown_key(pair, direction, alert_type)
+        now = time.time()
+        with self._cooldowns_lock:
+            last = self._alert_cooldowns.get(key)
+            if last is None or (now - last) >= cooldown_minutes * 60:
+                self._alert_cooldowns[key] = now
+                return True
+            remaining = cooldown_minutes - (now - last) / 60
+        logger.info(
+            "telegram cooldown active for %s (%.0fm remaining); dropping alert",
+            key, remaining,
+        )
+        return False
+
+    def dispatch_event(self, event, user_prefs, *, cooldown_minutes=60):
         if not self.is_configured:
             return False
         if not user_prefs:
@@ -404,6 +591,8 @@ class TelegramBot:
             return False
         if not self.allow_send(chat_id):
             logger.info("telegram rate limit hit for chat %s; dropping alert", chat_id)
+            return False
+        if not self.should_send(event, cooldown_minutes=cooldown_minutes):
             return False
         text = self.format_event(event)
         result = self.send_message(chat_id, text)
