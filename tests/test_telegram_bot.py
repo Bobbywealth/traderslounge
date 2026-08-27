@@ -286,12 +286,16 @@ class TelegramBotFormatTest(unittest.TestCase):
                 },
             }
         )
-        # Compact shape: pair, direction, TF, zone, stop, tp1, tp2, score, RR.
+        # Compact shape: pair, direction, zone, stop, tp1, tp2, score, RR.
+        # TF dropped from header in v2; only first 2 targets shown.
         self.assertIn("BTCUSD", text)
-        self.assertIn("4H", text)
         self.assertIn("66200", text)  # stop
         self.assertIn("69000", text)  # tp1
         self.assertIn("71000", text)  # tp2
+        self.assertIn("78", text)     # score
+        self.assertIn("2.3", text)    # rr
+        # No TF in the header — the rationale line carries it instead.
+        self.assertNotIn("4H", text.split("\n")[0])
         self.assertIn("78", text)     # score
         self.assertIn("2.3", text)    # rr
         # Compact: no verbose body, no Entry label-only line for single price.
@@ -338,18 +342,23 @@ class TelegramBotFormatTest(unittest.TestCase):
             },
         })
         # Bobby's example: "🟢 XAUUSD BUY / Entry: 3387–3389 / SL: 3381 / TP1: 3395 / TP2: 3402 / R:R: 1:2.1 / Confidence: 82%"
+        # TP3 is dropped from the default card (stretch target almost never fills in the same session).
         for needle in (
-            "XAUUSD", "BUY", "3381.00", "3395.00", "3402.00", "3410.00",
+            "XAUUSD", "BUY", "3381.00", "3395.00", "3402.00",
             "1:2.1", "82",
             "H1 bullish BOS", "USD CPI 10:00 ET",
             "3388.40",
         ):
             self.assertIn(needle, text, f"missing {needle} in:\n{text}")
+        # TP3 must NOT appear in the compact card.
+        self.assertNotIn("3410.00", text, f"TP3 leaked into compact card:\n{text}")
         # Compact: should NOT include verbose boilerplate from the old format.
-        for forbidden in ("Direction:", "Targets:", "Pair:", "TF:", "[INFO]"):
+        for forbidden in ("Direction:", "Targets:", "Pair:", "TF:", "[INFO]", "Source:"):
             self.assertNotIn(forbidden, text, f"verbose boilerplate leaked: {forbidden}")
-        # Sanity bound: should be readable in 5–10 seconds, not a paragraph.
-        self.assertLess(len(text), 500, f"alert too long ({len(text)} chars):\n{text}")
+        # Sanity bound: Bobby's spec was ~5–10 seconds scannable, so the
+        # default compact card is bounded at 400 chars / 10 lines.
+        self.assertLess(len(text), 400, f"alert too long ({len(text)} chars):\n{text}")
+        self.assertLessEqual(text.count("\n") + 1, 10, f"too many lines ({text.count(chr(10)) + 1}):\n{text}")
 
     def test_format_compact_includes_why_line(self):
         text = TelegramBot.format_event({
