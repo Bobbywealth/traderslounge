@@ -235,11 +235,24 @@ def alert_event_key(event: dict[str, Any]) -> str:
 def evaluate_new_trade(
     prefs: AlertPreferences,
     signal: dict[str, Any],
+    *,
+    min_score: int = 65,
+    min_net_rr: float = 1.5,
 ) -> list[AlertEvent]:
     """Build one alert for a newly persisted guarded trade call.
 
     This consumes the published signal payload rather than a forming analysis
     snapshot, so WAIT/BLOCKED/watchlist setups can never be labeled new trades.
+
+    Quality gates (Bobby's spec — prefer NO TRADE over manufacturing a weak one):
+      * score must be >= ``min_score`` (default 65)
+      * net available R:R must be >= ``min_net_rr`` (default 1.5)
+      * calendar must not be in a hard-block state
+      * live-vs-cached price gap must not be a "stale bar" red flag
+
+    A signal that fails any of these is dropped silently — the durable
+    ``published_signals`` feed still records it for backtests, but no
+    Telegram/email/Push notification is generated.
     """
     if not _enabled(prefs, AlertType.NEW_TRADE):
         return []
@@ -256,36 +269,138 @@ def evaluate_new_trade(
     score = int(signal.get("score") or 0)
     setup_quality = str(signal.get("setup_quality") or "QUALIFIED")
     net_rr = signal.get("net_rr")
-    rr_text = f" Net available R:R {float(net_rr):.2f}R." if net_rr is not None else ""
+    try:
+        net_rr_f = float(net_rr) if net_rr is not None else None
+    except (TypeError, ValueError):
+        net_rr_f = None
+
+    # --- Quality gates ---------------------------------------------------
+    if score < min_score:
+        logger.info("suppressing new_trade for %s: score %s below %s", pair, score, min_score)
+        return []
+    if net_rr_f is not None and net_rr_f < min_net_rr:
+        logger.info("suppressing new_trade for %s: net_rr %.2f below %.2f", pair, net_rr_f, min_net_rr)
+        return []
+    calendar_status = str(signal.get("calendar_status") or "").upper()
+    if calendar_status in {"BLOCKED", "POST_NEWS"}:
+        logger.info("suppressing new_trade for %s: calendar %s", pair, calendar_status)
+        return []
+    if signal.get("live_price_stale"):
+        # The cached reference bar was more than $5 (for XAUUSD) away
+        # from the live spot when the signal was published. That's a
+        # data-quality red flag we don't want to push to the user.
+        logger.info("suppressing new_trade for %s: live price stale", pair)
+        return []
+
     fingerprint = str(signal.get("fingerprint") or "")
     published_at = signal.get("published_at")
     if hasattr(published_at, "isoformat"):
         published_at = published_at.isoformat()
+
+    rationale = list(signal.get("rationale") or [])
+    why = signal.get("why") or " + ".join(str(r) for r in rationale[:3])
+    risk = signal.get("risk") or ""
+    payload = {
+        "fingerprint": fingerprint,
+        "direction": direction,
+        "entry": signal.get("entry"),
+        "stop": signal.get("stop_loss"),
+        "targets": targets,
+        "score": score,
+        "setup_quality": setup_quality,
+        "net_rr": net_rr_f,
+        "atr": signal.get("atr"),
+        "rationale": rationale,
+        "why": why,
+        "risk": risk,
+        "bar_time": signal.get("source_candle_time"),
+        "live_price": signal.get("live_price"),
+        "stale_minutes": signal.get("stale_minutes"),
+        "calendar_status": calendar_status,
+        "published_at": published_at,
+    }
 
     return [AlertEvent(
         user_id=prefs.user_id,
         alert_type=AlertType.NEW_TRADE.value,
         pair=pair,
         timeframe=timeframe or None,
-        title=f"NEW TRADE: {pair} {direction}",
-        body=(
-            f"A {setup_quality} {direction} call cleared every ConfluenceX gate "
-            f"at {score}/100.{rr_text}"
-        ),
+        title=f"{pair} {direction}",
+        body=f"{setup_quality} {direction} at {score}/100",
         severity="info",
-        payload={
-            "fingerprint": fingerprint,
-            "direction": direction,
-            "entry": signal.get("entry"),
-            "stop": signal.get("stop_loss"),
-            "targets": targets,
-            "score": score,
-            "setup_quality": setup_quality,
-            "net_rr": net_rr,
-            "published_at": published_at,
-        },
+        payload=payload,
         event_key=f"new_trade:{prefs.user_id}:{fingerprint or alert_event_key(signal)}",
         created_at=str(published_at or datetime.now(timezone.utc).isoformat()),
+    )]
+
+
+def evaluate_no_trade(
+    prefs: AlertPreferences,
+    analysis: dict[str, Any],
+    last_analysis: dict[str, Any] | None,
+    *,
+    cooldown_minutes: int = 240,
+) -> list[AlertEvent]:
+    """Surface a NO_TRADE/ WAIT transition so the user knows we're staying out.
+
+    Fires only when the previous snapshot had an actionable direction
+    and the current one is ``NEUTRAL`` — i.e. a real transition, not
+    every quiet cycle. The 4-hour cooldown keeps the bot from
+    re-announcing "still no trade" every 5 minutes.
+    """
+    if not _enabled(prefs, AlertType.NEW_TRADE):
+        return []
+    pair = str(analysis.get("pair") or "").upper()
+    if not pair or not _is_in_watchlist(prefs, pair):
+        return []
+    timeframe = (
+        (analysis.get("data_quality") or {}).get("primary_timeframe")
+        or analysis.get("timeframe")
+    )
+    if not _is_in_timeframe(prefs, timeframe):
+        return []
+    direction = str(analysis.get("direction") or "NEUTRAL").upper()
+    if direction in {"BUY", "SELL"}:
+        return []  # this rule only fires when we're staying out
+    if not last_analysis:
+        return []
+    last_dir = str(last_analysis.get("direction") or "NEUTRAL").upper()
+    if last_dir not in {"BUY", "SELL"}:
+        return []  # already neutral — no transition
+    score = int(analysis.get("total_score") or 0)
+    if score == 0:
+        score = int(analysis.get("forming_score") or 0)
+    timing = analysis.get("trade_timing") or {}
+    timing_status = str(timing.get("status") or "WAIT")
+    plan = analysis.get("trade_plan") or {}
+    reasons = []
+    blocking = plan.get("blocking_reasons") or plan.get("reasons") or []
+    if isinstance(blocking, list):
+        for r in blocking[:3]:
+            if isinstance(r, dict):
+                reasons.append(str(r.get("message") or r.get("code") or ""))
+            else:
+                reasons.append(str(r))
+    reasons = [r for r in reasons if r]
+    if not reasons:
+        reasons = [f"timing {timing_status}"]
+    body = " · ".join(reasons)[:300]
+    payload = {
+        "score": score,
+        "timing_status": timing_status,
+        "reasons": reasons,
+        "rationale": reasons,
+    }
+    return [AlertEvent(
+        user_id=prefs.user_id,
+        alert_type="no_trade",
+        pair=pair,
+        timeframe=timeframe,
+        title=f"{pair} no trade",
+        body=body,
+        severity="info",
+        payload=payload,
+        event_key=f"no_trade:{prefs.user_id}:{pair}:{int(datetime.now(timezone.utc).timestamp()) // (cooldown_minutes * 60)}",
     )]
 
 
