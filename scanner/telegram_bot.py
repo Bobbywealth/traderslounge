@@ -457,30 +457,37 @@ class TelegramBot:
         entry = payload.get("entry")
         stop = payload.get("stop") or payload.get("stop_loss")
         atr = payload.get("atr")
-        targets = payload.get("targets") or []
-        targets = [t for t in targets if t is not None]
+        targets = [t for t in (payload.get("targets") or []) if t is not None]
         score = payload.get("score")
         net_rr = payload.get("net_rr")
         rationale = payload.get("rationale") or []
-        why = payload.get("why")  # explicit override if caller pre-formats
-        risk = payload.get("risk")  # next news event string
+        why = payload.get("why")
+        risk = payload.get("risk")
         bar_time = payload.get("bar_time") or payload.get("source_candle_time")
         live_price = payload.get("live_price")
         stale_minutes = payload.get("stale_minutes")
+        try:
+            stale_minutes_int = int(stale_minutes) if stale_minutes is not None else None
+        except (TypeError, ValueError):
+            stale_minutes_int = None
 
         emoji = {"buy": "🟢", "sell": "🔴"}.get(direction.lower(), "⚪️")
-        head = f"{emoji} <b>{pair} {direction}</b>"
-        if timeframe:
-            head += f"  <i>{timeframe}</i>"
-
-        zone = cls._entry_zone(entry, atr)
-        lines = [head, f"Entry: <code>{zone}</code>"]
+        # Header: pair + direction only. TF is dropped because the compact
+        # card is meant to be scannable in 5 seconds; the timeframe lives
+        # in the rationale ("H1 BOS") when it matters.
+        lines = [f"{emoji} <b>{pair} {direction}</b>"]
+        lines.append(f"Entry: <code>{cls._entry_zone(entry, atr)}</code>")
 
         if stop is not None:
-            lines.append(f"SL:    <code>{cls._fmt_price(stop)}</code>")
-        for idx, target in enumerate(targets[:3], start=1):
-            label = f"TP{idx}"
-            lines.append(f"{label}:   <code>{cls._fmt_price(target)}</code>")
+            lines.append(f"SL: <code>{cls._fmt_price(stop)}</code>")
+
+        # TP1 + TP2 inline. TP3 is a stretch target that almost never
+        # fills in the same session, so we drop it from the default card.
+        tp_line_bits = []
+        for idx, target in enumerate(targets[:2], start=1):
+            tp_line_bits.append(f"TP{idx}: <code>{cls._fmt_price(target)}</code>")
+        if tp_line_bits:
+            lines.append("  ".join(tp_line_bits))
 
         meta_bits = []
         if net_rr is not None:
@@ -490,32 +497,30 @@ class TelegramBot:
         if meta_bits:
             lines.append(" · ".join(meta_bits))
 
+        # Why is the only "story" we tell — keep it to a single tight
+        # clause so the whole card stays scannable.
         if not why and rationale:
-            # rationale is a list of category names like ["H1 Bullish Structure",
-            # "M15 Breakout Retest", "EMA Support"]. Turn into a compact
-            # "Why" line the user can read in 1 second.
             why = " + ".join(str(r) for r in rationale[:3])
         if why:
-            lines.append(f"<i>Why:</i> {why}")
+            lines.append(f"<i>{why}</i>")
 
+        # Conditional context: only shown when the alert carries actionable
+        # info the compact card should not bury. Stale data and live-tick
+        # drift are surfaced as a single inline tag, not a Source: line.
+        risk_bits = []
         if risk:
-            lines.append(f"<i>Risk:</i> {risk}")
-
-        # Show where the alert's "entry" actually came from so the user can
-        # tell at-a-glance whether they're looking at a live tick, an H1
-        # candle close, or a stale bar.
-        src_bits = []
-        if bar_time:
+            risk_bits.append(f"Risk: {risk}")
+        if live_price is not None and entry is not None:
             try:
-                src_bits.append(f"bar {bar_time}")
-            except Exception:
+                drift = abs(float(live_price) - float(entry))
+                if drift >= 3.0:
+                    risk_bits.append(f"live <code>{cls._fmt_price(live_price)}</code>")
+            except (TypeError, ValueError):
                 pass
-        if live_price is not None:
-            src_bits.append(f"live <code>{cls._fmt_price(live_price)}</code>")
-        if stale_minutes is not None and int(stale_minutes) > 0:
-            src_bits.append(f"<b>stale {int(stale_minutes)}m</b>")
-        if src_bits:
-            lines.append(f"<i>Source:</i> {' · '.join(src_bits)}")
+        if stale_minutes_int is not None and stale_minutes_int >= 60:
+            risk_bits.append(f"⚠ stale {stale_minutes_int}m")
+        if risk_bits:
+            lines.append(" · ".join(risk_bits))
 
         if severity == "critical":
             lines.append("⚠ <b>CRITICAL</b>")
