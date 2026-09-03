@@ -3470,6 +3470,22 @@ def start_signal_monitor(
     return stop
 
 
+class _BwtsHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer tuned for the Live Scanner's bursty per-pair refresh.
+
+    The Live Scanner fans out 10–20 concurrent GET/OPTIONS requests per refresh
+    (one per pair plus preflight OPTIONS). The default ``request_queue_size=5``
+    is overwhelmed by that burst, surfacing as intermittent ``Failed to fetch``
+    / ``NO DATA`` on the client even when the data providers themselves are
+    healthy. Raising the backlog to 128 absorbs a full Live Scanner refresh
+    plus the dashboard/scanner background traffic without TCP-level drops.
+    ``daemon_threads=True`` ensures worker threads don't block process exit.
+    """
+
+    request_queue_size = 128
+    daemon_threads = True
+
+
 def make_server(state: ApiState, host: str = "0.0.0.0", port: int = 8000) -> ThreadingHTTPServer:
     set_state(state)
-    return ThreadingHTTPServer((host, port), _ApiHandler)
+    return _BwtsHTTPServer((host, port), _ApiHandler)
