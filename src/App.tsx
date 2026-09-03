@@ -17,6 +17,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import EconomicNews from './pages/EconomicNews';
 import Signals from './pages/Signals';
 import Education from './pages/Education';
+import Docs from './pages/Docs';
 import Community from './pages/Community';
 import LiveScanner from './pages/LiveScanner';
 import MarketAnalysis from './pages/MarketAnalysis';
@@ -182,6 +183,7 @@ const AppContent: React.FC = () => {
                 <Route path="/calendar" element={<EconomicNews />} />
                 <Route path="/economic-news" element={<Navigate to="/calendar" replace />} />
                 <Route path="/education" element={<Education />} />
+                <Route path="/docs" element={<Docs />} />
                 <Route path="/community" element={<Community />} />
               </Routes>
             </div>
