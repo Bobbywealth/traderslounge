@@ -137,6 +137,9 @@ MAX_BODY_BYTES_CHART_AI = 10 * 1024 * 1024
 # client IP. Capacity is the burst budget; refill is the sustained
 # allowance.
 RATE_LIMITS: dict[str, tuple[int, float]] = {
+    "/api/auth/register": (5, 5.0 / 60.0),          # anti-bruteforce + spam
+    "/api/auth/login": (10, 10.0 / 60.0),
+    "/api/auth/refresh": (30, 30.0 / 60.0),
     "/api/ai/analyze": (20, 20.0 / 60.0),          # 20 calls / minute
     "/api/debate": (10, 10.0 / 60.0),              # 10 council runs / minute
     "/api/ai/chart-analyze": (10, 10.0 / 60.0),   # 10 calls / minute
@@ -682,13 +685,19 @@ class _ApiHandler(BaseHTTPRequestHandler):
             metrics.increment('api.requests', labels={'path': path})
 
     def _route_post(self, path: str, body: dict) -> None:
-        # Auth + rate-limit gate for protected mutating routes. The
-        # public registration/login routes are intentionally exempt so
-        # new users can still obtain credentials.
-        if path not in {"/api/auth/register", "/api/auth/login", "/api/auth/refresh"}:
+        # Auth + rate-limit gate for protected mutating routes. Auth
+        # routes are exempt from the auth requirement (so new users can
+        # still obtain credentials) but still hit the per-route rate
+        # limit defined in RATE_LIMITS to prevent brute force + spam.
+        if path not in {"/api/auth/register", "/api/auth/login", "/api/auth/refresh", "/api/auth/logout"}:
             denied = self._enforce_route_policy(path, "POST")
             if denied is not None:
                 return self._error(denied[0], denied[1])
+        elif path in RATE_LIMITS:
+            user = get_current_user(self.headers.get("Authorization", ""))
+            bucket_key = f"u:{user.id}" if user else f"ip:{_client_ip(self.headers)}"
+            if not _check_rate_limit(bucket_key, path):
+                return self._error(429, "rate limit exceeded; retry after a short delay")
         if path == "/api/auth/register":
             return self._auth_register(body)
         if path == "/api/auth/login":
