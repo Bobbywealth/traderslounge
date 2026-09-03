@@ -16,6 +16,17 @@ const BASE =
   'http://localhost:8000';
 
 const REFRESH_TOKEN_KEY = 'confluencex_refresh_token';
+const REMEMBER_ME_KEY = 'cx_remember_me';
+
+// Remember-me switches between localStorage (persistent across browser
+// restarts) and sessionStorage (cleared when the tab/window closes).
+const getRefreshStorage = (): Storage => {
+  if (typeof window === 'undefined') return localStorage;
+  try {
+    if (window.localStorage.getItem(REMEMBER_ME_KEY) === '0') return window.sessionStorage;
+  } catch { /* ignore quota */ }
+  return window.localStorage;
+};
 
 // Request deduplication for refresh operations
 let refreshInFlight: Promise<boolean> | null = null;
@@ -71,7 +82,14 @@ export class ApiClientError extends Error {
  */
 const saveTokens = (payload: { access_token: string; refresh_token: string }) => {
   setAccessToken(payload.access_token);
-  localStorage.setItem(REFRESH_TOKEN_KEY, payload.refresh_token);
+  const storage = getRefreshStorage();
+  try {
+    storage.setItem(REFRESH_TOKEN_KEY, payload.refresh_token);
+    // Mirror to the other store so a stale refresh attempt during a
+    // remember-me toggle doesn't 401. Cheap string copy.
+    const other = storage === localStorage ? window.sessionStorage : window.localStorage;
+    try { other.setItem(REFRESH_TOKEN_KEY, payload.refresh_token); } catch { /* ignore */ }
+  } catch { /* ignore quota / private mode */ }
 };
 
 /**
@@ -81,7 +99,7 @@ const refreshAccessToken = async (): Promise<boolean> => {
   // Deduplicate concurrent refresh attempts
   if (refreshInFlight) return refreshInFlight;
   
-  const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+  const refreshToken = getRefreshStorage().getItem(REFRESH_TOKEN_KEY);
   if (!refreshToken) return false;
   
   refreshInFlight = fetch(`${BASE}/api/auth/refresh`, {
@@ -97,7 +115,8 @@ const refreshAccessToken = async (): Promise<boolean> => {
     })
     .catch(() => {
       setAccessToken(null);
-      localStorage.removeItem(REFRESH_TOKEN_KEY);
+      try { window.localStorage.removeItem(REFRESH_TOKEN_KEY); } catch { /* ignore */ }
+      try { window.sessionStorage.removeItem(REFRESH_TOKEN_KEY); } catch { /* ignore */ }
       return false;
     })
     .finally(() => {
@@ -335,6 +354,7 @@ export const apiClient = {
   clearAuth: () => {
     setAccessToken(null);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
+    try { window.sessionStorage.removeItem(REFRESH_TOKEN_KEY); } catch { /* ignore */ }
   },
 };
 

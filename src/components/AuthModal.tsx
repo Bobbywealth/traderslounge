@@ -18,6 +18,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     confirmPassword: '',
   });
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try { return window.localStorage.getItem('cx_remember_me') !== '0'; } catch { return true; }
+  });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { login, signup } = useAuth();
@@ -63,8 +67,12 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
       let success = false;
       
       if (mode === 'login') {
+        try { window.localStorage.setItem('cx_remember_me', rememberMe ? '1' : '0'); } catch { /* ignore quota */ }
         success = await login(formData.email, formData.password);
       } else {
+        // Signup always remembers (the user explicitly chose to create an
+        // account; default-on for the session is friendlier than default-off).
+        try { window.localStorage.setItem('cx_remember_me', '1'); } catch { /* ignore quota */ }
         success = await signup(formData.email, formData.password, formData.name);
       }
 
@@ -123,7 +131,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
           )}
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6" autoComplete="on" method="post">
           {mode === 'signup' && (
             <div>
               <label className="block text-sm font-medium cx-text-muted dark:text-gray-300 mb-2">
@@ -132,7 +140,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
               <div className="relative">
                 <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 cx-text-faint" />
                 <input
+                  id="cx-signup-name"
+                  name="name"
                   type="text"
+                  autoComplete="name"
                   value={formData.name}
                   onChange={(e) => handleInputChange('name', e.target.value)}
                   className={`w-full pl-10 pr-4 py-3 border rounded-lg bg-white dark:bg-gray-700 cx-text-strong dark:cx-text-strong focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-colors duration-200 ${
@@ -157,7 +168,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 cx-text-faint" />
               <input
+                id="cx-auth-email"
+                name="email"
                 type="email"
+                autoComplete={mode === 'signup' ? 'email' : 'username'}
                 value={formData.email}
                 onChange={(e) => handleInputChange('email', e.target.value)}
                 className={`w-full pl-10 pr-4 py-3 border rounded-lg bg-white dark:bg-gray-700 cx-text-strong dark:cx-text-strong focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-colors duration-200 ${
@@ -181,7 +195,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 cx-text-faint" />
               <input
+                id="cx-auth-password"
+                name="password"
                 type={showPassword ? 'text' : 'password'}
+                autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
                 value={formData.password}
                 onChange={(e) => handleInputChange('password', e.target.value)}
                 className={`w-full pl-10 pr-12 py-3 border rounded-lg bg-white dark:bg-gray-700 cx-text-strong dark:cx-text-strong focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-colors duration-200 ${
@@ -213,7 +230,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 cx-text-faint" />
                 <input
+                  id="cx-signup-confirm-password"
+                  name="confirmPassword"
                   type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
                   value={formData.confirmPassword}
                   onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
                   className={`w-full pl-10 pr-4 py-3 border rounded-lg bg-white dark:bg-gray-700 cx-text-strong dark:cx-text-strong focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-colors duration-200 ${
@@ -228,6 +248,28 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
                   {errors.confirmPassword}
                 </p>
               )}
+            </div>
+          )}
+
+          {mode === 'login' && (
+            <div className="flex items-center justify-between text-xs">
+              <label className="inline-flex cursor-pointer items-center gap-2 cx-text-muted">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-emerald-500 focus:ring-emerald-500"
+                  data-testid="remember-me"
+                />
+                <span>Keep me signed in on this device</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => {/* placeholder for future /forgot-password */}}
+                className="font-medium text-emerald-600 hover:text-emerald-500"
+              >
+                Forgot password?
+              </button>
             </div>
           )}
 
