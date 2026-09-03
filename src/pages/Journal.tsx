@@ -238,6 +238,32 @@ const DEFAULT_NEW_DECISION: NewDecision = {
 
 const Journal: React.FC = () => {
   const [trades, setTrades] = useState<BwtsClosedTrade[]>([]);
+
+  // Per-trade post-trade review notes. Persisted in localStorage so they
+  // survive a refresh and travel with the user across devices when they
+  // eventually wire cloud sync. Keyed by trade id so synthetic and
+  // server-issued trades both work.
+  const [notes, setNotes] = useState<Record<string, string>>(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const raw = window.localStorage.getItem('cx:journal:notes');
+      return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const updateNote = useCallback((id: string | number, value: string) => {
+    const key = String(id);
+    setNotes((prev) => {
+      const next = { ...prev, [key]: value };
+      try {
+        window.localStorage.setItem('cx:journal:notes', JSON.stringify(next));
+      } catch {
+        // localStorage quota or private mode — ignore silently, UI still works for the session.
+      }
+      return next;
+    });
+  }, []);
   const [stats, setStats] = useState<BwtsJournalStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -611,6 +637,7 @@ const Journal: React.FC = () => {
                   <th className="px-4 py-2 text-left">Outcome</th>
                   <th className="px-4 py-2 text-left">Source</th>
                   <th className="px-4 py-2 text-left">Closed</th>
+                  <th className="px-4 py-2 text-left">Post-trade note</th>
                 </tr>
               </thead>
               <tbody>
@@ -654,6 +681,16 @@ const Journal: React.FC = () => {
                       </td>
                       <td className="px-4 py-2 text-[11px] cx-text-faint">
                         {t.closed_at ? formatRelative(new Date(t.closed_at * 1000), now) : 'open'}
+                      </td>
+                      <td className="px-4 py-2 min-w-[180px]">
+                        <input
+                          type="text"
+                          value={notes[String(t.id)] ?? ''}
+                          onChange={(event) => updateNote(t.id, event.target.value)}
+                          placeholder="Why did this work / fail?"
+                          className="w-full rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1 text-[11px] cx-text-muted placeholder:text-[10px] placeholder:cx-text-faint focus:border-cyan-400/40 focus:outline-none"
+                          data-testid={`journal-note-${t.id}`}
+                        />
                       </td>
                     </tr>
                   );
