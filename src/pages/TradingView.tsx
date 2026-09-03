@@ -1072,15 +1072,33 @@ const TradingView: React.FC = () => {
         series.setData(candles);
         loadedChartKeyRef.current = key;
         setChartRevision((revision) => revision + 1);
+        candleCacheRef.current[key] = candles;
       } else {
-        // Polls only update the newest candle, preserving zoom and overlays.
+        // Incremental poll: merge new candles into the existing cache instead
+        // of overwriting it. The previous code unconditionally wrote
+        // ``candleCacheRef.current[key] = candles`` here, which silently
+        // truncated the cache to the 2 candles fetched by the poll and
+        // corrupted AI chart analysis, magnet snapping, and live WS merges.
+        const merged: typeof candles = previous.slice();
+        for (const incoming of candles) {
+          const existingIndex = merged.findIndex((c) => c.time === incoming.time);
+          if (existingIndex >= 0) {
+            merged[existingIndex] = incoming;
+          } else if (incoming.time > (merged[merged.length - 1]?.time ?? 0)) {
+            merged.push(incoming);
+            if (merged.length > 2000) merged.shift();
+          }
+        }
         const oldLast = previous[previous.length - 1];
         if (!oldLast || oldLast.time !== last.time || oldLast.close !== last.close ||
             oldLast.high !== last.high || oldLast.low !== last.low) {
           series.update(last);
         }
+        candleCacheRef.current[key] = merged;
+        // ``merged`` is a new array reference, so bump the chartRevision so
+        // memoized consumers (AI analysis, indicator overlays) see the change.
+        setChartRevision((revision) => revision + 1);
       }
-      candleCacheRef.current[key] = candles;
       setCurrentPrice(last.close);
       setIsConnected(true);
       setChartUpdatedAt(new Date());
