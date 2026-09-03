@@ -2221,7 +2221,12 @@ const TradingView: React.FC = () => {
     const streamSymbol = symbolMap[selectedSymbol];
     const bucketSeconds = timeframeSeconds[timeframe];
     if (!isLive || !streamSymbol || !bucketSeconds) {
+      // FX/gold/indices have no native Binance trade stream, so isConnected
+      // would otherwise stay stuck at whatever the previous crypto symbol
+      // left it at. Reset both flags so the UI shows the honest "no live
+      // stream for this pair" state. REST candles still refresh.
       setIsStreaming(false);
+      setIsConnected(false);
       return;
     }
 
