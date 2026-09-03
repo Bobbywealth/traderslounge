@@ -202,66 +202,9 @@ const mapSignal = (s: any): SignalAnalysis => {
   };
 };
 
-// Signals API
-export const signalsApi = {
-  async getSignals(symbol?: string, limit: number = 50): Promise<SignalAnalysis[]> {
-    const params: Record<string, string> = { limit: limit.toString() };
-    if (symbol) params.symbol = symbol;
-    
-    const data = await apiClient.get('/api/signals', params);
-    
-    if (!data.success) {
-      throw new Error(data.error || 'Failed to fetch signals');
-    }
-    
-    return data.signals.map(mapSignal);
-  },
-  
-  async getSignal(symbol: string): Promise<SignalAnalysis | null> {
-    try {
-      const data = await apiClient.get(`/api/signals/${symbol}`);
-      const s = data.signal;
-      return s ? mapSignal(s) : null;
-    } catch {
-      return null;
-    }
-  },
-  
-  async refreshSignals(
-    symbols: string[] = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'AUDUSD', 'USDCAD'],
-    options: { force?: boolean } = {}
-  ): Promise<RefreshSignalsResponse> {
-    const data = await apiClient.post('/api/signals/refresh', { symbols }, options.force ? { force: true } : undefined);
-    
-    const mappedResults = (data.results || []).map((r: any) => r.signal ? {
-      ...r,
-      signal: mapSignal(r.signal)
-    } : r);
+// Signals API removed — Signals.tsx now uses bwtsApi.publishedSignals
+// (V2 published_signals table) and bwtsApi.dashboardSnapshot for forming
+// setups. The legacy /api/signals endpoint still exists server-side for
+// backwards compat but no production code calls it.
 
-    const payload: RefreshSignalsResponse = {
-      success: data.success,
-      error: data.error,
-      startedAt: data.startedAt ?? null,
-      finishedAt: data.finishedAt ?? null,
-      nextAllowedRefreshAt: data.nextAllowedRefreshAt ?? null,
-      inProgress: !!data.inProgress,
-      results: mappedResults
-    };
-
-    if (!data.success) {
-      const message = data.error || 'Failed to refresh signals';
-      const error = new Error(message) as Error & { details?: RefreshSignalsResponse };
-      error.details = payload;
-      throw error;
-    }
-
-    return payload;
-  },
-  
-  async cleanup(): Promise<number> {
-    const data = await apiClient.delete('/api/signals/cleanup');
-    return data.deleted || 0;
-  }
-};
-
-export default { tradeLockerApi, signalsApi };
+export default { tradeLockerApi };
