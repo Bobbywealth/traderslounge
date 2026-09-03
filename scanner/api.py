@@ -558,7 +558,14 @@ class _ApiHandler(BaseHTTPRequestHandler):
                                '/api/alerts/preferences', '/api/alerts/feed', '/api/alerts/activity',
                                '/api/autonomy/setups', '/api/autonomy/journal',
                                '/api/autonomy/activity',
-                               '/api/portfolio/risk']
+                               '/api/portfolio/risk',
+                               # Chart data routes — paid-user only. Unauthenticated
+                               # callers get 401. The chartApiClient.ts already
+                               # attaches the Bearer token via authenticatedChartFetch.
+                               '/api/candles', '/api/harmonics', '/api/adr',
+                               '/api/backtest/v2', '/api/similarity',
+                               '/api/analysis', '/api/debate', '/api/published-signals',
+                               '/api/insights']
             if path in protected_paths or path.startswith("/api/signals/"):
                 result = self._require_auth(self.headers)
                 if isinstance(result, tuple):
