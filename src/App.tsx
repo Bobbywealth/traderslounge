@@ -6,6 +6,7 @@ import Header from './components/Header';
 import PwaSplash from './components/PwaSplash';
 import PwaLoginScreen from './components/PwaLoginScreen';
 import InstallPwaPrompt from './components/InstallPwaPrompt';
+import OnboardingWizard from './components/OnboardingWizard';
 import LandingPage from './pages/LandingPage';
 import Dashboard from './pages/Dashboard';
 import CommandCenter from './pages/CommandCenter';
@@ -185,6 +186,7 @@ const AppContent: React.FC = () => {
               </Routes>
             </div>
           </main>
+          {isAuthenticated && <OnboardingWizard />}
         </div>
 
         {!isTradingWorkspace && <AIAssistant />}
