@@ -237,6 +237,9 @@ const PricingSection: React.FC<PricingSectionProps> = ({ defaultCadence = 'month
           ConfluenceX provides read-only market intelligence and decision support. It does not
           provide personalized financial advice or guarantee trading results.
         </p>
+
+        <ComparisonTable />
+        <FaqList />
       </div>
     </section>
   );
@@ -323,4 +326,112 @@ const PlanCard: React.FC<PlanCardProps> = ({
   );
 };
 
-export default PricingSection;
+const COMPARISON_FEATURES: { label: string; demo: string | boolean; pro: string | boolean; founding: string | boolean }[] = [
+  { label: 'Live multi-asset scanner', demo: 'Limited', pro: 'Full', founding: 'Full' },
+  { label: 'Guarded Signals feed', demo: false, pro: true, founding: true },
+  { label: 'Streaming charts with harmonic overlays', demo: 'Demo data', pro: true, founding: true },
+  { label: 'Economic-calendar risk gates', demo: false, pro: true, founding: true },
+  { label: 'Setup guidance + execution framework', demo: false, pro: true, founding: true },
+  { label: 'Institutional intelligence / evidence ledger', demo: false, pro: true, founding: true },
+  { label: 'Journal, positions, and trade history', demo: 'Read-only', pro: true, founding: true },
+  { label: 'Performance tracking + calibration', demo: false, pro: true, founding: true },
+  { label: 'Telegram alerts (selective)', demo: false, pro: true, founding: true },
+  { label: 'Forward-tested outcome resolution', demo: false, pro: true, founding: true },
+  { label: 'Pricing lock-in', demo: '—', pro: 'Standard', founding: 'Grandfathered while subscribed' },
+];
+
+const FAQ_ITEMS: { q: string; a: string }[] = [
+  {
+    q: 'Is ConfluenceX financial advice?',
+    a: 'No. ConfluenceX is a read-only market-intelligence and decision-support tool. It does not provide personalized financial advice and does not guarantee trading results. Past performance of the engine and forward-tested samples is not indicative of future returns.',
+  },
+  {
+    q: 'What does the Demo plan include?',
+    a: 'Demo accounts explore the live workspace with sample data and a limited scanner. You can see how the signals and overlays render without live trade alerts, paid-only intelligence, or persistence.',
+  },
+  {
+    q: 'How is Founding Member pricing locked in?',
+    a: 'Founding Member is $29/month, capped at the first 50 paying customers. The rate is grandfathered for as long as your subscription stays active. Cancel anytime and the grandathered rate is honored until you cancel.',
+  },
+  {
+    q: 'Can I switch between Monthly and Annual?',
+    a: 'Yes. The cadence toggle is at the top of the pricing section. Annual saves $98/year vs the monthly rate on Pro and is refundable within 14 days per the Terms of Service.',
+  },
+  {
+    q: 'What happens when I cancel?',
+    a: 'You keep access until the end of the current billing period, then your account reverts to the read-only Demo plan. Your saved journal entries, drawings, and alert preferences are retained for 90 days in case you reactivate.',
+  },
+  {
+    q: 'Does ConfluenceX connect to my broker?',
+    a: 'Pro plans can optionally connect a TradeLocker demo or live account in Settings. Live execution is read-only and advisory by default; broker reconciliation, idempotency, portfolio risk limits, and an independently verified kill switch are required before any live order can be placed through ConfluenceX. See the Risk Disclaimer for the full safety contract.',
+  },
+];
+
+const renderCell = (value: string | boolean) => {
+  if (value === true) {
+    return <span className="inline-flex items-center justify-center rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-emerald-300">Included</span>;
+  }
+  if (value === false) {
+    return <span className="inline-flex items-center justify-center rounded-full bg-white/[0.04] px-2 py-0.5 text-[10px] font-black uppercase tracking-wider cx-text-faint">—</span>;
+  }
+  return <span className="text-xs cx-text-muted">{value}</span>;
+};
+
+const ComparisonTable: React.FC = () => (
+  <div className="mt-12 overflow-hidden rounded-2xl border cx-border cx-bg-card">
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-white/[0.03] text-[10px] uppercase tracking-wider cx-text-faint">
+          <tr>
+            <th className="px-4 py-3 text-left">Feature</th>
+            <th className="px-4 py-3 text-left">Demo</th>
+            <th className="px-4 py-3 text-left">Pro</th>
+            <th className="px-4 py-3 text-left">Founding Member</th>
+          </tr>
+        </thead>
+        <tbody>
+          {COMPARISON_FEATURES.map((row) => (
+            <tr key={row.label} className="border-t border-white/[0.04]">
+              <td className="px-4 py-3 cx-text-muted">{row.label}</td>
+              <td className="px-4 py-3">{renderCell(row.demo)}</td>
+              <td className="px-4 py-3">{renderCell(row.pro)}</td>
+              <td className="px-4 py-3">{renderCell(row.founding)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+);
+
+const FaqList: React.FC = () => {
+  const [openIndex, setOpenIndex] = useState<number | null>(0);
+  return (
+    <div className="mt-12 space-y-3">
+      {FAQ_ITEMS.map((item, index) => {
+        const open = openIndex === index;
+        return (
+          <div key={item.q} className="rounded-2xl border cx-border cx-bg-card">
+            <button
+              type="button"
+              onClick={() => setOpenIndex(open ? null : index)}
+              className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
+              aria-expanded={open}
+              data-testid={`faq-${index}`}
+            >
+              <span className="text-sm font-bold cx-text-strong">{item.q}</span>
+              <span className={`text-cyan-300 transition ${open ? 'rotate-45' : ''}`}>+</span>
+            </button>
+            {open && (
+              <div className="px-5 pb-5 text-sm leading-relaxed cx-text-muted">
+                {item.a}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+export { ComparisonTable, FaqList };
