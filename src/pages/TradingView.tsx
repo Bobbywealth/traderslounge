@@ -1127,7 +1127,10 @@ const TradingView: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to load TradeLocker instruments:', error);
-      setAvailableSymbols([]);
+      // Don't wipe the symbol list on failure — keep the built-in BWTS_SYMBOLS
+      // (BTCUSD/ETHUSD/XAUUSD/etc.) so the chart still renders. The TradeLocker
+      // list is purely additive when it succeeds.
+      setAvailableSymbols((prev) => prev.length > 0 ? prev : BWTS_SYMBOLS);
     }
   }, [loadCandlesForSymbol, selectedSymbol, timeframe]);
 
