@@ -140,11 +140,22 @@ const Dashboard: React.FC = () => {
       // Try the cached snapshot first with a short fuse; if it returns a populated
       // payload quickly, we are done. Otherwise stream per-pair at H1 in parallel.
       let data: DashboardSnapshot | null = null;
-      try {
-        const snap = await withTimeout(bwtsApi.dashboardSnapshot(), 8_000, 'dashboard snapshot');
-        if (snap && Array.isArray(snap.markets) && snap.markets.length > 0) data = snap as DashboardSnapshot;
-      } catch (_) {
-        // snapshot endpoint slow/cold or empty; fall through to per-pair streaming
+      // The server returns 503+Retry-After during cold start while the background
+      // dashboard build (33+s on first request after a Render free-tier idle spin-down)
+      // is still in progress. Retry up to 6×2.5s before falling back to per-pair
+      // streaming so the canonical V2 snapshot wins whenever it can.
+      for (let attempt = 0; attempt < 6 && !data; attempt++) {
+        try {
+          const snap = await withTimeout(bwtsApi.dashboardSnapshot(), 8_000, 'dashboard snapshot');
+          if (snap && Array.isArray(snap.markets) && snap.markets.length > 0) data = snap as DashboardSnapshot;
+        } catch (err: any) {
+          const status = err?.status;
+          if (status === 503 || status === 504) {
+            await new Promise((r) => window.setTimeout(r, 2500));
+            continue;
+          }
+          break;  // non-retryable; fall through to per-pair streaming
+        }
       }
       if (!data) {
         const generatedAt = new Date().toISOString();

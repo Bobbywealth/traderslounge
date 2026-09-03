@@ -3037,14 +3037,21 @@ class _ApiHandler(BaseHTTPRequestHandler):
             if stale and not building:
                 self._spawn_dashboard_refresh()
             return
-        # First-ever build (pre-warm missed): assemble once synchronously, then
-        # every subsequent load is instant.
-        payload = self._build_dashboard_payload()
-        with _STATE.cache_lock:
-            _STATE.dashboard_cache["payload"] = payload
-            _STATE.dashboard_cache["built_at"] = time.monotonic()
-            _STATE.dashboard_cache["building"] = False
-        self._json(200, payload)
+        # No cache yet. If a background build is already running (the signal
+        # monitor fires its first refresh at server boot), return a fast 503
+        # with Retry-After so the client retries in ~2s instead of blocking
+        # 33-37s on the handler and tripping the 8s dashboardSnapshot
+        # watchdog. Falling through to a synchronous build here also competes
+        # with the in-progress background build for the same data providers.
+        if not building:
+            self._spawn_dashboard_refresh()
+        self.send_response(503)
+        self.send_header("Retry-After", "2")
+        self.send_header("Content-Type", "application/json")
+        body = json.dumps({"status": "building", "retry_after": 2}).encode("utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def _spawn_dashboard_refresh(self) -> None:
         with _STATE.cache_lock:
