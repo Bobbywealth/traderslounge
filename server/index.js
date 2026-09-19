@@ -5,6 +5,7 @@ import { tradeLockerRouter } from './routes/tradelocker.js';
 import { signalsRouter } from './routes/signals.js';
 import { getBars, getMultiTimeframeBars } from './services/marketData.js';
 import { billingRouter, webhookRouter } from './routes/billing.js';
+import { tradingRouter } from './routes/trading.js';
 import { runMigrationsOnce } from './services/billing/migrate.js';
 
 const app = express();
@@ -64,6 +65,7 @@ app.get('/health', (req, res) => {
 
 // API Routes
 app.use('/api/tradelocker', tradeLockerRouter);
+app.use('/api', tradingRouter);
 app.use('/api/signals', signalsRouter);
 
 // Mount the webhook router BEFORE the JSON-parsing middleware so the raw
