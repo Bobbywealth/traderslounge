@@ -25,23 +25,27 @@ const severityConfig = {
     border: 'border-cyan-400/30',
     bg: 'bg-cyan-400/[0.08]',
     accent: 'text-cyan-300',
-    glow: 'shadow-cyan-400/10',
   },
   warning: {
     icon: AlertTriangle,
     border: 'border-amber-400/30',
     bg: 'bg-amber-400/[0.08]',
     accent: 'text-amber-300',
-    glow: 'shadow-amber-400/10',
   },
   critical: {
     icon: XCircle,
     border: 'border-rose-400/30',
     bg: 'bg-rose-400/[0.08]',
     accent: 'text-rose-300',
-    glow: 'shadow-rose-400/10',
   },
 };
+
+// Humanize raw backend constants in user-facing strings:
+// "ETHUSD news risk: post_news" → "ETHUSD news risk: Post news".
+const humanizeToastText = (raw: string) =>
+  String(raw ?? '').replace(/\b[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+\b/g, (token) =>
+    token.toLowerCase().replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
+  );
 
 const NotificationToast: React.FC<NotificationToastProps> = ({ notification, onDismiss, onClick }) => {
   const [isVisible, setIsVisible] = useState(false);
@@ -60,10 +64,11 @@ const NotificationToast: React.FC<NotificationToastProps> = ({ notification, onD
     setTimeout(() => onDismiss(notification.id), 300);
   }, [notification.id, onDismiss]);
 
-  // Auto-dismiss after 8 seconds for info, 15 for warning, never for critical
+  // Auto-dismiss after 6 seconds for info, 10 for warning, never for critical
+  // (critical alerts stay until the user acknowledges them).
   useEffect(() => {
     if (notification.severity === 'critical') return;
-    const duration = notification.severity === 'warning' ? 15000 : 8000;
+    const duration = notification.severity === 'warning' ? 10000 : 6000;
     const timer = setTimeout(handleDismiss, duration);
     return () => clearTimeout(timer);
   }, [notification.severity, handleDismiss]);
@@ -71,29 +76,20 @@ const NotificationToast: React.FC<NotificationToastProps> = ({ notification, onD
   return (
     <div
       className={`
-        pointer-events-auto w-full max-w-sm overflow-hidden rounded-2xl border
-        ${config.border} ${config.bg} backdrop-blur-xl shadow-lg ${config.glow}
+        pointer-events-auto relative w-full max-w-sm overflow-hidden rounded-2xl border
+        ${config.border} ${config.bg} shadow-lg
         transition-all duration-300 ease-out cursor-pointer
         ${isVisible && !isExiting ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'}
       `}
       onClick={() => onClick?.(notification)}
       role="alert"
     >
-      <div className="flex items-start gap-3 p-4">
+      <div className="flex items-start gap-3 p-4 pr-10">
         <div className={`mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-lg border ${config.border} ${config.bg}`}>
           <Icon className={`h-4 w-4 ${config.accent}`} />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-sm font-bold text-white">{notification.title}</p>
-            <button
-              onClick={(e) => { e.stopPropagation(); handleDismiss(); }}
-              className="flex-none rounded-md p-1 transition hover:bg-white/10"
-              aria-label="Dismiss notification"
-            >
-              <X className="h-3.5 w-3.5 text-gray-400" />
-            </button>
-          </div>
+          <p className="text-sm font-bold text-white">{notification.title}</p>
           <p className="mt-1 text-xs leading-relaxed text-gray-300">{notification.body}</p>
           <div className="mt-2 flex items-center gap-2">
             {notification.pair && (
@@ -107,6 +103,13 @@ const NotificationToast: React.FC<NotificationToastProps> = ({ notification, onD
           </div>
         </div>
       </div>
+      <button
+        onClick={(e) => { e.stopPropagation(); handleDismiss(); }}
+        className="absolute right-2 top-2 rounded-md p-1 transition hover:bg-white/10"
+        aria-label="Dismiss notification"
+      >
+        <X className="h-3.5 w-3.5 text-gray-400" />
+      </button>
     </div>
   );
 };
@@ -136,8 +139,8 @@ export const ToastContainer: React.FC<ToastContainerProps> = ({ notifications, o
 export function alertEventToToast(event: AlertEvent): ToastNotification {
   return {
     id: `${event.created_at}-${event.pair}-${event.alert_type}`,
-    title: event.title,
-    body: event.body,
+    title: humanizeToastText(event.title),
+    body: humanizeToastText(event.body),
     severity: event.severity,
     pair: event.pair,
     alertType: event.alert_type,
