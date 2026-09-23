@@ -37,7 +37,7 @@ const gateTiming = (analysis?: CryptoAnalysis) => {
 };
 const gateCalendar = (analysis?: CryptoAnalysis) => {
   const status = String(analysis?.economic_calendar?.status || 'CLEAR').toUpperCase();
-  return { label: 'Calendar', value: status, pass: !BLOCKING_CALENDAR.has(status), note: BLOCKING_CALENDAR.has(status) ? 'news blackout' : 'no blackout' };
+  return { label: 'Calendar', value: humanizeStatus(status), pass: !BLOCKING_CALENDAR.has(status), note: BLOCKING_CALENDAR.has(status) ? 'news blackout' : 'no blackout' };
 };
 const gateNetR = (analysis?: CryptoAnalysis) => {
   const plan = analysis?.trade_plan;
@@ -54,10 +54,23 @@ const formatAsOf = (iso?: string | null) => {
 
 const firstBlocker = (analysis?: CryptoAnalysis) => {
   const planReason = (analysis?.trade_plan?.reasons || []).map(planReasonText).find(Boolean);
-  const wait = analysis?.trade_timing?.wait_for?.[0]?.replace(/_/g, ' ');
-  const avoid = analysis?.trade_timing?.avoid_reasons?.[0]?.replace(/_/g, ' ');
+  const wait = humanizeStatus(analysis?.trade_timing?.wait_for?.[0]);
+  const avoid = humanizeStatus(analysis?.trade_timing?.avoid_reasons?.[0]);
   const block = analysis?.trade_plan?.blocking_reasons?.[0]?.message;
   return planReason || block || avoid || wait || 'Waiting for cleaner confirmation';
+};
+
+// Turn raw backend enum strings (POST_NEWS, UNKNOWN, checking, …) into
+// sentence-case user-facing labels. Never returns a raw dev constant.
+const humanizeStatus = (raw?: string | null) => {
+  const v = String(raw ?? '').trim();
+  if (!v) return '';
+  return v.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+};
+
+const isKnownStatus = (raw?: string | null) => {
+  const v = String(raw ?? '').trim().toLowerCase();
+  return Boolean(v) && !['checking', 'unknown', 'loading', 'stale'].includes(v);
 };
 
 const heatScore = (analysis?: CryptoAnalysis) => {
@@ -180,7 +193,7 @@ const Dashboard: React.FC = () => {
                 tp3: targets[2]?.price || plan?.tp3 || null,
                 risk_level: plan?.eligible ? 'Managed' : 'Watch',
                 session: plan?.timing?.session?.name || 'Current',
-                adr_status: plan?.daily_range ? `${Math.round(plan.daily_range.percent_used || 0)}% used` : 'unknown',
+                adr_status: plan?.daily_range ? `${Math.round(plan.daily_range.percent_used || 0)}% used` : '—',
                 htf_bias: analysis.market_context?.macro_bias || 'neutral',
                 pattern: analysis.scenarios?.primary || 'forming',
                 reasons: (plan?.reasons || []).map(planReasonText).filter(Boolean).slice(0, 3),
@@ -248,6 +261,17 @@ const Dashboard: React.FC = () => {
   const strongest = hot[0];
   const feedState: FeedState = loading ? 'LOADING' : error && !markets.length ? 'OFFLINE' : error ? 'DEGRADED' : 'LIVE';
   const providerHealth = snapshot?.provider_health as any;
+  const authUser = user as unknown as { role?: string; email?: string } | null;
+  const demoMode = authUser?.role === 'demo' || authUser?.email === 'demo@trader.com';
+  // Resolve stuck "checking"/"unknown"/"…" dev strings into user-facing text
+  // once the load cycle finishes — they spin forever in demo mode today.
+  const condValue = (raw?: string | null) => {
+    if (!isKnownStatus(raw)) {
+      if (loading) return 'Checking…';
+      return demoMode ? 'Unavailable in demo' : 'Unavailable';
+    }
+    return humanizeStatus(raw);
+  };
   const buyCount = markets.filter((m) => m.analysis?.direction === 'BUY').length;
   const sellCount = markets.filter((m) => m.analysis?.direction === 'SELL').length;
   const avgScore = markets.length ? Math.round(markets.reduce((sum, row) => sum + (row.analysis?.total_score || 0), 0) / markets.length) : 0;
@@ -329,11 +353,11 @@ const Dashboard: React.FC = () => {
         <div className="rounded-[24px] border cx-border cx-bg-card p-5">
           <div className="text-[10px] font-black tracking-[0.2em] text-violet-300">MARKET CONDITIONS</div>
           <div className="mt-4 space-y-3 text-sm">
-            <Condition label="Market data" value={String(providerHealth?.market_data || 'checking')} good={String(providerHealth?.market_data).toLowerCase() === 'ok'} />
-            <Condition label="Calendar" value={String(providerHealth?.calendar || 'checking')} good={String(providerHealth?.calendar).toUpperCase() === 'LIVE'} />
-            <Condition label="News risk" value={`${snapshot?.economic_event_risk?.level || 'unknown'}${snapshot?.economic_event_risk?.high_impact_count ? ` · ${snapshot.economic_event_risk.high_impact_count} high impact` : ''}`} good={snapshot?.economic_event_risk?.level !== 'blocked'} />
-            <Condition label="Top calendar" value={calendar?.status || 'checking'} good={calendar?.status === 'CLEAR'} />
-            <Condition label="Snapshot" value={updatedAt ? updatedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'loading'} good={feedState === 'LIVE'} />
+            <Condition label="Market data" value={condValue(providerHealth?.market_data)} good={String(providerHealth?.market_data).toLowerCase() === 'ok'} />
+            <Condition label="Calendar" value={condValue(providerHealth?.calendar)} good={String(providerHealth?.calendar).toUpperCase() === 'LIVE'} />
+            <Condition label="News risk" value={`${condValue(snapshot?.economic_event_risk?.level)}${snapshot?.economic_event_risk?.high_impact_count ? ` · ${snapshot.economic_event_risk.high_impact_count} high impact` : ''}`} good={isKnownStatus(snapshot?.economic_event_risk?.level) && snapshot?.economic_event_risk?.level !== 'blocked'} />
+            <Condition label="Top calendar" value={condValue(calendar?.status)} good={calendar?.status === 'CLEAR'} />
+            <Condition label="Snapshot" value={updatedAt ? updatedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : condValue('loading')} good={feedState === 'LIVE'} />
           </div>
         </div>
       </section>
@@ -509,7 +533,7 @@ const WatchSetupCard: React.FC<{ row: MarketRow }> = ({ row }) => {
       </div>
       <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-bold cx-text-muted">
         <span className="rounded-md cx-bg-elev px-2 py-1">Net R {Number(plan?.net_rr ?? plan?.available_rr ?? 0).toFixed(2)}R</span>
-        <span className="rounded-md cx-bg-elev px-2 py-1">Calendar {row.analysis.economic_calendar?.status || plan?.calendar_status || '—'}</span>
+        <span className="rounded-md cx-bg-elev px-2 py-1">Calendar {humanizeStatus(row.analysis.economic_calendar?.status || plan?.calendar_status) || '—'}</span>
         <span className="rounded-md cx-bg-elev px-2 py-1">Lifecycle {row.analysis.direction_stability?.lifecycle || 'FORMING'}</span>
       </div>
     </article>
@@ -542,7 +566,7 @@ const PublishedSignalCard: React.FC<{ signal: PublishedSignal }> = ({ signal }) 
       <div className="border-t cx-border px-4 py-3">
         <div className="flex flex-wrap gap-2 text-[10px] font-bold cx-text-muted">
           <span className="rounded-md cx-bg-elev px-2 py-1">Net R:R {signal.net_rr != null ? signal.net_rr.toFixed(2) : '—'}R</span>
-          <span className="rounded-md cx-bg-elev px-2 py-1">Calendar {signal.calendar_status}</span>
+          <span className="rounded-md cx-bg-elev px-2 py-1">Calendar {humanizeStatus(signal.calendar_status) || '—'}</span>
           <span className="rounded-md cx-bg-elev px-2 py-1">Risk {signal.risk_percent != null ? `${signal.risk_percent}%` : '—'}</span>
         </div>
         <p className="mt-3 text-xs leading-5 cx-text-muted">{signal.scenario || 'Qualified guarded V2 trade call.'}</p>
@@ -581,7 +605,7 @@ const HotMarketCard: React.FC<{ row: MarketRow }> = ({ row }) => {
       <div className="mt-3 flex flex-wrap gap-2 text-[10px] cx-text-muted">
         <span className="rounded-md cx-bg-elev px-2 py-1">Timing {row.analysis.trade_timing?.status || 'WAIT'}</span>
         <span className="rounded-md cx-bg-elev px-2 py-1">Fib {String(row.analysis.zones?.fibonacci?.nearest?.ratio || '—')}</span>
-        <span className="rounded-md cx-bg-elev px-2 py-1">Calendar {row.analysis.economic_calendar?.status || '—'}</span>
+        <span className="rounded-md cx-bg-elev px-2 py-1">Calendar {humanizeStatus(row.analysis.economic_calendar?.status) || '—'}</span>
       </div>
       <div className="mt-3 flex gap-2">
         <Link to={`/tradingview?symbol=${row.signal.pair}&panel=full`} className="text-xs font-bold text-cyan-300 hover:text-cyan-200">Full analysis</Link>

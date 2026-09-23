@@ -161,7 +161,7 @@ const TradingDesk: React.FC = () => {
           </div>
           <div className="text-right">
             <div className="text-sm text-gray-400">Engine Version</div>
-            <div className="font-mono">{systemStatus?.engine_version || 'unknown'}</div>
+            <div className="font-mono">{systemStatus?.engine_version || '—'}</div>
           </div>
         </div>
       </div>
@@ -189,9 +189,9 @@ const TradingDesk: React.FC = () => {
             </div>
             <div className="flex justify-between items-center">
               <span className="text-gray-400">Health</span>
-              <span className={`flex items-center gap-1 ${getHealthColor(systemStatus?.health || 'unknown')}`}>
-                {getHealthIcon(systemStatus?.health || 'unknown')}
-                {systemStatus?.health || 'unknown'}
+              <span className={`flex items-center gap-1 ${getHealthColor(systemStatus?.health || '')}`}>
+                {getHealthIcon(systemStatus?.health || '')}
+                {systemStatus?.health || '—'}
               </span>
             </div>
             <div className="flex justify-between items-center">
@@ -217,6 +217,9 @@ const TradingDesk: React.FC = () => {
                   <span className="text-gray-400 capitalize">{key.replace('_', ' ')}</span>
                 </div>
               ))}
+              {Object.keys(systemStatus?.components || {}).length === 0 && (
+                <div className="col-span-2 text-sm text-gray-500">Component data unavailable</div>
+              )}
             </div>
           </div>
         </div>
@@ -342,7 +345,7 @@ const TradingDesk: React.FC = () => {
               <Eye className="w-5 h-5 text-blue-400" />
               <div>
                 <div className="font-medium">Market Watcher</div>
-                <div className="text-sm text-gray-400">Monitoring {systemStatus?.scan_count || 0} symbols</div>
+                <div className="text-sm text-gray-400">{systemStatus ? `Monitoring ${systemStatus.scan_count || 0} symbols` : 'Status unavailable'}</div>
               </div>
             </div>
             <div className="flex items-center gap-3 p-3 bg-gray-700/50 rounded-lg">

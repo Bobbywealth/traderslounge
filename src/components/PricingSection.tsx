@@ -10,7 +10,7 @@ function useAuthSafe() {
   try {
     return useAuth();
   } catch {
-    return { user: null, isAuthenticated: false } as any;
+    return { user: null, isAuthenticated: false, login: async () => false } as any;
   }
 }
 
@@ -23,7 +23,7 @@ interface PricingSectionProps {
 const fmt = (cents: number) => `$${(cents / 100).toFixed(0)}`;
 
 const PricingSection: React.FC<PricingSectionProps> = ({ defaultCadence = 'monthly' }) => {
-  const { user, isAuthenticated } = useAuthSafe();
+  const { user, isAuthenticated, login } = useAuthSafe();
   const [cadence, setCadence] = useState<BillingCadence>(defaultCadence);
   const [counter, setCounter] = useState<{ remaining: number; at_cap: boolean } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -62,11 +62,24 @@ const PricingSection: React.FC<PricingSectionProps> = ({ defaultCadence = 'month
     }
   };
 
-  const onDemo = () => {
-    if (typeof window !== 'undefined') {
-      window.location.hash = '#demo';
-      window.dispatchEvent(new CustomEvent('open-auth', { detail: { mode: 'signup' } }));
+  // "Start with Demo" signs straight into the read-only demo workspace with
+  // the publicly advertised demo credentials — the same entry as the
+  // landing page's "Open Live Workspace". Falls back to the auth dialog on
+  // login mode if demo sign-in fails.
+  const onDemo = async () => {
+    if (typeof window === 'undefined') return;
+    if (isAuthenticated) {
+      window.location.assign('/');
+      return;
     }
+    try {
+      const ok = await login('demo@trader.com', 'demo123');
+      if (ok) return; // AuthContext flips isAuthenticated; the app shell renders.
+    } catch {
+      /* fall through to the auth dialog */
+    }
+    window.location.hash = '#demo';
+    window.dispatchEvent(new CustomEvent('open-auth', { detail: { mode: 'login' } }));
   };
 
   const annualSavings = 49 * 12 - 490; // 98

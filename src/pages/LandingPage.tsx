@@ -7,6 +7,7 @@ import {
 import AuthModal from '../components/AuthModal';
 import ConfluenceXLogo from '../components/ConfluenceXLogo';
 import PricingSection from '../components/PricingSection';
+import { useAuth } from '../contexts/AuthContext';
 
 const signals = [
   { pair: 'EURUSD', tf: '15m', side: 'LONG', score: 92, price: '1.0821' },
@@ -29,6 +30,8 @@ const LandingPage: React.FC = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
+  const { login } = useAuth();
 
   useEffect(() => {
     if (!mobileMenuOpen) return;
@@ -41,6 +44,20 @@ const LandingPage: React.FC = () => {
     setAuthMode(mode);
     setShowAuthModal(true);
     setMobileMenuOpen(false);
+  };
+
+  // "Open Live Workspace" enters the read-only demo directly using the
+  // publicly advertised demo credentials. The app shell renders
+  // automatically once AuthContext marks the session authenticated.
+  const enterDemo = async () => {
+    if (demoLoading) return;
+    setDemoLoading(true);
+    try {
+      const ok = await login('demo@trader.com', 'demo123');
+      if (!ok) openAuth('login');
+    } finally {
+      setDemoLoading(false);
+    }
   };
 
   return (
@@ -105,7 +122,7 @@ const LandingPage: React.FC = () => {
               </h1>
               <p className="mx-auto mt-7 max-w-2xl text-lg leading-relaxed cx-text-muted sm:text-xl">ConfluenceX turns live price action, harmonic structure, ADR, and multi-factor signals into one decisive trading workspace.</p>
               <div className="mt-9 flex flex-col items-center justify-center gap-4 sm:flex-row">
-                <button onClick={() => openAuth('signup')} className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-400 via-cyan-500 to-violet-500 px-7 py-4 font-black text-[#05070d] shadow-[0_0_40px_rgba(34,211,238,0.22)] transition hover:-translate-y-1 hover:shadow-[0_0_60px_rgba(139,92,246,0.3)] sm:w-auto">Open Live Workspace <ArrowRight className="h-5 w-5 transition group-hover:translate-x-1" /></button>
+                <button onClick={enterDemo} disabled={demoLoading} className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-400 via-cyan-500 to-violet-500 px-7 py-4 font-black text-[#05070d] shadow-[0_0_40px_rgba(34,211,238,0.22)] transition hover:-translate-y-1 hover:shadow-[0_0_60px_rgba(139,92,246,0.3)] disabled:opacity-70 sm:w-auto">{demoLoading ? 'Opening demo…' : 'Open Live Workspace'} <ArrowRight className="h-5 w-5 transition group-hover:translate-x-1" /></button>
                 <div className="flex w-full items-center justify-center gap-2 rounded-2xl border cx-border-strong bg-white/[0.03] px-7 py-4 font-semibold cx-text-faint backdrop-blur sm:w-auto">
                   <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-50" /><span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" /></span>
                   Forward-testing in progress

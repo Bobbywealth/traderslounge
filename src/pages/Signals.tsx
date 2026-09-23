@@ -242,13 +242,13 @@ const Signals: React.FC = () => {
           <h2 className="mt-4 text-xl font-black cx-text-strong">
             {sessionFilter === 'ALL' ? 'No active call right now' : `No ${sessionFilter}-session calls`}
           </h2>
-          <p className="mx-auto mt-2 max-w-xl text-sm cx-text-faint">
+          <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 cx-text-faint">
             {sessionFilter === 'ALL'
-              ? `The scanner is watching ${scanned || 'every'} tracked market${scanned === 1 ? '' : 's'}. Nothing has cleared every entry rule yet.`
+              ? `The scanner is watching ${scanned || 'every'} tracked market${scanned === 1 ? '' : 's'}. Nothing has cleared every entry rule yet — check the Forming board below to see what's building.`
               : 'Switch to All sessions to see every call, or check the Forming board below.'}
           </p>
           {sessionFilter === 'ALL' && blockers.length > 0 && (
-            <div className="mx-auto mt-6 max-w-xl text-left">
+            <div className="mx-auto mt-6 max-w-2xl text-left">
               <div className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] cx-text-faint">
                 What is holding setups back
               </div>
@@ -291,7 +291,7 @@ const Signals: React.FC = () => {
         {forming.length === 0 ? (
           <div className="flex items-center gap-3 rounded-2xl border border-dashed cx-border-strong px-5 py-6 text-sm cx-text-faint">
             <Hourglass className="h-5 w-5 shrink-0 cx-text-faint" />
-            Nothing is close to setting up right now, or the scanner snapshot is unavailable.
+            No setups are forming right now — the scanner will list them here as confluence builds.
           </div>
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">

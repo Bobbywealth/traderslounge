@@ -70,10 +70,24 @@ const formatAge = (seconds?: number) => {
 const firstBlocker = (analysis?: CryptoAnalysis) => {
   if (!analysis) return 'No analysis yet';
   const planReason = (analysis.trade_plan?.reasons || []).map((r) => (typeof r === 'string' ? r : r.message || r.code || '')).find(Boolean);
-  const wait = analysis.trade_timing?.wait_for?.[0]?.replace(/_/g, ' ');
-  const avoid = analysis.trade_timing?.avoid_reasons?.[0]?.replace(/_/g, ' ');
+  const wait = humanizeStatus(analysis.trade_timing?.wait_for?.[0]);
+  const avoid = humanizeStatus(analysis.trade_timing?.avoid_reasons?.[0]);
   const block = analysis.trade_plan?.blocking_reasons?.[0]?.message;
   return planReason || block || avoid || wait || 'Waiting for cleaner confirmation';
+};
+
+// Sentence-case user-facing labels; never surfaces raw backend constants.
+const humanizeStatus = (raw?: string | null) => {
+  const v = String(raw ?? '').trim();
+  if (!v) return '';
+  return v.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+};
+
+// Projected levels show "Pending" until a plan publishes real numbers,
+// instead of a bare dash on every card.
+const levelPrice = (value: number | null | undefined) => {
+  const p = formatPrice(value);
+  return p === '—' ? 'Pending' : p;
 };
 
 const LiveScanner: React.FC = () => {
@@ -98,17 +112,20 @@ const LiveScanner: React.FC = () => {
     refreshInFlight.current = true;
     setRefreshing(true);
     setGlobalError(null);
+    // Every network call is time-boxed: a hung request (e.g. pairs() after a
+    // cold start) used to leave `refreshing` true forever, which froze the
+    // timeframe selector and left the cards stuck on skeletons.
+    const withTimeout = <T,>(promise: Promise<T>, ms: number) => Promise.race([
+      promise,
+      new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Timed out')), ms)),
+    ]);
     try {
-      const { pairs } = await bwtsApi.pairs();
+      const { pairs } = await withTimeout(bwtsApi.pairs(), 15_000);
       const pairList = Array.isArray(pairs)
         ? pairs.filter((p): p is string => typeof p === 'string' && p.length > 0)
         : [];
       if (!pairList.length) throw new Error('Scanner returned no tracked markets');
       setRows((prev) => pairList.map((pair) => prev.find((r) => r.pair === pair) || ({ pair, loading: true })));
-      const withTimeout = <T,>(promise: Promise<T>, ms: number) => Promise.race([
-        promise,
-        new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Timed out')), ms)),
-      ]);
       await Promise.all(
         pairList.map(async (pair): Promise<void> => {
           let nextRow: Row;
@@ -336,21 +353,21 @@ const ScannerCard: React.FC<{ row: Row }> = ({ row }) => {
           <div className="flex flex-wrap items-center gap-2">
             <Link to={`/tradingview?symbol=${row.pair}&panel=full`} className="text-lg font-black hover:text-cyan-300">{row.pair}</Link>
             <span className={`rounded-md px-2 py-0.5 text-[9px] font-black ${a.direction === 'BUY' ? 'bg-emerald-400/10 text-emerald-300' : a.direction === 'SELL' ? 'bg-rose-400/10 text-rose-300' : 'bg-slate-400/10 cx-text-muted'}`}>{a.direction}</span>
-            <span className={`rounded-md px-2 py-0.5 text-[9px] font-black ${pillClass}`}>{label} · {heat}/100</span>
+            <span className={`rounded-md px-2 py-0.5 text-[9px] font-black ${pillClass}`}>{label}</span>
             <span className="rounded-md bg-black/20 px-2 py-0.5 text-[9px] cx-text-faint">{a.trade_timing?.status || 'WAIT'}</span>
-            <span className="rounded-md bg-black/20 px-2 py-0.5 text-[9px] cx-text-faint">{a.economic_calendar?.status || '—'}</span>
+            <span className="rounded-md bg-black/20 px-2 py-0.5 text-[9px] cx-text-faint">{humanizeStatus(a.economic_calendar?.status) || '—'}</span>
           </div>
           <p className="mt-1 text-xs cx-text-faint">{a.scenarios?.primary || firstBlocker(a)}</p>
         </div>
         <div className="text-right">
-          <div className="text-3xl font-black cx-text-strong">{a.total_score || 0}<span className="text-xs cx-text-faint">/100</span></div>
+          <div className="text-3xl font-black cx-text-strong">{heat}<span className="text-xs cx-text-faint">/100</span></div>
           <div className="text-[10px] cx-text-faint">{formatAge(a.data_freshness_seconds)}</div>
         </div>
       </div>
       <div className="mt-3 grid grid-cols-4 gap-2">
-        <MiniStat label="Entry" value={formatPrice(plan?.entry)} />
-        <MiniStat label="Stop" value={formatPrice(plan?.stop ?? plan?.invalidation)} />
-        <MiniStat label="TP1" value={formatPrice(plan?.targets?.[0]?.price ?? plan?.tp1)} />
+        <MiniStat label="Entry" value={levelPrice(plan?.entry)} />
+        <MiniStat label="Stop" value={levelPrice(plan?.stop ?? plan?.invalidation)} />
+        <MiniStat label="TP1" value={levelPrice(plan?.targets?.[0]?.price ?? plan?.tp1)} />
         <MiniStat label="RR" value={`${Number(plan?.net_rr ?? plan?.available_rr ?? 0).toFixed(2)}R`} />
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] cx-text-faint">

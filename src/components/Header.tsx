@@ -36,9 +36,9 @@ const Header: React.FC<HeaderProps> = ({ showMenuButton = false, onMenuToggle, m
           </button>
         )}
         <ConfluenceXLogo compact size="sm" />
-        <div>
-          <h2 className="text-sm font-bold cx-text-strong dark:cx-text-strong sm:text-lg">
-            Welcome back, <span className="gradient-text">{user?.name || 'Trader'}</span>
+        <div className="min-w-0">
+          <h2 className="truncate text-sm font-bold cx-text-strong dark:cx-text-strong sm:text-lg">
+            Welcome back, <span className="text-cyan-600 dark:text-cyan-400">{user?.name || 'Trader'}</span>
           </h2>
           <p className="hidden text-[10px] font-bold uppercase tracking-widest cx-text-faint sm:block">Read-only market intelligence</p>
         </div>
