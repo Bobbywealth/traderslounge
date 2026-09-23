@@ -65,7 +65,12 @@ const CommandCenter: React.FC = () => {
 
   const best = data?.best_opportunity;
   const consensus = data?.consensus;
-  const session = data?.session || { name: 'unknown', start_hour: null, end_hour: null };
+  // Never surface the raw 'unknown' session constant to the user — treat a
+  // missing or unrecognized session as unavailable and render a calm fallback.
+  const rawSession = data?.session;
+  const sessionName = typeof rawSession?.name === 'string' && rawSession.name.trim() !== '' && rawSession.name.toLowerCase() !== 'unknown'
+    ? rawSession.name
+    : null;
   const newsVetoes = data?.news_vetoes || [];
 
   // Build confluence bullets from consensus votes
@@ -94,12 +99,25 @@ const CommandCenter: React.FC = () => {
         )}
 
         {/* Session Banner */}
-        <SessionBanner
-          session={session.name}
-          startHour={session.start_hour}
-          endHour={session.end_hour}
-          activeSetups={data?.active_setups || 0}
-        />
+        {sessionName ? (
+          <SessionBanner
+            session={sessionName}
+            startHour={rawSession?.start_hour ?? null}
+            endHour={rawSession?.end_hour ?? null}
+            activeSetups={data?.active_setups || 0}
+          />
+        ) : (
+          <div className="rounded-xl border border-gray-700/50 bg-gray-800/60 px-5 py-3 flex items-center justify-between">
+            <div>
+              <div className="text-xs text-gray-500 uppercase tracking-wider">Market State</div>
+              <div className="font-bold text-lg text-gray-300">Session unavailable</div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-gray-500">Active Setups</div>
+              <div className="text-xl font-bold text-white">{data?.active_setups || 0}</div>
+            </div>
+          </div>
+        )}
 
         {best ? (
           <>
