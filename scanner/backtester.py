@@ -19,6 +19,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from bisect import bisect_right
+
 from .data_types import Candle, Direction, MarketSnapshot, Tier
 from .risk_manager import (
     PIP_VALUE_PER_LOT_USD,
@@ -31,6 +33,46 @@ from .scoring_engine import score
 from .signal import Signal
 
 log = logging.getLogger(__name__)
+
+
+# Nominal bar duration per timeframe, in seconds. Used to derive a bar's
+# *close* time from its open time so we can decide whether a higher-timeframe
+# bar had actually finished forming by the time the current LTF bar closed.
+_TF_SECONDS = {"1d": 86_400, "4h": 14_400, "1h": 3_600, "15m": 900}
+
+
+class _AlignedWindows:
+    """Timestamp-aligned higher-timeframe windows for walk-forward replay.
+
+    The previous implementation sliced H1/H4/D1 by *index ratio*
+    (``h1[: i // 4 + 1]``). That is wrong: at M15 bar ``i`` the H1 bar at
+    index ``i // 4`` has not closed yet, so the scoring engine read
+    ``closes[-1]`` from a bar that was still forming. Because HTF bias is
+    20 of the 80 available points, that leaked the future into the
+    directional vote on essentially every scored bar.
+
+    Here each higher-timeframe series is reduced to just two parallel
+    lists -- open times and closes -- plus a bisect index, so a window for
+    any LTF bar can be produced in O(log n) with no future leakage.
+    """
+
+    def __init__(self, candles: List[Candle], tf: str):
+        self.candles = candles or []
+        self.open_times = [c.time for c in self.candles]
+        self.seconds = _TF_SECONDS.get(tf, 3_600)
+        # A bar with open time T closes at T + duration.
+        self.close_times = [t + self.seconds for t in self.open_times]
+
+    def window(self, as_of_close: int, minimum: int = 1) -> List[Candle]:
+        """Return candles whose close time is <= ``as_of_close``.
+
+        Only fully-formed bars are returned, so ``[-1].close`` is always a
+        price the market had actually printed by that moment.
+        """
+        if not self.candles:
+            return []
+        n = bisect_right(self.close_times, as_of_close)
+        return self.candles[: max(minimum, n)]
 
 
 @dataclass
@@ -154,17 +196,17 @@ def run_backtest(
 ) -> BacktestResult:
     """Replay history bar-by-bar and simulate trades.
 
-    Assumes the input candles are time-aligned at the end (i.e., the
-    most recent bar in each timeframe corresponds roughly to the same
-    moment in time). For correct walk-forward, each TF's window is
-    truncated to "the latest bar at or before the current M15 bar."
-    To keep this simple and fast, we truncate by index ratio:
-      - D1: every ~96 M15 bars
-      - H4: every 16 M15 bars
-      - H1: every 4 M15 bars
-    This works when the input data has no gaps; real-world weekend
-    gaps will introduce slight misalignment but won't change the broad
-    statistics.
+    Higher-timeframe windows are truncated by *timestamp*, not by index
+    ratio. Each HTF bar is included only once it has actually closed at or
+    before the current M15 bar's close, so the scoring engine never reads a
+    still-forming candle. This removes the look-ahead bias that the old
+    ``h1[: i // 4 + 1]`` slicing introduced (the H1 bar at ``i // 4`` is
+    still forming at M15 bar ``i``), which fed future prices into the 20-point
+    HTF-bias vote on essentially every scored bar.
+
+    Timestamp alignment also removes the weekend-gap misalignment the
+    index-ratio approach could not handle: a closed-candle set is correct
+    whether or not the series has holes in it.
     """
     rm = RiskManager(risk_per_trade_pct=risk_per_trade_pct)
     result = BacktestResult(
@@ -178,8 +220,14 @@ def run_backtest(
     balance = starting_balance_usd
     open_trade: Optional[_OpenTrade] = None
 
-    # M15 is the LTF the spec scores against; everything else is derived
-    # by index ratio (24h/15min = 96, 4h/15min = 16, 1h/15min = 4).
+    # M15 is the LTF the spec scores against. Higher timeframes are aligned
+    # by timestamp: at M15 bar i we take only those HTF bars that had
+    # already closed by the time bar i closed.
+    ltf_seconds = _TF_SECONDS["15m"]
+    win_d1 = _AlignedWindows(d1, "1d")
+    win_h4 = _AlignedWindows(h4, "4h")
+    win_h1 = _AlignedWindows(h1, "1h")
+
     n = len(m15)
     if n < min_warmup_bars + 2:
         log.warning("not enough M15 bars: %d < %d (warmup) — returning empty result",
@@ -207,11 +255,15 @@ def run_backtest(
         if (i - min_warmup_bars) % stride != 0:
             continue
 
+        # Timestamp-aligned windows: HTF bars are included only once they
+        # have closed at or before this M15 bar's close. No forming bar is
+        # ever visible to the scoring engine.
+        as_of = current_bar.time + ltf_seconds
         snap = MarketSnapshot(
             pair=pair,
-            d1=d1[:max(1, (i // 96) + 1)] if d1 else [],
-            h4=h4[:max(1, (i // 16) + 1)] if h4 else [],
-            h1=h1[:max(1, (i // 4) + 1)] if h1 else [],
+            d1=win_d1.window(as_of),
+            h4=win_h4.window(as_of),
+            h1=win_h1.window(as_of),
             m15=m15[: i + 1],
         )
         sig = score(snap)

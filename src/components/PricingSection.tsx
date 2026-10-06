@@ -448,3 +448,5 @@ const FaqList: React.FC = () => {
 };
 
 export { ComparisonTable, FaqList };
+
+export default PricingSection;

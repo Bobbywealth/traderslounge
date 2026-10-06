@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Sidebar from './components/Sidebar';
@@ -8,35 +8,58 @@ import PwaLoginScreen from './components/PwaLoginScreen';
 import InstallPwaPrompt from './components/InstallPwaPrompt';
 import OnboardingWizard from './components/OnboardingWizard';
 import LandingPage from './pages/LandingPage';
-import Dashboard from './pages/Dashboard';
-import CommandCenter from './pages/CommandCenter';
-import TradingTable from './pages/TradingTable';
-import TradingView from './pages/TradingView';
-import TradingViewWidget from './pages/TradingViewWidget';
-import AdminDashboard from './pages/AdminDashboard';
-import EconomicNews from './pages/EconomicNews';
-import Signals from './pages/Signals';
-import Education from './pages/Education';
-import Docs from './pages/Docs';
-import Community from './pages/Community';
-import LiveScanner from './pages/LiveScanner';
-import MarketAnalysis from './pages/MarketAnalysis';
-import Debate from './pages/Debate';
-import Alerts from './pages/Alerts';
-import Notifications from './pages/Notifications';
-import Positions from './pages/Positions';
-import Journal from './pages/Journal';
-import Backtester from './pages/Backtester';
-import Performance from './pages/Performance';
-import Calibration from './pages/Calibration';
-import PortfolioRisk from './pages/PortfolioRisk';
-import Settings from './pages/Settings';
-import TradingDesk from './pages/TradingDesk';
-import AIAssistant from './components/AIAssistant';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { BrokerProvider } from './contexts/BrokerContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import { NotificationProvider } from './contexts/NotificationContext';
+
+/**
+ * Every route below the landing page is split out of the entry bundle.
+ * Importing all ~30 pages eagerly put every route's code (plus recharts and
+ * lightweight-charts) into a single 650 kB chunk that every visitor
+ * downloaded, including people who only ever saw the marketing page.
+ *
+ * LandingPage and the app shell stay eager because they are the first paint.
+ * `RouteFallback` keeps the Suspense boundary from flashing a blank screen.
+ */
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const CommandCenter = lazy(() => import('./pages/CommandCenter'));
+const TradingTable = lazy(() => import('./pages/TradingTable'));
+const TradingView = lazy(() => import('./pages/TradingView'));
+const TradingViewWidget = lazy(() => import('./pages/TradingViewWidget'));
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const EconomicNews = lazy(() => import('./pages/EconomicNews'));
+const Signals = lazy(() => import('./pages/Signals'));
+const Education = lazy(() => import('./pages/Education'));
+const Docs = lazy(() => import('./pages/Docs'));
+const Community = lazy(() => import('./pages/Community'));
+const LiveScanner = lazy(() => import('./pages/LiveScanner'));
+const MarketAnalysis = lazy(() => import('./pages/MarketAnalysis'));
+const Debate = lazy(() => import('./pages/Debate'));
+const Alerts = lazy(() => import('./pages/Alerts'));
+const Notifications = lazy(() => import('./pages/Notifications'));
+const Positions = lazy(() => import('./pages/Positions'));
+const Journal = lazy(() => import('./pages/Journal'));
+const Backtester = lazy(() => import('./pages/Backtester'));
+const Performance = lazy(() => import('./pages/Performance'));
+const Calibration = lazy(() => import('./pages/Calibration'));
+const PortfolioRisk = lazy(() => import('./pages/PortfolioRisk'));
+const Settings = lazy(() => import('./pages/Settings'));
+const TradingDesk = lazy(() => import('./pages/TradingDesk'));
+const AIAssistant = lazy(() => import('./components/AIAssistant'));
+
+function RouteFallback() {
+  return (
+    <div
+      className="flex items-center justify-center min-h-[60vh]"
+      role="status"
+      aria-live="polite"
+      aria-label="Loading"
+    >
+      <span className="text-sm text-slate-400">Loading…</span>
+    </div>
+  );
+}
 
 /**
  * Returns true when the app is running as an installed PWA
@@ -157,7 +180,8 @@ const AppContent: React.FC = () => {
             isTradingWorkspace ? 'overflow-hidden' : 'overflow-auto'
           }`}>
             <div className={isTradingWorkspace ? 'h-full min-w-0 min-h-0 overflow-hidden p-0' : 'p-6'}>
-              <Routes>
+              <Suspense fallback={<RouteFallback />}>
+                <Routes>
                 <Route path="/" element={<CommandCenter />} />
                 <Route path="/command-center" element={<Navigate to="/" replace />} />
                 <Route path="/dashboard" element={<Dashboard />} />
@@ -185,7 +209,8 @@ const AppContent: React.FC = () => {
                 <Route path="/education" element={<Education />} />
                 <Route path="/docs" element={<Docs />} />
                 <Route path="/community" element={<Community />} />
-              </Routes>
+                </Routes>
+              </Suspense>
             </div>
           </main>
           {isAuthenticated && <OnboardingWizard />}

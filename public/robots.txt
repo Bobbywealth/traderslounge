@@ -1,0 +1,16 @@
+User-agent: *
+Allow: /
+Disallow: /settings
+Disallow: /admin
+Disallow: /journal
+Disallow: /positions
+Disallow: /notifications
+
+# Authenticated app surfaces — nothing useful to index, and several routes
+# are client-side only (SPA) so crawlers would just hit the shell anyway.
+Disallow: /api/
+Disallow: /trading-desk
+Disallow: /calibration
+Disallow: /portfolio
+
+Sitemap: https://traderslounge.onrender.com/sitemap.xml
