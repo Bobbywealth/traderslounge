@@ -81,7 +81,13 @@ const InstallPwaPrompt: React.FC = () => {
   if (!deferred && !showIosHint) return null;
 
   const dismiss = () => {
-    try { window.localStorage.setItem(DISMISS_KEY, String(Date.now())); } catch {}
+    // localStorage can throw (Safari private mode, blocked storage). The
+    // prompt should still dismiss in-session even if persistence fails.
+    try {
+      window.localStorage.setItem(DISMISS_KEY, String(Date.now()));
+    } catch {
+      // Persistence is best-effort; fall through and hide the prompt.
+    }
     setDismissed(true);
   };
 

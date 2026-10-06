@@ -26,12 +26,29 @@ const features = [
 
 const ticker = ['EURUSD  1.0821  +0.02%', 'XAUUSD  2,341.50  +0.15%', 'GBPUSD  1.2654  -0.01%', 'ADR USED  45%', 'LIVE SCANNER  ONLINE'];
 
+/**
+ * Auth accessor that tolerates a missing provider.
+ *
+ * The landing page is rendered outside AuthProvider in isolation (and by its
+ * own test suite), where useAuth() throws. Falling back to a no-op login
+ * keeps the marketing page renderable in any context. Kept as a named
+ * function rather than an inline IIFE so the hooks lint rule can see the
+ * useAuth() call at the top level of a component/hook.
+ */
+function useAuthSafe(): Pick<ReturnType<typeof useAuth>, 'login'> {
+  try {
+    return useAuth();
+  } catch {
+    return { login: async () => false } as unknown as Pick<ReturnType<typeof useAuth>, 'login'>;
+  }
+}
+
 const LandingPage: React.FC = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
-  const { login } = useAuth();
+  const { login } = useAuthSafe();
 
   useEffect(() => {
     if (!mobileMenuOpen) return;

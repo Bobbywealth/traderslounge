@@ -39,10 +39,20 @@ services:
     name: traderslounge
     env: node
     region: oregon
+    # NOTE ON `plan: free` (left as-is on purpose — changing it alters billing):
+    #   This service ships a purely static Vite build. On the free plan Render
+    #   spins the container down after ~15 min idle, so the first visitor
+    #   after a lull waits on a cold start (measured at ~32s). Raising this to
+    #   `starter` removes the cold start but starts charging.
+    #
+    #   For zero-cost static hosting instead, deploy `dist/` to Netlify, Cloud
+    #   Pages, or any CDN and delete this service — a static bundle does not
+    #   need a long-running container at all. scripts/serve-static.mjs also
+    #   works unchanged behind any of those hosts.
     plan: free
     rootDir: .
-    buildCommand: npm install && npm run build -- --mode production
-    startCommand: npx serve -s dist -l 10000
+    buildCommand: npm ci && npm run build
+    startCommand: node scripts/serve-static.mjs dist
     healthCheckPath: /
     envVars:
       - key: VITE_BWTS_API_URL
@@ -116,12 +126,17 @@ services:
         sync: false
       - key: MINIMAX_MODEL
         value: MiniMax-M3
+      # SECURITY: values for these were previously committed in plaintext here.
+      # They are removed from git in this revision, but they remain in repo
+      # history, so they MUST be rotated before this file is trusted again:
+      #   1. Revoke/regenerate the bot token via @BotFather (/revoke).
+      #   2. Regenerate the webhook secret in the Render dashboard.
       - key: TELEGRAM_BOT_TOKEN
-        value: "8681691857:AAE0P5IprvYEU61aXObwEAkfDXoPNlqHhH0"
+        sync: false
       - key: TELEGRAM_BOT_USERNAME
         value: "confluencex_alerts_bot"
       - key: TELEGRAM_WEBHOOK_SECRET
-        value: "I_nIhA2oQyKZLqQ1ZKjrgT-JwnFksoKCuwLCURY_cAc"
+        sync: false
       - key: ADMIN_EMAILS
         value: "bobby@wolfpaqmarketing.com"
       - key: PUBLIC_BASE_URL

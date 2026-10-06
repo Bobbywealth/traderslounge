@@ -113,19 +113,10 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run build
-      - name: Serve preview
-        run: |
-          nohup npm run preview -- --port 4173 > /tmp/preview.log 2>&1 &
-          for i in 1 2 3 4 5 6 7 8 9 10; do
-            if curl -fsS http://localhost:4173/ > /dev/null 2>&1; then
-              echo "preview server up after $i tries"
-              exit 0
-            fi
-            sleep 3
-          done
-          echo "preview server never came up"
-          cat /tmp/preview.log
-          exit 1
+      # No manual preview server here: playwright.config.ts starts its own
+      # via `webServer` (vite preview on 5173 in CI). The old step backgrounded
+      # `vite preview --port 4173` while Playwright waited on 5173, so the suite
+      # timed out without running a single test.
       - run: npm run test:e2e:chromium
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -173,6 +164,16 @@ jobs:
           echo "## CI Results" >> "$GITHUB_STEP_SUMMARY"
           echo "| Job | Result |" >> "$GITHUB_STEP_SUMMARY"
           echo "|-----|--------|" >> "$GITHUB_STEP_SUMMARY"
-          for j in frontend-lint frontend-unit-tests frontend-build backend-python-tests backend-integration e2e-playwright security; do
-            echo "| $j | ${{ needs.$j.result }} |" >> "$GITHUB_STEP_SUMMARY"
-          done
+          # NOTE: expanded by Actions into one `needs.<job>.result` lookup per
+          # job. The previous version used `needs.$j.result` inside a shell
+          # loop, which Actions cannot evaluate (expressions have no dynamic
+          # index) — that made the whole workflow file fail to parse, so every
+          # CI run since at least 2026-09-03 died in 0s with no jobs. That is
+          # how the broken production build survived to main.
+          echo "| frontend-lint | ${{ needs.frontend-lint.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| frontend-unit-tests | ${{ needs.frontend-unit-tests.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| frontend-build | ${{ needs.frontend-build.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| backend-python-tests | ${{ needs.backend-python-tests.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| backend-integration | ${{ needs.backend-integration.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| e2e-playwright | ${{ needs.e2e-playwright.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| security | ${{ needs.security.result }} |" >> "$GITHUB_STEP_SUMMARY"
