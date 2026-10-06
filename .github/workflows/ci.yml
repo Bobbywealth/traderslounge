@@ -113,19 +113,10 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run build
-      - name: Serve preview
-        run: |
-          nohup npm run preview -- --port 4173 > /tmp/preview.log 2>&1 &
-          for i in 1 2 3 4 5 6 7 8 9 10; do
-            if curl -fsS http://localhost:4173/ > /dev/null 2>&1; then
-              echo "preview server up after $i tries"
-              exit 0
-            fi
-            sleep 3
-          done
-          echo "preview server never came up"
-          cat /tmp/preview.log
-          exit 1
+      # No manual preview server here: playwright.config.ts starts its own
+      # via `webServer` (vite preview on 5173 in CI). The old step backgrounded
+      # `vite preview --port 4173` while Playwright waited on 5173, so the suite
+      # timed out without running a single test.
       - run: npm run test:e2e:chromium
       - uses: actions/upload-artifact@v4
         if: failure()
